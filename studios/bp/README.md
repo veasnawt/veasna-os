@@ -1,36 +1,158 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎬 BP Studio
 
-## Getting Started
+> The creative operating system for Beyond Perspective.
 
-First, run the development server:
+BP Studio is the internal production studio used to create Beyond Perspective episodes from the first spark of an idea to publishing.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+The goal is simple:
+
+> Make creating videos effortless.
+
+---
+
+# Vision
+
+Most creative tools solve only one part of the process.
+
+One app for notes.
+One app for writing.
+One app for editing.
+One app for publishing.
+
+BP Studio brings the entire workflow into one place.
+
+---
+
+# Current Workflow
+
+Every project moves through four creative workspaces.
+
+```
+💡 Idea
+    ↓
+📝 Script
+    ↓
+🎬 Create
+    ↓
+🚀 Publish
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 💡 Idea
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Capture ideas, brainstorm, collect inspiration, and define the direction of the project.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📝 Script
 
-## Learn More
+Research, outline, and write the narration.
 
-To learn more about Next.js, take a look at the following resources:
+## 🎬 Create
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Produce the final video using assets, voice, editing, music, and AI tools.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🚀 Publish
 
-## Deploy on Vercel
+Export and publish the finished project.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Features
+
+Current
+
+- ✅ Project management
+- ✅ Create projects
+- ✅ Rename projects
+- ✅ Delete projects
+- ✅ Local storage persistence
+- ✅ Editable project title
+- ✅ Project dashboard
+- ✅ Workflow navigation
+
+Planned
+
+- AI brainstorming
+- Rich text editor
+- Script assistant
+- Asset manager
+- Voice generation
+- Timeline editor
+- Export manager
+- Multi-platform publishing
+- Cloud sync
+- Collaboration
+
+---
+
+# Tech Stack
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+
+---
+
+# Project Structure
+
+```
+app/
+components/
+lib/
+types/
+```
+
+Project workspaces
+
+```
+projects/
+    [id]/
+        page.tsx
+        idea/
+        script/
+        create/
+        publish/
+```
+
+---
+
+# Philosophy
+
+BP Studio is not just another editor.
+
+It is designed around the creative process.
+
+Every screen should answer one simple question.
+
+Home
+
+> What should I work on?
+
+Idea
+
+> What am I creating?
+
+Script
+
+> What am I saying?
+
+Create
+
+> How do I turn this into reality?
+
+Publish
+
+> How do I share it with the world?
+
+---
+
+# Development Status
+
+🚧 Early Development
+
+The project is currently focused on building a strong architecture before adding advanced features.
+
+Every feature should reduce friction and help creators stay in flow.
+
+---
+
+Made with ❤️ by Veasna.
