@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "rixie-core/*": ["../../packages/rixie-core/*"],
+      "@veasnawt/vicons": ["./.yalc/@veasnawt/vicons/dist"]
     }
   },
   "include": [

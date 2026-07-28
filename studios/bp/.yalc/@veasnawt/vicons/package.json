@@ -1,0 +1,39 @@
+{
+  "name": "@veasnawt/vicons",
+  "version": "0.1.0",
+  "description": "Beautiful SVG icon library for React.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepublishOnly": "pnpm generate && pnpm build"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/veasnawt/vicons.git"
+  },
+  "homepage": "https://github.com/veasnawt/vicons",
+  "bugs": {
+    "url": "https://github.com/veasnawt/vicons/issues"
+  },
+  "yalcSig": "92606a0eeab625feb33c57f16b345f48"
+}

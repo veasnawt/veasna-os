@@ -10,6 +10,7 @@ import {
 } from "@/lib/project-service";
 
 import { Project } from "@/types/project";
+import { Idea } from "@veasnawt/vicons";
 
 export default function IdeaPage() {
   const { id } = useParams<{ id: string }>();
@@ -69,8 +70,9 @@ export default function IdeaPage() {
             {project.code}
           </p>
 
-          <h1 className="mt-2 text-5xl font-bold">
-            💡 Idea
+          <h1 className="mt-2 flex items-center gap-3 text-5xl font-bold">
+            <Idea size={64} />
+            <span>Idea</span>
           </h1>
 
           <p className="mt-4 text-neutral-400">

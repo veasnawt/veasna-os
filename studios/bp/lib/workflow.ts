@@ -1,36 +1,38 @@
 import { WorkflowModule } from "@/types/workflow";
+import {
+  Idea,
+  Create,
+  Publish,
+  Document,
+} from "@veasnawt/vicons";
 
 export const workflowModules: WorkflowModule[] = [
   {
     id: "idea",
     title: "Idea",
     description: "Capture, refine, and organize your core idea.",
-    icon: "💡",
-    completed: false,
+    icon: Idea,
     route: "idea",
   },
   {
     id: "script",
     title: "Script",
     description: "Research, structure, and write your narration.",
-    icon: "📝",
-    completed: false,
+    icon: Document,
     route: "script",
   },
   {
     id: "create",
     title: "Create",
     description: "Build your video with assets, voice, music, and editing.",
-    icon: "🎬",
-    completed: false,
+    icon: Create,
     route: "create",
   },
   {
     id: "publish",
     title: "Publish",
     description: "Export and publish your project everywhere.",
-    icon: "🚀",
-    completed: false,
+    icon: Publish,
     route: "publish",
   },
 ];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Add, Folder, Idea } from "@veasnawt/vicons";
 
 import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
 import { loadProjects } from "@/lib/project-service";
@@ -27,7 +28,6 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
       <div className="mx-auto max-w-6xl px-6 py-10">
-
         <header>
           <h1 className="text-5xl font-bold tracking-tight">
             {APP_NAME}
@@ -40,7 +40,6 @@ export default function Home() {
 
         {projects.length === 0 ? (
           <section className="mt-16 rounded-2xl border border-dashed border-neutral-800 p-12 text-center">
-
             <h2 className="text-2xl font-semibold">
               Welcome 👋
             </h2>
@@ -60,7 +59,6 @@ export default function Home() {
           <section className="mt-12">
 
             <div className="mb-6 flex items-center justify-between">
-
               <h2 className="text-2xl font-semibold">
                 Projects
               </h2>

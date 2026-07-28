@@ -1,0 +1,9 @@
+{
+  "version": "v1",
+  "packages": {
+    "@veasnawt/vicons": {
+      "signature": "92606a0eeab625feb33c57f16b345f48",
+      "file": true
+    }
+  }
+}

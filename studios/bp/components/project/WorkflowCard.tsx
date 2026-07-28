@@ -21,7 +21,10 @@ export function WorkflowCard({
         <div className="flex gap-4">
 
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-3xl">
-            {module.icon}
+                    {(() => {
+                      const Icon = module.icon as any;
+                      return Icon ? <Icon /> : null;
+                    })()}
           </div>
 
           <div>

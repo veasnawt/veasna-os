@@ -1,3 +1,5 @@
+import { Add } from "@veasnawt/vicons";
+
 type NewProjectButtonProps = {
   onClick: () => void;
 };
@@ -8,9 +10,15 @@ export function NewProjectButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-xl bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200"
+      className="
+    inline-flex items-center gap-2
+    rounded-xl bg-white px-3 py-3
+    font-medium text-black
+    transition hover:bg-neutral-200
+  "
     >
-      + New Project
+      <Add size={20} />
+      <span>New Project</span>
     </button>
   );
 }
