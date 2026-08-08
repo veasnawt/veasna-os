@@ -1,3 +1,6 @@
 [submodule "packages/loom"]
 	path = packages/loom
 	url = https://github.com/veasnawt/Loom.git
+[submodule "packages/vicons"]
+	path = packages/vicons
+	url = https://github.com/veasnawt/vicons.git

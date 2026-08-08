@@ -59,11 +59,18 @@ packages/
 Requires [Node.js](https://nodejs.org) 20.9+ and [pnpm](https://pnpm.io) (`corepack enable` will install the right pnpm version automatically from this repo's `packageManager` field).
 
 ```bash
+git clone --recurse-submodules https://github.com/veasnawt/veasna-os.git
+cd veasna-os
+
 pnpm setup    # installs everything + creates studios/bp/.env.local from its template
 pnpm dev:all  # everything at once — Universe, BP Studio, and Loom Engine together
 ```
 
+Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom` (otherwise it's just an empty folder — a plain `git clone` never fetches submodule content on its own).
+
 Then open `studios/bp/.env.local` and fill in your own model provider API key (see `studios/bp/.env.example` for the full list of variables) — everything works without one except BP Studio's Rixie agent chat. `pnpm setup` never overwrites a `.env.local` that already exists, so it's safe to re-run any time.
+
+**Windows: if `pnpm setup`/`pnpm dev:all` fails with errors mentioning symlinks, links, or `EPERM`** — pnpm's `node_modules` relies heavily on symlinks, and Windows only allows creating them for Administrators or accounts with Developer Mode enabled. Fix: **Settings → Privacy & security → For developers → turn on Developer Mode**, then re-run `pnpm setup`. (Running your terminal as Administrator works too, but Developer Mode is the one-time fix that doesn't require elevating every session.)
 
 Or run just what you need:
 
