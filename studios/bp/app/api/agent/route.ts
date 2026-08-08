@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { RixieAgent } from "rixie-core/core/agent/agent";
-import { createProvider } from "rixie-core/core/providers";
+import { RixieAgent, createProvider } from "@veasna/ai";
 
 export const runtime = "nodejs";
 
@@ -18,6 +17,7 @@ export async function GET(req: NextRequest) {
     const history = agent.getSessionHistory(sessionId);
     return NextResponse.json({ sessionId, messages: history });
   } catch (err) {
+    console.error("[/api/agent]", err);
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
+    console.error("[/api/agent]", err);
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

@@ -17,6 +17,8 @@ import { ContinueCard } from "@/components/project/ContinueCard";
 import { ProgressCard } from "@/components/project/ProgressCard";
 import { WorkflowSection } from "@/components/project/WorkflowSection";
 import { ProjectSettings } from "@/components/project/ProjectSettings";
+import { StudioNav } from "@/components/StudioNav";
+import { OceanBackdrop } from "@/components/OceanBackdrop";
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,7 +37,7 @@ export default function ProjectPage() {
 
   if (!project) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+      <main className="flex min-h-screen items-center justify-center text-muted-foreground">
         Project not found.
       </main>
     );
@@ -74,12 +76,15 @@ export default function ProjectPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+    <main className="relative min-h-screen">
+      <OceanBackdrop />
+
+      <div className="relative mx-auto max-w-6xl px-6 py-10">
+        <StudioNav />
 
         <Link
           href="/"
-          className="text-neutral-400 hover:text-white"
+          className="mt-16 inline-block text-muted-foreground hover:text-foreground"
         >
           ← Projects
         </Link>

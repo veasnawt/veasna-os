@@ -1,0 +1,34 @@
+{
+  "name": "universe",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build --webpack",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@veasna/ai": "workspace:*",
+    "@veasna/universe": "workspace:*",
+    "@veasnawt/vicons": "^0.1.0",
+    "better-sqlite3": "^11.8.1",
+    "framer-motion": "^12.4.7",
+    "lucide-react": "^0.475.0",
+    "next": "16.2.10",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "three": "^0.174.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.174.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -11,7 +11,7 @@ export function ProgressCard({
     (completed / total) * 100;
 
   return (
-    <section className="rounded-3xl border border-neutral-800 bg-neutral-900 p-6">
+    <section className="rounded-3xl border border-border bg-card p-6">
 
       <div className="flex justify-between">
 
@@ -19,16 +19,16 @@ export function ProgressCard({
           Progress
         </p>
 
-        <p className="text-neutral-400">
+        <p className="text-muted-foreground">
           {completed}/{total}
         </p>
 
       </div>
 
-      <div className="mt-4 h-3 overflow-hidden rounded-full bg-neutral-800">
+      <div className="mt-4 h-3 overflow-hidden rounded-full bg-muted">
 
         <div
-          className="h-full rounded-full bg-white transition-all"
+          className="h-full rounded-full bg-gradient-to-r from-primary to-forest transition-all"
           style={{
             width: `${progress}%`,
           }}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Add, Folder, Idea } from "@veasnawt/vicons";
 
 import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
 import { loadProjects } from "@/lib/project-service";
@@ -10,6 +9,8 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { useRouter } from "next/navigation";
 import { createProject } from "@/lib/project-service";
 import { NewProjectButton } from "@/components/NewProjectButton";
+import { StudioNav } from "@/components/StudioNav";
+import { OceanBackdrop } from "@/components/OceanBackdrop";
 
 export default function Home() {
   const router = useRouter();
@@ -26,34 +27,39 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <header>
+    <main className="relative min-h-screen">
+      <OceanBackdrop />
+
+      <div className="relative mx-auto max-w-6xl px-6 py-10">
+        <StudioNav />
+
+        <header className="mt-16">
           <h1 className="text-5xl font-bold tracking-tight">
             {APP_NAME}
           </h1>
 
-          <p className="mt-2 text-neutral-400">
+          <p className="mt-2 text-muted-foreground">
             {APP_TAGLINE}
           </p>
         </header>
 
         {projects.length === 0 ? (
-          <section className="mt-16 rounded-2xl border border-dashed border-neutral-800 p-12 text-center">
+          <section className="mt-12 rounded-3xl border border-dashed border-border bg-card/40 p-12 text-center backdrop-blur-sm">
             <h2 className="text-2xl font-semibold">
               Welcome 👋
             </h2>
 
-            <p className="mt-4 text-neutral-400">
+            <p className="mt-4 text-muted-foreground">
               You don't have any projects yet.
             </p>
 
-            <p className="mt-2 text-neutral-500">
+            <p className="mt-2 text-muted-foreground/70">
               Create your first project to begin your creative journey.
             </p>
 
-            <NewProjectButton onClick={handleNewProject} />
-
+            <div className="mt-8 flex justify-center">
+              <NewProjectButton onClick={handleNewProject} />
+            </div>
           </section>
         ) : (
           <section className="mt-12">

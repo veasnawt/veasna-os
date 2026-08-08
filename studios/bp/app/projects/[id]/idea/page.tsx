@@ -11,6 +11,8 @@ import {
 
 import { Project } from "@/types/project";
 import { Idea } from "@veasnawt/vicons";
+import { StudioNav } from "@/components/StudioNav";
+import { OceanBackdrop } from "@/components/OceanBackdrop";
 
 export default function IdeaPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,7 +30,7 @@ export default function IdeaPage() {
 
   if (!project) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+      <main className="flex min-h-screen items-center justify-center text-muted-foreground">
         Project not found.
       </main>
     );
@@ -54,19 +56,22 @@ export default function IdeaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+    <main className="relative min-h-screen">
+      <OceanBackdrop />
+
+      <div className="relative mx-auto max-w-4xl px-6 py-10">
+        <StudioNav />
 
         <Link
           href={`/projects/${project.id}`}
-          className="text-neutral-400 hover:text-white"
+          className="mt-16 inline-block text-muted-foreground hover:text-foreground"
         >
           ← Back to Project
         </Link>
 
         <div className="mt-10">
 
-          <p className="text-sm uppercase tracking-[0.3em] text-neutral-500">
+          <p className="text-sm font-mono uppercase tracking-[0.3em] text-primary/70">
             {project.code}
           </p>
 
@@ -75,7 +80,7 @@ export default function IdeaPage() {
             <span>Idea</span>
           </h1>
 
-          <p className="mt-4 text-neutral-400">
+          <p className="mt-4 text-muted-foreground">
             What's the core idea behind this project?
           </p>
 
@@ -83,7 +88,7 @@ export default function IdeaPage() {
 
         <section className="mt-12">
 
-          <label className="text-sm text-neutral-500">
+          <label className="text-sm text-muted-foreground">
             Idea
           </label>
 
@@ -93,10 +98,10 @@ export default function IdeaPage() {
               handleIdeaChange(e.target.value)
             }
             placeholder="Start writing..."
-            className="mt-3 h-96 w-full rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-lg outline-none transition focus:border-neutral-600"
+            className="mt-3 h-96 w-full rounded-2xl border border-border bg-card p-6 text-lg outline-none transition focus:border-primary/50"
           />
 
-          <p className="mt-3 text-sm text-neutral-500">
+          <p className="mt-3 text-sm text-muted-foreground">
             Changes are saved automatically.
           </p>
 

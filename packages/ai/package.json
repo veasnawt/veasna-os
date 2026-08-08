@@ -1,0 +1,12 @@
+{
+  "name": "@veasna/ai",
+  "version": "0.1.0",
+  "description": "Rixie AI Engine & Local-First Memory Architecture for Veasna OS",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "better-sqlite3": "^11.8.1"
+  }
+}

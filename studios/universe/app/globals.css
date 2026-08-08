@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@source "../../../packages/universe/src";
+
+/* Theme tokens — swapped via `data-os-theme` on <html>, set by VeasnaShell.
+   Default (no attribute yet, pre-hydration) matches "dark" so there's no flash. */
+:root,
+:root[data-os-theme="dark"] {
+  --os-surface: rgba(11, 14, 20, 0.90);
+  --os-surface-strong: rgba(5, 8, 16, 0.95);
+  --os-header: rgba(255, 255, 255, 0.03);
+  --os-border: rgba(255, 255, 255, 0.10);
+  --os-border-strong: rgba(255, 255, 255, 0.12);
+  --os-text: #f1f5f9;
+  --os-text-muted: #94a3b8;
+  --os-accent: #38bdf8;
+  --os-accent-text: #7dd3fc;
+  --os-accent-soft: rgba(56, 189, 248, 0.15);
+  --os-accent-border: rgba(56, 189, 248, 0.30);
+  --os-blur: 20px;
+  --os-saturate: 120%;
+}
+
+:root[data-os-theme="light"] {
+  --os-surface: rgba(255, 255, 255, 0.90);
+  --os-surface-strong: rgba(248, 250, 252, 0.96);
+  --os-header: rgba(15, 23, 42, 0.04);
+  --os-border: rgba(15, 23, 42, 0.10);
+  --os-border-strong: rgba(15, 23, 42, 0.08);
+  --os-text: #0f172a;
+  --os-text-muted: #64748b;
+  --os-accent: #0284c7;
+  --os-accent-text: #0369a1;
+  --os-accent-soft: rgba(2, 132, 199, 0.10);
+  --os-accent-border: rgba(2, 132, 199, 0.35);
+  --os-blur: 20px;
+  --os-saturate: 110%;
+}
+
+:root[data-os-theme="glass"] {
+  /* A dark tint under the blur (not pure white translucency) keeps text legible
+     regardless of what's behind the panel — an arbitrary bright wallpaper photo
+     included. Real vibrancy/glass effects rely on this, not raw see-through. */
+  --os-surface: rgba(18, 20, 28, 0.45);
+  --os-surface-strong: rgba(14, 16, 22, 0.55);
+  --os-header: rgba(255, 255, 255, 0.07);
+  --os-border: rgba(255, 255, 255, 0.35);
+  --os-border-strong: rgba(255, 255, 255, 0.20);
+  --os-text: #f8fafc;
+  --os-text-muted: rgba(248, 250, 252, 0.72);
+  --os-accent: #7dd3fc;
+  --os-accent-text: #bae6fd;
+  --os-accent-soft: rgba(125, 211, 252, 0.22);
+  --os-accent-border: rgba(186, 230, 253, 0.5);
+  --os-blur: 32px;
+  --os-saturate: 180%;
+}
+
+html, body, #__next {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #030408;
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+canvas {
+  display: block;
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+/* While dragging/resizing a window: cross-origin iframes run in their own
+   renderer process, and z-index alone doesn't reliably stop Chromium from
+   routing fast synthetic pointer moves to that process. pointer-events: none
+   is enforced at hit-test time and is the robust fix (same technique used by
+   most JS window-manager/drag libraries). */
+body.veasna-dragging iframe {
+  pointer-events: none;
+}

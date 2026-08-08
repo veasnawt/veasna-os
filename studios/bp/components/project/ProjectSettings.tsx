@@ -14,7 +14,7 @@ export function ProjectSettings({
 
       <button
         onClick={onDelete}
-        className="mt-6 rounded-xl border border-red-700 px-5 py-3 text-red-400 transition hover:bg-red-900/20"
+        className="mt-6 rounded-xl border border-destructive/40 px-5 py-3 text-destructive transition hover:bg-destructive/10"
       >
         Delete Project
       </button>

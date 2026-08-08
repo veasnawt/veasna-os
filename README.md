@@ -14,19 +14,57 @@ Every creation begins with curiosity.
 
 ---
 
+## The Shell
+
+The front door to Veasna OS is **Universe** — a desktop-style shell with two faces:
+
+- 🌌 **3D mode** — each studio is a celestial body orbiting in a living cosmos, click one to open it.
+- 🖥️ **List mode** — a familiar Windows-style desktop: draggable/resizable windows, a taskbar with pinning and auto-hide, a Start menu, folders and files you can create right on the desktop.
+
+Both modes share the same window system, so switching between them never loses what you have open.
+
+---
+
 ## Studios
 
-🌌 Beyond Perspective
+| Studio | What it is | Status |
+| --- | --- | --- |
+| 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
+| 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
+| 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
+| 🎵 Music | — | Coming soon |
+| 🎨 Art | — | Coming soon |
+| 🌍 Language | — | Coming soon |
 
-🎵 Music
+---
 
-📱 Apps
+## Monorepo Layout
 
-🎮 Games
+A pnpm workspace: each studio is its own app, shared code lives in packages.
 
-🎨 Art
+```
+studios/
+  universe/    the OS shell (Next.js) — default entry point
+  bp/          Beyond Perspective
+  gamedev/     Loom Engine (Vite)
 
-🌍 Language
+packages/
+  universe/    shell UI: desktop, windows, taskbar, settings, cosmos
+  ai/          shared AI utilities
+  ui/, auth/, database/, storage/, editor/, analytics/, automation/, utils/, vicons/
+```
+
+### Running a studio
+
+```bash
+pnpm install
+
+pnpm dev          # Universe — http://localhost:3000
+pnpm dev:bp       # BP Studio — http://localhost:3001
+pnpm dev:gamedev  # Loom Engine — http://localhost:5173
+```
+
+Studio windows inside Universe embed the other studios directly (`bp`, `gamedev`) — running them isn't required just to browse Universe itself, but it is required for those specific windows to load anything.
 
 ---
 

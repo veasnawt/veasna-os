@@ -4,6 +4,8 @@
   "packageManager": "pnpm@11.15.1",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter bp dev"
+    "dev": "pnpm --filter universe dev",
+    "dev:bp": "pnpm --filter bp dev",
+    "dev:gamedev": "pnpm --filter loom-engine dev"
   }
 }
