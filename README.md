@@ -56,7 +56,7 @@ packages/
 
 ### Running a studio
 
-Requires [Node.js](https://nodejs.org) 20.9+ and [pnpm](https://pnpm.io) (`corepack enable` will install the right pnpm version automatically from this repo's `packageManager` field).
+Requires [Node.js](https://nodejs.org) 20.9+ and [pnpm](https://pnpm.io) (`corepack enable` will install the right pnpm version automatically from this repo's `packageManager` field). **Use an LTS release of Node (currently 22.x), not the latest "Current" one** — see the `better-sqlite3` troubleshooting note below for why.
 
 ```bash
 git clone --recurse-submodules https://github.com/veasnawt/veasna-os.git
@@ -70,7 +70,11 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 
 Then open `studios/bp/.env.local` and fill in your own model provider API key (see `studios/bp/.env.example` for the full list of variables) — everything works without one except BP Studio's Rixie agent chat. `pnpm setup` never overwrites a `.env.local` that already exists, so it's safe to re-run any time.
 
-**Windows: if `pnpm setup`/`pnpm dev:all` fails with errors mentioning symlinks, links, or `EPERM`** — pnpm's `node_modules` relies heavily on symlinks, and Windows only allows creating them for Administrators or accounts with Developer Mode enabled. Fix: **Settings → Privacy & security → For developers → turn on Developer Mode**, then re-run `pnpm setup`. (Running your terminal as Administrator works too, but Developer Mode is the one-time fix that doesn't require elevating every session.)
+**Windows: if `pnpm setup` fails on `better-sqlite3` with `gyp ERR! find VS` / "Could not find any Visual Studio installation"** — this is the most common install failure on Windows, confirmed from real error output, not a guess. `better-sqlite3` ships prebuilt binaries for common Node versions so it normally never needs to compile anything; the failure only happens when your Node version is newer than what's been prebuilt yet (this repo saw it on Node 24.19.0, a very recent "Current" release, not yet an LTS). Two fixes, pick one:
+- **Switch to Node LTS (recommended, no extra installs)** — e.g. with [nvm-windows](https://github.com/coreybutler/nvm-windows): `nvm install 22 && nvm use 22`, then delete `node_modules` and re-run `pnpm setup`. Prebuilt binaries almost always exist for LTS versions, so this avoids compiling anything at all.
+- **Or install the real build toolchain** — [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with the "Desktop development with C++" workload, needed if you specifically want to stay on a newer/non-LTS Node.
+
+**Windows, separately: if the failure instead mentions symlinks, `EPERM`, or "operation not permitted"** — pnpm's `node_modules` relies heavily on symlinks, and Windows only allows creating them for Administrators or accounts with Developer Mode enabled. Fix: **Settings → Privacy & security → For developers → turn on Developer Mode**, then re-run `pnpm setup`.
 
 Or run just what you need:
 
