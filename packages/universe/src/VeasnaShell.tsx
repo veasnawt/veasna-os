@@ -3,15 +3,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import CosmosCanvas from "./CosmosCanvas";
 import TraditionalShell, { STUDIO_ICONS, TraditionalShellHandle } from "./components/TraditionalShell";
-import ModeToggle from "./components/ModeToggle";
 import Window from "./components/Window";
 import Taskbar from "./components/Taskbar";
+import SearchOverlay from "./components/SearchOverlay";
 import { CELESTIAL_BODIES } from "./constants";
-import { CelestialBody, OpenWindow, ShellMode, StudioId, TaskbarAlignment, WindowRect } from "./types";
+import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment, WindowRect } from "./types";
 import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils/wallpaperGenerator";
 import { DEFAULT_THEME, THEME_PRESETS, ThemeMode } from "./utils/theme";
 import { ViewerSummary } from "./utils/desktopItems";
 
+const TERMINAL_META_MARKER = "@@VEASNA_TERMINAL_META@@";
+// Most major search engines (Google, Bing, DuckDuckGo) send X-Frame-Options/CSP headers that refuse
+// iframe embedding entirely — confirmed empirically, not assumed — so the very first thing a user saw
+// on opening Browser was a blank/broken-page icon. Wikipedia allows framing and is actually useful
+// content, so it's the default instead; the address bar still treats a search-looking query as a
+// Google search (see `resolveAddress` in BrowserPanel.tsx), that just isn't a good *landing* page.
+const DEFAULT_BROWSER_URL = "https://en.wikipedia.org";
 const STORAGE_KEY = "veasna-os:shell-mode";
 const WALLPAPER_STORAGE_KEY = "veasna-os:wallpaper";
 const THEME_STORAGE_KEY = "veasna-os:theme";
@@ -24,8 +31,11 @@ function defaultRect(body: CelestialBody, cascadeIndex: number): WindowRect {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
 
-  const width = body.launchUrl ? Math.min(vw * 0.85, 1200) : Math.min(vw * 0.5, 480);
-  const height = body.launchUrl ? Math.min(vh * 0.82, 800) : Math.min(vh * 0.6, 560);
+  // Browser has no `launchUrl` (it's a special-cased panel, not an embedded studio app) but still
+  // wants the same roomy default size as one — a cramped 480px browser window isn't very usable.
+  const wide = Boolean(body.launchUrl) || body.id === "browser";
+  const width = wide ? Math.min(vw * 0.85, 1200) : Math.min(vw * 0.5, 480);
+  const height = wide ? Math.min(vh * 0.82, 800) : Math.min(vh * 0.6, 560);
   const offset = (cascadeIndex % 6) * 28;
 
   return {
@@ -43,11 +53,29 @@ export default function VeasnaShell() {
   const [wallpaper, setWallpaper] = useState<string>(DEFAULT_WALLPAPER);
   const [theme, setTheme] = useState<ThemeMode>(DEFAULT_THEME);
   const [viewers, setViewers] = useState<ViewerSummary[]>([]);
-  const [pinnedIds, setPinnedIds] = useState<StudioId[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<PinnableId[]>([]);
   const [taskbarAutoHide, setTaskbarAutoHide] = useState(false);
   const [taskbarAlignment, setTaskbarAlignment] = useState<TaskbarAlignment>("left");
   const [taskbarShowClock, setTaskbarShowClock] = useState(true);
   const [taskbarRevealed, setTaskbarRevealed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // A folder/file result picked from search while in 3D mode needs List mode mounted first (that's
+  // where `TraditionalShell`/`FileManager` live) — this holds the pending open until the mode-switch
+  // effect below sees `traditionalShellRef` actually attached to the freshly-mounted instance.
+  const pendingDesktopOpenRef = useRef<{ path: string; kind: "folder" | "file"; name: string } | null>(null);
+  // Lifted above Window (which unmounts its children on minimize) so a running/completed
+  // terminal session survives minimize/restore instead of losing its output and cwd.
+  const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const [terminalCwd, setTerminalCwd] = useState("");
+  const terminalSessionIdRef = useRef<string>("");
+  if (!terminalSessionIdRef.current) {
+    terminalSessionIdRef.current = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+  }
+  // Same lift-above-Window reasoning as the terminal state above — losing your place/history on every
+  // minimize would make the browser far less useful than a real one.
+  const [browserHistory, setBrowserHistory] = useState<string[]>([DEFAULT_BROWSER_URL]);
+  const [browserHistoryIndex, setBrowserHistoryIndex] = useState(0);
+  const [browserReloadTick, setBrowserReloadTick] = useState(0);
   const zRef = useRef(10);
   const openedCountRef = useRef(0);
   const taskbarWrapperRef = useRef<HTMLDivElement>(null);
@@ -84,7 +112,9 @@ export default function VeasnaShell() {
     if (savedPinned) {
       try {
         const parsed: string[] = JSON.parse(savedPinned);
-        setPinnedIds(parsed.filter((id): id is StudioId => CELESTIAL_BODIES.some((b) => b.id === id)));
+        setPinnedIds(
+          parsed.filter((id): id is PinnableId => id === "filemanager" || CELESTIAL_BODIES.some((b) => b.id === id))
+        );
       } catch {
         // ignore corrupt storage
       }
@@ -102,9 +132,62 @@ export default function VeasnaShell() {
     document.documentElement.setAttribute("data-os-theme", theme);
   }, [theme]);
 
+  // Global search shortcut — Ctrl+K / Cmd+K, plus Ctrl+Space / Cmd+Space as a second binding (chosen
+  // as the closest capturable stand-in for "the Windows key" — a bare Meta/Super keypress can't
+  // actually be intercepted from a webpage, the OS swallows it before any page JS ever sees it, so
+  // there's no way to make the literal Windows key itself open this). `e.code` (not `e.key`) for the
+  // space check since it's layout-independent and unambiguous regardless of what " " maps to.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+      if (mod && e.code === "Space") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Flushes a folder/file result picked from search while still in 3D mode, once the mode switch to
+  // "list" actually lands and `TraditionalShell` (and its ref) exist to receive it.
+  useEffect(() => {
+    if (mode === "list" && pendingDesktopOpenRef.current && traditionalShellRef.current) {
+      const pending = pendingDesktopOpenRef.current;
+      pendingDesktopOpenRef.current = null;
+      traditionalShellRef.current.openDesktopPath(pending.path, pending.kind, pending.name);
+    }
+  }, [mode]);
+
   function handleModeChange(next: ShellMode) {
     setMode(next);
     localStorage.setItem(STORAGE_KEY, next);
+  }
+
+  function openDesktopPathFromSearch(path: string, kind: "folder" | "file", name: string) {
+    if (mode === "list" && traditionalShellRef.current) {
+      traditionalShellRef.current.openDesktopPath(path, kind, name);
+      return;
+    }
+    pendingDesktopOpenRef.current = { path, kind, name };
+    handleModeChange("list");
+  }
+
+  // Mode-aware "open File Manager" — shared by the search overlay and the taskbar/Start-menu File
+  // Manager entry, both of which can be triggered while still in 3D mode (`TraditionalShell`, which
+  // owns the real file manager windows, only mounts in List mode).
+  function openFileManager() {
+    if (mode === "list" && traditionalShellRef.current) {
+      traditionalShellRef.current.openDesktopFileManager();
+      return;
+    }
+    pendingDesktopOpenRef.current = { path: "", kind: "folder", name: "Desktop" };
+    handleModeChange("list");
   }
 
   function handleWallpaperChange(id: string) {
@@ -121,7 +204,7 @@ export default function VeasnaShell() {
     localStorage.setItem(THEME_STORAGE_KEY, next);
   }
 
-  function handleTogglePin(id: StudioId) {
+  function handleTogglePin(id: PinnableId) {
     setPinnedIds((prev) => {
       const next = prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id];
       localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(next));
@@ -178,6 +261,65 @@ export default function VeasnaShell() {
     });
   }
 
+  /** Runs one `cd` in the shared terminal session directly against `/api/terminal`, bypassing
+   *  `TerminalPanel` (which may not even be mounted right now if the Terminal window is minimized
+   *  or wasn't open yet) — mirrors the same request/response shape `TerminalPanel.runCommand` uses,
+   *  just without the live-streaming reader loop, since a `cd` response is never actually chunked. */
+  async function execTerminalCommand(command: string): Promise<{ cwd: string } | null> {
+    const res = await fetch("/api/terminal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "exec", sessionId: terminalSessionIdRef.current, command }),
+    });
+    const text = await res.text();
+    const markerIdx = text.indexOf(TERMINAL_META_MARKER);
+    if (markerIdx === -1) return null;
+    try {
+      return JSON.parse(text.slice(markerIdx + TERMINAL_META_MARKER.length));
+    } catch {
+      return null;
+    }
+  }
+
+  /** "Open in Terminal" for the Desktop/File Manager right-click menus. The terminal's cwd is a real
+   *  absolute OS path the client never learns ahead of time (same "never hardcode/expose the sandbox
+   *  root" rule as the files API) — so getting there is two relative `cd`s instead of one absolute
+   *  one: `cd ~` first (the terminal backend special-cases `~` as an unconditional jump to the
+   *  workspace root, regardless of the session's current directory), then `cd .desktop/<relPath>`,
+   *  which now resolves relative to that known-good root. */
+  async function openTerminalAt(desktopRelPath: string) {
+    const terminalBody = CELESTIAL_BODIES.find((b) => b.id === "terminal");
+    if (!terminalBody) return;
+    openApp(terminalBody);
+    const promptCwd = terminalCwd;
+    await execTerminalCommand("cd ~");
+    const target = desktopRelPath ? `.desktop/${desktopRelPath}` : ".desktop";
+    const meta = await execTerminalCommand(`cd "${target}"`);
+    if (meta?.cwd) {
+      setTerminalCwd(meta.cwd);
+      setTerminalLines((prev) => [...prev, `${promptCwd}> cd "${target}"`]);
+    }
+  }
+
+  function browserNavigate(url: string) {
+    const truncated = browserHistory.slice(0, browserHistoryIndex + 1);
+    const next = [...truncated, url];
+    setBrowserHistory(next);
+    setBrowserHistoryIndex(next.length - 1);
+  }
+  function browserGoBack() {
+    setBrowserHistoryIndex((i) => Math.max(0, i - 1));
+  }
+  function browserGoForward() {
+    setBrowserHistoryIndex((i) => Math.min(browserHistory.length - 1, i + 1));
+  }
+  function browserReload() {
+    setBrowserReloadTick((t) => t + 1);
+  }
+  function browserGoHome() {
+    browserNavigate(DEFAULT_BROWSER_URL);
+  }
+
   function closeApp(id: StudioId) {
     setOpenWindows((prev) => prev.filter((w) => w.body.id !== id));
   }
@@ -218,27 +360,27 @@ export default function VeasnaShell() {
     setOpenWindows((prev) => prev.map((w) => (w.body.id === id ? { ...w, z: nextZ() } : w)));
   }
 
-  const showTaskbar = mode === "list" || openWindows.length > 0 || pinnedIds.length > 0;
-  // While auto-hide is on, the taskbar doesn't permanently occupy screen space — it
-  // floats on top (high z-index) only when revealed — so windows should size to the
-  // full viewport rather than leaving a gap for a bar that isn't statically there.
-  const taskbarReserve = showTaskbar && !taskbarAutoHide ? 44 : 0;
+  // The taskbar is always rendered now — including a bare 3D view with nothing open/pinned — so the
+  // Universe/Desktop toggle can live inside it permanently instead of needing a separate floating
+  // fallback for that state. While auto-hide is on, it still doesn't permanently occupy screen space
+  // (floats on top only when revealed), so windows should size to the full viewport in that case.
+  const taskbarReserve = !taskbarAutoHide ? 44 : 0;
 
   return (
     <>
-      <ModeToggle mode={mode} onChange={handleModeChange} />
-
       {mode === "3d" ? (
         <CosmosCanvas onOpenApp={openApp} />
       ) : (
         <TraditionalShell
           ref={traditionalShellRef}
+          getNextZIndex={nextZ}
           onOpenApp={openApp}
           wallpaper={wallpaper}
           onViewersChange={setViewers}
           pinnedIds={pinnedIds}
           onTogglePin={handleTogglePin}
           taskbarReserve={taskbarReserve}
+          onOpenTerminalAt={openTerminalAt}
         />
       )}
 
@@ -266,11 +408,25 @@ export default function VeasnaShell() {
               onTaskbarAlignmentChange={handleTaskbarAlignmentChange}
               taskbarShowClock={taskbarShowClock}
               onToggleTaskbarShowClock={handleToggleTaskbarShowClock}
+              terminalSessionId={terminalSessionIdRef.current}
+              terminalLines={terminalLines}
+              onTerminalLinesChange={setTerminalLines}
+              terminalCwd={terminalCwd}
+              onTerminalCwdChange={setTerminalCwd}
+              browserUrl={browserHistory[browserHistoryIndex]}
+              browserCanGoBack={browserHistoryIndex > 0}
+              browserCanGoForward={browserHistoryIndex < browserHistory.length - 1}
+              browserReloadTick={browserReloadTick}
+              onBrowserNavigate={browserNavigate}
+              onBrowserBack={browserGoBack}
+              onBrowserForward={browserGoForward}
+              onBrowserReload={browserReload}
+              onBrowserHome={browserGoHome}
             />
           )
       )}
 
-      {showTaskbar && taskbarAutoHide && !startMenuOpen && !taskbarRevealed && (
+      {taskbarAutoHide && !startMenuOpen && !taskbarRevealed && (
         <div
           className="fixed inset-x-0 bottom-0 h-1.5"
           style={{ zIndex: 8999 }}
@@ -278,35 +434,51 @@ export default function VeasnaShell() {
         />
       )}
 
-      {showTaskbar && (
-        <div
-          ref={taskbarWrapperRef}
-          className={`fixed inset-x-0 bottom-0 transition-transform duration-200 ${
-            taskbarAutoHide && !startMenuOpen && !taskbarRevealed ? "translate-y-full" : ""
-          }`}
-          style={{ zIndex: 9000 }}
-          onMouseLeave={() => setTaskbarRevealed(false)}
-        >
-          <Taskbar
-            bodies={CELESTIAL_BODIES}
-            icons={STUDIO_ICONS}
-            openWindows={openWindows}
-            onToggleMinimize={toggleMinimize}
-            viewers={viewers}
-            onToggleViewerMinimize={(id) => traditionalShellRef.current?.toggleViewerMinimize(id)}
-            pinnedIds={pinnedIds}
-            onTogglePin={handleTogglePin}
-            alignment={taskbarAlignment}
-            showClock={taskbarShowClock}
-            startMenuOpen={startMenuOpen}
-            onToggleStartMenu={() => setStartMenuOpen((o) => !o)}
-            onOpenApp={openApp}
-            onOpenTaskbarSettings={() => {
-              const settingsBody = CELESTIAL_BODIES.find((b) => b.id === "settings");
-              if (settingsBody) openApp(settingsBody);
-            }}
-          />
-        </div>
+      <div
+        ref={taskbarWrapperRef}
+        className={`fixed inset-x-0 bottom-0 transition-transform duration-200 ${
+          taskbarAutoHide && !startMenuOpen && !taskbarRevealed ? "translate-y-full" : ""
+        }`}
+        style={{ zIndex: 9000 }}
+        onMouseLeave={() => setTaskbarRevealed(false)}
+      >
+        <Taskbar
+          bodies={CELESTIAL_BODIES}
+          icons={STUDIO_ICONS}
+          openWindows={openWindows}
+          onToggleMinimize={toggleMinimize}
+          viewers={viewers}
+          onToggleViewerMinimize={(id) => traditionalShellRef.current?.toggleViewerMinimize(id)}
+          pinnedIds={pinnedIds}
+          onTogglePin={handleTogglePin}
+          alignment={taskbarAlignment}
+          showClock={taskbarShowClock}
+          startMenuOpen={startMenuOpen}
+          onToggleStartMenu={() => setStartMenuOpen((o) => !o)}
+          onOpenApp={openApp}
+          onOpenFileManager={() => {
+            setStartMenuOpen(false);
+            openFileManager();
+          }}
+          onOpenTaskbarSettings={() => {
+            const settingsBody = CELESTIAL_BODIES.find((b) => b.id === "settings");
+            if (settingsBody) openApp(settingsBody);
+          }}
+          onOpenSearch={() => setSearchOpen(true)}
+          mode={mode}
+          onModeChange={handleModeChange}
+        />
+      </div>
+
+      {searchOpen && (
+        <SearchOverlay
+          bodies={CELESTIAL_BODIES}
+          icons={STUDIO_ICONS}
+          onOpenApp={openApp}
+          onOpenFileManager={openFileManager}
+          onOpenDesktopPath={openDesktopPathFromSearch}
+          onClose={() => setSearchOpen(false)}
+        />
       )}
     </>
   );

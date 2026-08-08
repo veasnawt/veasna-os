@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import WindowChrome from "./WindowChrome";
 
 export interface FloatingRect {
@@ -14,13 +15,25 @@ interface FloatingWindowProps {
   title: string;
   icon: React.ComponentType<{ size?: number }>;
   color: string;
+  /** Only used for the initial cascade-offset position of a newly opened window — not stacking order. */
   cascadeIndex: number;
+  /** Actual stacking order, shared with every other window (studio + folder/file) in the OS. */
+  zIndex: number;
   defaultWidth: number;
   defaultHeight: number;
   minWidth?: number;
   minHeight?: number;
   /** Pixels of viewport bottom to stay clear of (0 when the taskbar isn't currently occupying space, e.g. auto-hidden). */
   taskbarReserve: number;
+  /** Hides the window while preserving its state (rect, maximized, internal navigation, etc.) — since
+   *  this component's root is portaled to document.body, an ancestor's `display: none` has no effect
+   *  on it (the portaled DOM node isn't actually a descendant of that ancestor); this must be applied
+   *  to this component's own root instead. */
+  minimized?: boolean;
+  /** Fired whenever this window's screen rect changes (drag, resize, maximize/restore) — lets a
+   *  parent that owns several of these windows hit-test drag-and-drop against their actual screen
+   *  positions without needing a DOM ref (this component's root is portaled to document.body). */
+  onRectChange?: (rect: FloatingRect) => void;
   onClose: () => void;
   onFocus: () => void;
   /** Omit to hide the minimize button. */
@@ -62,11 +75,14 @@ export default function FloatingWindow({
   icon,
   color,
   cascadeIndex,
+  zIndex,
   defaultWidth,
   defaultHeight,
   minWidth = MIN_WIDTH,
   minHeight = MIN_HEIGHT,
   taskbarReserve,
+  minimized = false,
+  onRectChange,
   onClose,
   onFocus,
   onMinimize,
@@ -75,6 +91,14 @@ export default function FloatingWindow({
   const [rect, setRect] = useState<FloatingRect>(() => initialRect(cascadeIndex, defaultWidth, defaultHeight));
   const [maximized, setMaximized] = useState(false);
   const preMaximizeRectRef = useRef<FloatingRect | null>(null);
+
+  useEffect(() => {
+    onRectChange?.(rect);
+    // Only the rect itself matters here — onRectChange is expected to be a stable-enough
+    // callback (or the parent tolerates re-registration); re-running on identity churn alone
+    // would defeat the purpose of tracking real position/size changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rect]);
 
   function handleTitleBarMouseDown(e: React.MouseEvent) {
     if (e.button !== 0 || maximized) return;
@@ -163,7 +187,11 @@ export default function FloatingWindow({
     }
   }
 
-  return (
+  // Portaled to <body> — TraditionalShell's own root is `position: fixed`, which per the CSS
+  // spec always creates a new stacking context, trapping this window's z-index inside it no
+  // matter how high the number is. Rendering in place, this could never out-stack a sibling
+  // studio Window (rendered outside TraditionalShell entirely) even with a higher z-index.
+  return createPortal(
     <div
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -175,7 +203,8 @@ export default function FloatingWindow({
         top: rect.y,
         width: rect.width,
         height: rect.height,
-        zIndex: 200 + cascadeIndex,
+        zIndex,
+        display: minimized ? "none" : undefined,
       }}
     >
       <div className="relative h-full w-full">
@@ -203,6 +232,7 @@ export default function FloatingWindow({
             />
           ))}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -16,10 +16,14 @@ interface DesktopIconProps {
   onContextMenu?: (e: React.MouseEvent) => void;
   /** null = laid out by the flex grid (auto-arrange). Set = absolutely positioned (manual). */
   position: IconPosition | null;
-  /** Live offset applied on top of `position` while this icon is part of an active drag. */
-  previewOffset?: { dx: number; dy: number } | null;
+  /** True while this icon is the (possibly multi-select) source of an active drag — the icon stays
+   *  put and dims; the actual cursor-following visual is a separate portaled `DragGhost` the parent
+   *  renders above every window, since this icon's own z-index can't escape its stacking context. */
+  isDragging?: boolean;
   /** True while another selected item is being dragged over this (folder) icon. */
   dropHighlight?: boolean;
+  /** True while this item is the pending target of a Cut (Ctrl+X) — dimmed until pasted or cancelled. */
+  isCut?: boolean;
   onDragStart?: () => void;
   onDragMove?: (dx: number, dy: number, clientX: number, clientY: number) => void;
   onDragEnd?: (dx: number, dy: number, clientX: number, clientY: number) => void;
@@ -40,8 +44,9 @@ const DesktopIcon = forwardRef<HTMLButtonElement, DesktopIconProps>(function Des
     onOpen,
     onContextMenu,
     position,
-    previewOffset,
+    isDragging,
     dropHighlight,
+    isCut,
     onDragStart,
     onDragMove,
     onDragEnd,
@@ -95,18 +100,9 @@ const DesktopIcon = forwardRef<HTMLButtonElement, DesktopIconProps>(function Des
     window.addEventListener("mouseup", handleMouseUp);
   }
 
-  const offset = previewOffset;
   const style: React.CSSProperties | undefined = position
-    ? {
-        position: "absolute",
-        left: position.x,
-        top: position.y,
-        transform: offset ? `translate(${offset.dx}px, ${offset.dy}px)` : undefined,
-        zIndex: offset ? 10 : undefined,
-      }
-    : offset
-      ? { transform: `translate(${offset.dx}px, ${offset.dy}px)`, position: "relative", zIndex: 10 }
-      : undefined;
+    ? { position: "absolute", left: position.x, top: position.y }
+    : undefined;
 
   return (
     <button
@@ -124,7 +120,7 @@ const DesktopIcon = forwardRef<HTMLButtonElement, DesktopIconProps>(function Des
       style={style}
       className={`flex w-24 flex-col items-center gap-1.5 rounded p-2 text-center transition ${
         !renaming ? "cursor-grab active:cursor-grabbing" : ""
-      } ${
+      } ${isCut || isDragging ? "opacity-40" : ""} ${
         dropHighlight
           ? "bg-sky-400/30 outline outline-2 outline-sky-300"
           : selected
@@ -157,7 +153,10 @@ const DesktopIcon = forwardRef<HTMLButtonElement, DesktopIconProps>(function Des
           className="w-full rounded bg-[var(--os-surface-strong)] px-1 py-0.5 text-center text-[11px] font-medium text-[var(--os-text)] outline outline-1 outline-[var(--os-accent-border)]"
         />
       ) : (
-        <span className="rounded-md bg-black/40 px-1.5 py-0.5 text-[11px] font-medium text-white leading-tight backdrop-blur-sm [text-shadow:0_1px_2px_rgba(0,0,0,0.8)]">
+        <span
+          className="text-[11px] font-medium leading-tight text-white [paint-order:stroke_fill] [-webkit-text-stroke:3px_rgba(0,0,0,0.75)]"
+          style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}
+        >
           {name}
         </span>
       )}

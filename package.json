@@ -2,10 +2,18 @@
   "name": "veasna-os",
   "private": true,
   "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
+    "setup": "pnpm install && node scripts/setup-env.js",
     "build": "pnpm -r build",
     "dev": "pnpm --filter universe dev",
     "dev:bp": "pnpm --filter bp dev",
-    "dev:gamedev": "pnpm --filter loom-engine dev"
+    "dev:gamedev": "pnpm --filter loom-engine dev",
+    "dev:all": "concurrently -k -n universe,bp,gamedev -c blue,green,yellow \"pnpm dev\" \"pnpm dev:bp\" \"pnpm dev:gamedev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }

@@ -1,33 +1,90 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Folder, Document } from "@veasnawt/vicons";
-import { DesktopItemData, FOLDER_COLOR, FILE_COLOR } from "../utils/desktopItems";
-import FloatingWindow from "./FloatingWindow";
+import { DesktopItemData, FOLDER_COLOR, FILE_COLOR, isDescendantOf } from "../utils/desktopItems";
+import { listFolder } from "../utils/filesApi";
+import FloatingWindow, { FloatingRect } from "./FloatingWindow";
+import DragGhost from "./DragGhost";
+
+interface ClipboardState {
+  paths: string[];
+  mode: "cut" | "copy";
+}
+
+/** Result of a drop hit-test — `windowId` is set only when the target is a *different* open window
+ *  (vs one of this window's own tiles/breadcrumbs, a desktop folder icon, or the Desktop root). */
+interface DropTarget {
+  targetPath: string;
+  folderIconId: string | null;
+  windowId: string | null;
+}
 
 interface FileManagerProps {
-  rootFolderId: string;
-  items: DesktopItemData[];
+  rootPath: string;
   cascadeIndex: number;
+  zIndex: number;
   /** Whether this window currently owns keyboard shortcuts like Delete (only one surface should at a time). */
   isActive: boolean;
   taskbarReserve: number;
+  minimized?: boolean;
   onClose: () => void;
   onFocus: () => void;
   onMinimize: () => void;
-  onCreateFolder: (parentId: string | null) => string;
-  onCreateFile: (parentId: string | null) => string;
-  onRename: (id: string, name: string) => void;
-  onDelete: (ids: string[]) => void;
-  onMove: (ids: string[], targetFolderId: string | null) => void;
-  onOpenFile: (id: string) => void;
+  onCreateFolder: (parentPath: string | null) => Promise<string>;
+  onCreateFile: (parentPath: string | null) => Promise<string>;
+  onRename: (path: string, name: string) => Promise<void>;
+  onDelete: (paths: string[]) => Promise<void>;
+  onMove: (paths: string[], targetFolderPath: string | null) => Promise<void>;
+  onOpenFile: (path: string, name: string) => void;
+  /** Reports this window's screen rect whenever it changes (drag/resize/maximize) — lets the parent
+   *  hit-test drags from elsewhere (the Desktop, or another window) against this window. */
+  onRectChange?: (rect: FloatingRect) => void;
+  /** Reports which folder this window is CURRENTLY browsing (not just where it was opened) — that's
+   *  the real drop target when something is dragged into this window from elsewhere. */
+  onCurrentPathChange?: (path: string) => void;
+  /** Increments whenever a move/copy from OUTSIDE this window (another window, the Desktop, or a
+   *  desktop-initiated paste) lands in the folder this window is currently browsing — this window
+   *  can't otherwise know its listing went stale, since it only fetches on its own `currentPath` changes. */
+  refreshToken?: number;
+  /** Falls back to this (desktop folder icons / other open windows / the Desktop root) whenever a
+   *  drag inside this window lands outside its own tiles/breadcrumbs. */
+  resolveExternalDropTarget: (clientX: number, clientY: number) => DropTarget;
+  /** Fired while dragging within this window, with the id of whichever OTHER open window the cursor
+   *  is currently over (or null) — lets that window highlight itself as the pending drop target. */
+  onExternalHoverChange?: (windowId: string | null) => void;
+  /** True while a drag from elsewhere (Desktop or another window) is currently hovering this window. */
+  isExternalDropTarget?: boolean;
+  clipboard: ClipboardState | null;
+  onCut: (paths: string[]) => void;
+  onCopy: (paths: string[]) => void;
+  onClearClipboard: () => void;
+  onPaste: (targetPath: string) => Promise<void>;
+  /** Opens the Terminal studio `cd`'d into the given `.desktop`-relative path. */
+  onOpenTerminal: (desktopRelPath: string) => void;
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function fetchSortedChildren(path: string): Promise<DesktopItemData[]> {
+  const entries = await listFolder(path);
+  const items: DesktopItemData[] = entries.map((e) => ({ path: e.path, kind: e.kind, name: e.name }));
+  items.sort((a, b) => (a.kind !== b.kind ? (a.kind === "folder" ? -1 : 1) : a.name.localeCompare(b.name)));
+  return items;
+}
+
+function MenuDivider() {
+  return <div className="my-1 h-px bg-[var(--os-border)]" />;
 }
 
 export default function FileManager({
-  rootFolderId,
-  items,
+  rootPath,
   cascadeIndex,
+  zIndex,
   isActive,
   taskbarReserve,
+  minimized,
   onClose,
   onFocus,
   onMinimize,
@@ -37,20 +94,78 @@ export default function FileManager({
   onDelete,
   onMove,
   onOpenFile,
+  onRectChange,
+  onCurrentPathChange,
+  refreshToken,
+  resolveExternalDropTarget,
+  onExternalHoverChange,
+  isExternalDropTarget,
+  clipboard,
+  onCut,
+  onCopy,
+  onClearClipboard,
+  onPaste,
+  onOpenTerminal,
 }: FileManagerProps) {
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(rootFolderId);
+  const [currentPath, setCurrentPath] = useState(rootPath);
+  const [children, setChildren] = useState<DesktopItemData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [itemMenu, setItemMenu] = useState<{ x: number; y: number; itemId: string } | null>(null);
   const [dragIds, setDragIds] = useState<string[] | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  // Cursor position while `dragIds` is active — drives the portaled `DragGhost` (see the render below
+  // for why the dragged tile itself can't just show a translate-following visual: this window's own
+  // stacking context can't out-paint another window portaled above it).
+  const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(null);
   const tileRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const crumbRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const lastSelectedIndexRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onCurrentPathChange?.(currentPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath]);
+
+  useEffect(() => {
+    if (refreshToken === undefined) return;
+    refreshChildren();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    fetchSortedChildren(currentPath)
+      .then((items) => {
+        if (!cancelled) setChildren(items);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(errMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPath]);
+
+  async function refreshChildren() {
+    try {
+      setChildren(await fetchSortedChildren(currentPath));
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
+  }
 
   useEffect(() => {
     if (!menu && !itemMenu) return;
@@ -69,47 +184,73 @@ export default function FileManager({
     }
   }, [renamingId]);
 
+  async function handleDelete(paths: string[]) {
+    setItemMenu(null);
+    try {
+      await onDelete(paths);
+      await refreshChildren();
+      setSelectedIds(new Set());
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
+  }
+
+  async function handlePaste() {
+    setMenu(null);
+    try {
+      await onPaste(currentPath);
+      await refreshChildren();
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
+  }
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Delete") return;
       if (!isActive) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-      if (renamingId || selectedIds.size === 0) return;
-      onDelete(Array.from(selectedIds));
+      if (renamingId) return;
+      if (e.key === "Delete") {
+        if (selectedIds.size === 0) return;
+        handleDelete(Array.from(selectedIds));
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "c" || e.key === "C")) {
+        if (selectedIds.size > 0) onCopy(Array.from(selectedIds));
+        return;
+      }
+      if (mod && (e.key === "x" || e.key === "X")) {
+        if (selectedIds.size > 0) onCut(Array.from(selectedIds));
+        return;
+      }
+      if (mod && (e.key === "v" || e.key === "V")) {
+        if (clipboard) handlePaste();
+        return;
+      }
+      if (e.key === "Escape") onClearClipboard();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, renamingId, onDelete, isActive]);
-
-  const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, renamingId, isActive, clipboard, currentPath]);
 
   const breadcrumb = useMemo(() => {
-    const chain: DesktopItemData[] = [];
-    let cur = currentFolderId ? itemsById.get(currentFolderId) : undefined;
-    while (cur) {
-      chain.unshift(cur);
-      cur = cur.parentId ? itemsById.get(cur.parentId) : undefined;
-    }
-    return chain;
-  }, [currentFolderId, itemsById]);
+    if (!currentPath) return [];
+    let acc = "";
+    return currentPath.split("/").map((seg) => {
+      acc = acc ? `${acc}/${seg}` : seg;
+      return { path: acc, name: seg };
+    });
+  }, [currentPath]);
 
-  const children = useMemo(() => {
-    return items
-      .filter((i) => (i.parentId ?? null) === currentFolderId)
-      .sort((a, b) => {
-        if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-  }, [items, currentFolderId]);
-
-  const currentFolder = currentFolderId ? itemsById.get(currentFolderId) : null;
-  const title = currentFolder ? currentFolder.name : "Desktop";
+  const title = currentPath === "" ? "Desktop" : (breadcrumb[breadcrumb.length - 1]?.name ?? "Desktop");
 
   function handleSelect(id: string, index: number, e: React.MouseEvent) {
     if (e.shiftKey && lastSelectedIndexRef.current !== null) {
       const [a, b] = [lastSelectedIndexRef.current, index].sort((x, y) => x - y);
-      setSelectedIds(new Set(children.slice(a, b + 1).map((c) => c.id)));
+      setSelectedIds(new Set(children.slice(a, b + 1).map((c) => c.path)));
     } else if (e.ctrlKey || e.metaKey) {
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -126,11 +267,11 @@ export default function FileManager({
 
   function handleOpen(item: DesktopItemData) {
     if (item.kind === "folder") {
-      setCurrentFolderId(item.id);
+      setCurrentPath(item.path);
       setSelectedIds(new Set());
       lastSelectedIndexRef.current = null;
     } else {
-      onOpenFile(item.id);
+      onOpenFile(item.path, item.name);
     }
   }
 
@@ -139,25 +280,41 @@ export default function FileManager({
     setItemMenu(null);
   }
 
-  function commitRename(value: string) {
-    if (renamingId) {
-      const trimmed = value.trim();
-      if (trimmed) onRename(renamingId, trimmed);
-    }
+  async function commitRename(value: string) {
+    const id = renamingId;
     setRenamingId(null);
+    if (!id) return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    try {
+      await onRename(id, trimmed);
+      await refreshChildren();
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
   }
 
-  function handleCreateFolderHere() {
+  async function handleCreateFolderHere() {
     setMenu(null);
-    const id = onCreateFolder(currentFolderId);
-    setSelectedIds(new Set([id]));
-    startRename(id);
+    try {
+      const path = await onCreateFolder(currentPath);
+      await refreshChildren();
+      setSelectedIds(new Set([path]));
+      startRename(path);
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
   }
 
-  function handleCreateFileHere() {
+  async function handleCreateFileHere() {
     setMenu(null);
-    const id = onCreateFile(currentFolderId);
-    setSelectedIds(new Set([id]));
+    try {
+      const path = await onCreateFile(currentPath);
+      await refreshChildren();
+      setSelectedIds(new Set([path]));
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
   }
 
   function handleTileMouseDown(id: string, e: React.MouseEvent) {
@@ -167,29 +324,45 @@ export default function FileManager({
     const startY = e.clientY;
     const idsToDrag = selectedIds.has(id) && selectedIds.size > 1 ? Array.from(selectedIds) : [id];
     let dragging = false;
-    let currentTarget: string | null = null;
+    let currentTarget: DropTarget | null = null;
 
-    function hitTest(clientX: number, clientY: number): string | null {
+    // A folder can never be dropped onto itself or one of its own descendants — real fs.rename
+    // would fail badly (or worse) for that, so this is checked up front for every candidate target.
+    function wouldCycle(targetPath: string): boolean {
+      return idsToDrag.some((d) => isDescendantOf(targetPath, d));
+    }
+
+    /** This window's own tiles/breadcrumbs first; anything else (another window, a desktop folder
+     *  icon, or the bare Desktop) falls back to the shared resolver passed down from the parent. */
+    function hitTest(clientX: number, clientY: number): { hit: DropTarget; internal: boolean } | null {
       for (const child of children) {
-        if (child.kind !== "folder" || idsToDrag.includes(child.id)) continue;
-        const el = tileRefs.current[child.id];
+        if (child.kind !== "folder" || idsToDrag.includes(child.path) || wouldCycle(child.path)) continue;
+        const el = tileRefs.current[child.path];
         if (!el) continue;
         const r = el.getBoundingClientRect();
-        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return child.id;
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          return { hit: { targetPath: child.path, folderIconId: null, windowId: null }, internal: true };
+        }
       }
       for (const crumb of breadcrumb) {
-        if (idsToDrag.includes(crumb.id) || crumb.id === currentFolderId) continue;
-        const el = crumbRefs.current[crumb.id];
+        if (idsToDrag.includes(crumb.path) || crumb.path === currentPath || wouldCycle(crumb.path)) continue;
+        const el = crumbRefs.current[crumb.path];
         if (!el) continue;
         const r = el.getBoundingClientRect();
-        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return crumb.id;
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          return { hit: { targetPath: crumb.path, folderIconId: null, windowId: null }, internal: true };
+        }
       }
       const rootEl = crumbRefs.current["__root__"];
-      if (rootEl && currentFolderId !== null) {
+      if (rootEl && currentPath !== "" && !wouldCycle("")) {
         const r = rootEl.getBoundingClientRect();
-        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return "__root__";
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          return { hit: { targetPath: "", folderIconId: null, windowId: null }, internal: true };
+        }
       }
-      return null;
+      const external = resolveExternalDropTarget(clientX, clientY);
+      if (wouldCycle(external.targetPath)) return null;
+      return { hit: external, internal: false };
     }
 
     function handleMove(ev: MouseEvent) {
@@ -201,8 +374,11 @@ export default function FileManager({
         setDragIds(idsToDrag);
       }
       if (dragging) {
-        currentTarget = hitTest(ev.clientX, ev.clientY);
-        setDropTargetId(currentTarget);
+        setDragPointer({ x: ev.clientX, y: ev.clientY });
+        const result = hitTest(ev.clientX, ev.clientY);
+        currentTarget = result?.hit ?? null;
+        setDropTargetId(result?.internal ? result.hit.targetPath : null);
+        onExternalHoverChange?.(!result?.internal ? (result?.hit.windowId ?? null) : null);
       }
     }
 
@@ -210,10 +386,14 @@ export default function FileManager({
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
       if (dragging && currentTarget) {
-        onMove(idsToDrag, currentTarget === "__root__" ? null : currentTarget);
+        onMove(idsToDrag, currentTarget.targetPath)
+          .then(() => refreshChildren())
+          .catch((err) => setBanner(errMessage(err)));
       }
       setDragIds(null);
       setDropTargetId(null);
+      setDragPointer(null);
+      onExternalHoverChange?.(null);
     }
 
     window.addEventListener("mousemove", handleMove);
@@ -226,15 +406,20 @@ export default function FileManager({
       icon={Folder}
       color={FOLDER_COLOR}
       cascadeIndex={cascadeIndex}
+      zIndex={zIndex}
       defaultWidth={520}
       defaultHeight={420}
       taskbarReserve={taskbarReserve}
+      minimized={minimized}
+      onRectChange={onRectChange}
       onClose={onClose}
       onFocus={onFocus}
       onMinimize={onMinimize}
     >
       <div
-        className="flex h-full flex-col"
+        className={`flex h-full flex-col transition ${
+          isExternalDropTarget ? "outline outline-2 -outline-offset-2 outline-sky-300" : ""
+        }`}
         onClick={(e) => {
           e.stopPropagation();
           setSelectedIds(new Set());
@@ -252,29 +437,29 @@ export default function FileManager({
               crumbRefs.current["__root__"] = el;
             }}
             onClick={() => {
-              setCurrentFolderId(null);
+              setCurrentPath("");
               setSelectedIds(new Set());
             }}
             className={`shrink-0 rounded px-1.5 py-0.5 font-medium transition hover:bg-[var(--os-border-strong)] ${
-              currentFolderId === null ? "text-[var(--os-text)]" : "text-[var(--os-text-muted)]"
-            } ${dropTargetId === "__root__" ? "bg-sky-400/30 outline outline-1 outline-sky-300" : ""}`}
+              currentPath === "" ? "text-[var(--os-text)]" : "text-[var(--os-text-muted)]"
+            } ${dropTargetId === "" ? "bg-sky-400/30 outline outline-1 outline-sky-300" : ""}`}
           >
             Desktop
           </button>
           {breadcrumb.map((crumb) => (
-            <React.Fragment key={crumb.id}>
+            <React.Fragment key={crumb.path}>
               <span className="text-[var(--os-text-muted)]">/</span>
               <button
                 ref={(el) => {
-                  crumbRefs.current[crumb.id] = el;
+                  crumbRefs.current[crumb.path] = el;
                 }}
                 onClick={() => {
-                  setCurrentFolderId(crumb.id);
+                  setCurrentPath(crumb.path);
                   setSelectedIds(new Set());
                 }}
                 className={`shrink-0 truncate rounded px-1.5 py-0.5 font-medium transition hover:bg-[var(--os-border-strong)] ${
-                  crumb.id === currentFolderId ? "text-[var(--os-text)]" : "text-[var(--os-text-muted)]"
-                } ${dropTargetId === crumb.id ? "bg-sky-400/30 outline outline-1 outline-sky-300" : ""}`}
+                  crumb.path === currentPath ? "text-[var(--os-text)]" : "text-[var(--os-text-muted)]"
+                } ${dropTargetId === crumb.path ? "bg-sky-400/30 outline outline-1 outline-sky-300" : ""}`}
               >
                 {crumb.name}
               </button>
@@ -282,8 +467,29 @@ export default function FileManager({
           ))}
         </div>
 
+        {banner && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-rose-500/30 bg-rose-950/60 px-3 py-1.5 text-[11px] text-rose-200">
+            <span className="flex-1">{banner}</span>
+            <button onClick={() => setBanner(null)} className="text-rose-300 transition hover:text-white">
+              ×
+            </button>
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {children.length === 0 ? (
+          {loadError ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-[var(--os-text-muted)]">
+              <span>This folder no longer exists.</span>
+              <button
+                onClick={() => setCurrentPath("")}
+                className="rounded bg-[var(--os-border-strong)] px-3 py-1.5 text-[var(--os-text)] transition hover:bg-[var(--os-border)]"
+              >
+                Go to Desktop
+              </button>
+            </div>
+          ) : loading ? (
+            <div className="flex h-full items-center justify-center text-xs text-[var(--os-text-muted)]">Loading…</div>
+          ) : children.length === 0 ? (
             <div className="flex h-full items-center justify-center text-center text-xs text-[var(--os-text-muted)]">
               This folder is empty.
               <br />
@@ -292,35 +498,36 @@ export default function FileManager({
           ) : (
             <div className="flex flex-wrap content-start gap-1">
               {children.map((child, index) => {
-                const isDragging = dragIds?.includes(child.id);
-                const isDropTarget = dropTargetId === child.id;
+                const isDragging = dragIds?.includes(child.path);
+                const isDropTarget = dropTargetId === child.path;
+                const isCut = clipboard?.mode === "cut" && clipboard.paths.includes(child.path);
                 return (
                   <button
-                    key={child.id}
+                    key={child.path}
                     ref={(el) => {
-                      tileRefs.current[child.id] = el;
+                      tileRefs.current[child.path] = el;
                     }}
-                    onMouseDown={(e) => handleTileMouseDown(child.id, e)}
+                    onMouseDown={(e) => handleTileMouseDown(child.path, e)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (renamingId !== child.id) handleSelect(child.id, index, e);
+                      if (renamingId !== child.path) handleSelect(child.path, index, e);
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      if (renamingId !== child.id) handleOpen(child);
+                      if (renamingId !== child.path) handleOpen(child);
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setSelectedIds((prev) => (prev.has(child.id) ? prev : new Set([child.id])));
-                      setItemMenu({ x: e.clientX, y: e.clientY, itemId: child.id });
+                      setSelectedIds((prev) => (prev.has(child.path) ? prev : new Set([child.path])));
+                      setItemMenu({ x: e.clientX, y: e.clientY, itemId: child.path });
                     }}
                     className={`flex w-20 flex-col items-center gap-1 rounded p-2 text-center transition ${
-                      isDragging ? "opacity-40" : ""
+                      isDragging || isCut ? "opacity-40" : ""
                     } ${
                       isDropTarget
                         ? "bg-sky-400/30 outline outline-2 outline-sky-300"
-                        : selectedIds.has(child.id)
+                        : selectedIds.has(child.path)
                           ? "bg-sky-500/25 outline outline-1 outline-sky-400/50"
                           : "hover:bg-white/[0.06]"
                     }`}
@@ -334,7 +541,7 @@ export default function FileManager({
                     >
                       {child.kind === "folder" ? <Folder size={18} /> : <Document size={18} />}
                     </span>
-                    {renamingId === child.id ? (
+                    {renamingId === child.path ? (
                       <input
                         ref={renameInputRef}
                         defaultValue={child.name}
@@ -367,7 +574,7 @@ export default function FileManager({
             onClick={(e) => e.stopPropagation()}
             style={{
               left: Math.min(menu.x, window.innerWidth - 190),
-              top: Math.min(menu.y, window.innerHeight - 100),
+              top: Math.min(menu.y, window.innerHeight - 190),
               zIndex: 9500,
             }}
             className="fixed w-[180px] rounded-xl border border-[var(--os-border)] bg-[var(--os-surface-strong)] p-1.5 shadow-2xl backdrop-blur-[var(--os-blur)] backdrop-saturate-[var(--os-saturate)]"
@@ -384,6 +591,28 @@ export default function FileManager({
             >
               New Text File
             </button>
+            <MenuDivider />
+            <button
+              onClick={handlePaste}
+              disabled={!clipboard}
+              className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium transition ${
+                clipboard
+                  ? "text-[var(--os-text)] hover:bg-[var(--os-border-strong)]"
+                  : "cursor-default text-[var(--os-text-muted)] opacity-50"
+              }`}
+            >
+              Paste
+            </button>
+            <MenuDivider />
+            <button
+              onClick={() => {
+                setMenu(null);
+                onOpenTerminal(currentPath);
+              }}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+            >
+              Open in Terminal
+            </button>
           </div>,
           document.body
         )}
@@ -395,11 +624,38 @@ export default function FileManager({
             onClick={(e) => e.stopPropagation()}
             style={{
               left: Math.min(itemMenu.x, window.innerWidth - 180),
-              top: Math.min(itemMenu.y, window.innerHeight - 100),
+              top: Math.min(itemMenu.y, window.innerHeight - 180),
               zIndex: 9500,
             }}
             className="fixed w-[170px] rounded-xl border border-[var(--os-border)] bg-[var(--os-surface-strong)] p-1.5 shadow-2xl backdrop-blur-[var(--os-blur)] backdrop-saturate-[var(--os-saturate)]"
           >
+            <button
+              onClick={() => {
+                const ids =
+                  selectedIds.has(itemMenu.itemId) && selectedIds.size > 1
+                    ? Array.from(selectedIds)
+                    : [itemMenu.itemId];
+                onCut(ids);
+                setItemMenu(null);
+              }}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+            >
+              Cut
+            </button>
+            <button
+              onClick={() => {
+                const ids =
+                  selectedIds.has(itemMenu.itemId) && selectedIds.size > 1
+                    ? Array.from(selectedIds)
+                    : [itemMenu.itemId];
+                onCopy(ids);
+                setItemMenu(null);
+              }}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+            >
+              Copy
+            </button>
+            <MenuDivider />
             {(!selectedIds.has(itemMenu.itemId) || selectedIds.size <= 1) && (
               <button
                 onClick={() => startRename(itemMenu.itemId)}
@@ -414,8 +670,7 @@ export default function FileManager({
                   selectedIds.has(itemMenu.itemId) && selectedIds.size > 1
                     ? Array.from(selectedIds)
                     : [itemMenu.itemId];
-                setItemMenu(null);
-                onDelete(ids);
+                handleDelete(ids);
               }}
               className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-rose-400 transition hover:bg-[var(--os-border-strong)]"
             >
@@ -424,6 +679,24 @@ export default function FileManager({
           </div>,
           document.body
         )}
+
+      {dragIds &&
+        dragIds.length > 0 &&
+        dragPointer &&
+        (() => {
+          const first = children.find((c) => c.path === dragIds[0]);
+          if (!first) return null;
+          return (
+            <DragGhost
+              x={dragPointer.x}
+              y={dragPointer.y}
+              label={dragIds.length > 1 ? `${dragIds.length} items` : first.name}
+              color={first.kind === "folder" ? FOLDER_COLOR : FILE_COLOR}
+              icon={first.kind === "folder" ? Folder : Document}
+              count={dragIds.length}
+            />
+          );
+        })()}
     </FloatingWindow>
   );
 }

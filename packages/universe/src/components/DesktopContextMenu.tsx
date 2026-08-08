@@ -12,6 +12,9 @@ interface DesktopContextMenuProps {
   onPersonalize: () => void;
   onCreateFolder: () => void;
   onCreateFile: () => void;
+  onPaste: () => void;
+  pasteDisabled: boolean;
+  onOpenTerminal: () => void;
   onClose: () => void;
 }
 
@@ -54,11 +57,16 @@ function MenuCheckboxItem({
   );
 }
 
-function MenuActionItem({ label, onClick }: { label: string; onClick: () => void }) {
+function MenuActionItem({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 pl-[26px] text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+      disabled={disabled}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 pl-[26px] text-left text-xs font-medium transition ${
+        disabled
+          ? "cursor-default text-[var(--os-text-muted)] opacity-50"
+          : "text-[var(--os-text)] hover:bg-[var(--os-border-strong)]"
+      }`}
     >
       {label}
     </button>
@@ -81,6 +89,9 @@ export default function DesktopContextMenu({
   onPersonalize,
   onCreateFolder,
   onCreateFile,
+  onPaste,
+  pasteDisabled,
+  onOpenTerminal,
   onClose,
 }: DesktopContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -103,7 +114,7 @@ export default function DesktopContextMenu({
   }, [onClose]);
 
   const left = Math.min(x, window.innerWidth - MENU_WIDTH - 8);
-  const top = Math.min(y, window.innerHeight - 280);
+  const top = Math.min(y, window.innerHeight - 320);
 
   return (
     <div
@@ -115,6 +126,10 @@ export default function DesktopContextMenu({
     >
       <MenuActionItem label="New Folder" onClick={onCreateFolder} />
       <MenuActionItem label="New Text File" onClick={onCreateFile} />
+      <MenuDivider />
+      <MenuActionItem label="Paste" onClick={onPaste} disabled={pasteDisabled} />
+      <MenuDivider />
+      <MenuActionItem label="Open in Terminal" onClick={onOpenTerminal} />
       <MenuDivider />
       <MenuCheckboxItem label="Auto arrange icons" checked={autoArrange} onClick={onToggleAutoArrange} />
       <MenuCheckboxItem

@@ -4,6 +4,8 @@ interface IconContextMenuProps {
   x: number;
   y: number;
   count: number;
+  onCut: () => void;
+  onCopy: () => void;
   onRename: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -11,7 +13,11 @@ interface IconContextMenuProps {
 
 const MENU_WIDTH = 170;
 
-export default function IconContextMenu({ x, y, count, onRename, onDelete, onClose }: IconContextMenuProps) {
+function MenuDivider() {
+  return <div className="my-1 h-px bg-[var(--os-border)]" />;
+}
+
+export default function IconContextMenu({ x, y, count, onCut, onCopy, onRename, onDelete, onClose }: IconContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,7 +36,7 @@ export default function IconContextMenu({ x, y, count, onRename, onDelete, onClo
   }, [onClose]);
 
   const left = Math.min(x, window.innerWidth - MENU_WIDTH - 8);
-  const top = Math.min(y, window.innerHeight - 100);
+  const top = Math.min(y, window.innerHeight - 180);
 
   return (
     <div
@@ -40,6 +46,19 @@ export default function IconContextMenu({ x, y, count, onRename, onDelete, onClo
       style={{ left, top, width: MENU_WIDTH, zIndex: 9500 }}
       className="fixed rounded-xl border border-[var(--os-border)] bg-[var(--os-surface-strong)] p-1.5 shadow-2xl backdrop-blur-[var(--os-blur)] backdrop-saturate-[var(--os-saturate)]"
     >
+      <button
+        onClick={onCut}
+        className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+      >
+        Cut
+      </button>
+      <button
+        onClick={onCopy}
+        className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+      >
+        Copy
+      </button>
+      <MenuDivider />
       {count === 1 && (
         <button
           onClick={onRename}

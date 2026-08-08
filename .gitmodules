@@ -1,0 +1,3 @@
+[submodule "packages/loom"]
+	path = packages/loom
+	url = https://github.com/veasnawt/Loom.git

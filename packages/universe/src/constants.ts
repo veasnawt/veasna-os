@@ -185,5 +185,46 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
       "Model Provider Configuration",
       "Storage & Database Diagnostics"
     ]
+  },
+  {
+    id: "terminal",
+    name: "Terminal",
+    subtitle: "Obsidian Command Shard",
+    description: "A dark glass-shard asteroid etched with glowing command glyphs — a direct line into the machine underneath the cosmos.",
+    color: "#22c55e",
+    glowColor: "#16a34a",
+    size: 0.95,
+    orbitRadius: 46.5,
+    orbitSpeed: 0.014,
+    rotationSpeed: 0.022,
+    position: [-38, 3, 26],
+    details: [
+      "Real Shell Access (cmd.exe)",
+      "Persistent Working Directory",
+      "Live Streamed Output",
+      "Local Machine Only"
+    ]
+  },
+  {
+    id: "browser",
+    name: "Browser",
+    subtitle: "Wayfarer's Lens",
+    description: "A pale, cloud-veiled world ringed with a faint atmospheric halo — a window looking outward from the cosmos to the wider web.",
+    color: "#38bdf8",
+    glowColor: "#0ea5e9",
+    size: 1.0,
+    orbitRadius: 52,
+    orbitSpeed: 0.012,
+    rotationSpeed: 0.016,
+    position: [42, -1.5, -30],
+    hasRing: true,
+    ringColor: "#7dd3fc",
+    ringRadius: 1.7,
+    details: [
+      "Embedded Web Browsing",
+      "Address Bar & Search",
+      "Back / Forward History",
+      "Open-in-New-Tab Fallback"
+    ]
   }
 ];

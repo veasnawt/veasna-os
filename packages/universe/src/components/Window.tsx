@@ -7,6 +7,8 @@ import { ThemeMode } from "../utils/theme";
 import WindowChrome from "./WindowChrome";
 import StudioDetailCard from "./StudioDetailCard";
 import SettingsPanel from "./SettingsPanel";
+import TerminalPanel from "./TerminalPanel";
+import BrowserPanel from "./BrowserPanel";
 
 interface WindowProps {
   win: OpenWindow;
@@ -30,6 +32,20 @@ interface WindowProps {
   onTaskbarAlignmentChange: (alignment: TaskbarAlignment) => void;
   taskbarShowClock: boolean;
   onToggleTaskbarShowClock: () => void;
+  terminalSessionId: string;
+  terminalLines: string[];
+  onTerminalLinesChange: (lines: string[]) => void;
+  terminalCwd: string;
+  onTerminalCwdChange: (cwd: string) => void;
+  browserUrl: string;
+  browserCanGoBack: boolean;
+  browserCanGoForward: boolean;
+  browserReloadTick: number;
+  onBrowserNavigate: (url: string) => void;
+  onBrowserBack: () => void;
+  onBrowserForward: () => void;
+  onBrowserReload: () => void;
+  onBrowserHome: () => void;
 }
 
 const MIN_WIDTH = 320;
@@ -115,6 +131,20 @@ export default function Window({
   onTaskbarAlignmentChange,
   taskbarShowClock,
   onToggleTaskbarShowClock,
+  terminalSessionId,
+  terminalLines,
+  onTerminalLinesChange,
+  terminalCwd,
+  onTerminalCwdChange,
+  browserUrl,
+  browserCanGoBack,
+  browserCanGoForward,
+  browserReloadTick,
+  onBrowserNavigate,
+  onBrowserBack,
+  onBrowserForward,
+  onBrowserReload,
+  onBrowserHome,
 }: WindowProps) {
   const dragOrigin = useRef<{ startX: number; startY: number; rect: WindowRect } | null>(null);
   const resizeOrigin = useRef<{ startX: number; startY: number; rect: WindowRect } | null>(null);
@@ -326,6 +356,26 @@ export default function Window({
               onTaskbarAlignmentChange={onTaskbarAlignmentChange}
               taskbarShowClock={taskbarShowClock}
               onToggleTaskbarShowClock={onToggleTaskbarShowClock}
+            />
+          ) : win.body.id === "terminal" ? (
+            <TerminalPanel
+              sessionId={terminalSessionId}
+              lines={terminalLines}
+              onLinesChange={onTerminalLinesChange}
+              cwd={terminalCwd}
+              onCwdChange={onTerminalCwdChange}
+            />
+          ) : win.body.id === "browser" ? (
+            <BrowserPanel
+              url={browserUrl}
+              canGoBack={browserCanGoBack}
+              canGoForward={browserCanGoForward}
+              reloadTick={browserReloadTick}
+              onNavigate={onBrowserNavigate}
+              onBack={onBrowserBack}
+              onForward={onBrowserForward}
+              onReload={onBrowserReload}
+              onHome={onBrowserHome}
             />
           ) : (
             <StudioDetailCard body={win.body} variant="embedded" showHeader={false} />

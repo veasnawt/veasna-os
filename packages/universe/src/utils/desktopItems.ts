@@ -1,27 +1,19 @@
 export interface DesktopItemData {
-  id: string;
+  /** Relative to the real filesystem root, "/"-separated regardless of host OS. Doubles as this item's unique id. */
+  path: string;
   kind: "folder" | "file";
   name: string;
-  /** Id of the containing folder, or null/undefined for top-level (on the desktop). Folders and files can both be nested. */
-  parentId?: string | null;
 }
 
-export function generateItemId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+export function parentPath(itemPath: string): string {
+  const idx = itemPath.lastIndexOf("/");
+  return idx === -1 ? "" : itemPath.slice(0, idx);
 }
 
-/** True if `itemId` lives somewhere underneath `ancestorId` in the folder tree (walks up the parentId chain). */
-export function isDescendantOf(
-  itemId: string,
-  ancestorId: string,
-  itemsById: Map<string, DesktopItemData>
-): boolean {
-  let current = itemsById.get(itemId);
-  while (current?.parentId) {
-    if (current.parentId === ancestorId) return true;
-    current = itemsById.get(current.parentId);
-  }
-  return false;
+/** True if `candidatePath` is (or lives underneath) `ancestorPath`. `ancestorPath === ""` means the root. */
+export function isDescendantOf(candidatePath: string, ancestorPath: string): boolean {
+  if (ancestorPath === "") return candidatePath !== "";
+  return candidatePath === ancestorPath || candidatePath.startsWith(`${ancestorPath}/`);
 }
 
 /** Mimics Windows' "New folder", "New folder (2)", ... collision handling. */
@@ -33,10 +25,6 @@ export function uniqueItemName(base: string, ext: string, existingNamesLower: st
     n++;
   }
   return candidate;
-}
-
-export function fileContentKey(id: string): string {
-  return `veasna-os:file-content:${id}`;
 }
 
 export const FOLDER_COLOR = "#eab308";

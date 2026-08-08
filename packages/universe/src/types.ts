@@ -26,7 +26,14 @@ export type StudioId =
   | "gamedev"
   | "memory"
   | "language"
-  | "settings";
+  | "settings"
+  | "terminal"
+  | "browser";
+
+/** Things that can be pinned to the taskbar — every studio, plus the List-mode-only File Manager
+ *  (which isn't a StudioId: it has no 3D cosmos representation and doesn't go through the studio
+ *  OpenWindow system, so it's kept out of CelestialBody/StudioId entirely). */
+export type PinnableId = StudioId | "filemanager";
 
 export interface MoonData {
   name: string;
