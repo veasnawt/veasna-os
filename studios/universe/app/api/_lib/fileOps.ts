@@ -7,6 +7,13 @@ import { ROOT, ApiError, resolveSandboxed, toRelPath, pathExists, validateName }
 // below (a real trash bin's contents are never meant to show up as "just another folder").
 export const TRASH_DIR = ".trash";
 
+// Files attached to Rixie's chat (RixieWindow.tsx's paperclip button) land here instead of a
+// visible "Rixie Uploads" folder on the Desktop — same hidden-from-every-listing treatment as
+// TRASH_DIR, for the same reason: these aren't files the user consciously placed on their Desktop,
+// they're chat attachments that happen to live in the same sandbox so Rixie's existing
+// desktop_read_file tool can reach them with no extra plumbing.
+export const RIXIE_UPLOADS_DIR = ".rixie-uploads";
+
 export interface FileEntry {
   name: string;
   kind: "folder" | "file";
@@ -22,7 +29,7 @@ export async function listEntries(relPath: string): Promise<FileEntry[]> {
   // Dirent.isDirectory()/isFile() are false for symlinks — this incidentally keeps any
   // manually-placed symlink out of listings rather than following it outside the sandbox.
   return dirents
-    .filter((d) => (d.isDirectory() || d.isFile()) && !(relPath === "" && d.name === TRASH_DIR))
+    .filter((d) => (d.isDirectory() || d.isFile()) && !(relPath === "" && (d.name === TRASH_DIR || d.name === RIXIE_UPLOADS_DIR)))
     .map((d) => ({
       name: d.name,
       kind: (d.isDirectory() ? "folder" : "file") as "folder" | "file",
@@ -53,7 +60,7 @@ export async function searchEntries(query: string, limit = 50): Promise<FileEntr
       if (results.length >= limit || visited >= MAX_VISITED) return;
       visited++;
       if (!d.isDirectory() && !d.isFile()) continue;
-      if (dirRel === "" && d.name === TRASH_DIR) continue;
+      if (dirRel === "" && (d.name === TRASH_DIR || d.name === RIXIE_UPLOADS_DIR)) continue;
       const rel = dirRel ? `${dirRel}/${d.name}` : d.name;
       if (d.name.toLowerCase().includes(q)) {
         results.push({ name: d.name, kind: d.isDirectory() ? "folder" : "file", path: rel });
@@ -222,6 +229,9 @@ export async function deleteEntries(paths: string[]) {
       if (!p) throw new ApiError(400, "Cannot delete the root", "root-target");
       if (p === TRASH_DIR || p.startsWith(`${TRASH_DIR}/`)) {
         throw new ApiError(400, "Cannot delete the trash itself", "trash-target");
+      }
+      if (p === RIXIE_UPLOADS_DIR) {
+        throw new ApiError(400, "Cannot delete the Rixie uploads folder itself", "rixie-uploads-target");
       }
       const abs = resolveSandboxed(p);
       const stat = await fs.promises.stat(abs).catch(() => null);

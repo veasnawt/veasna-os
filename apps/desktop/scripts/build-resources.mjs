@@ -14,6 +14,7 @@ import { cpSync, existsSync, mkdirSync, rmSync, lstatSync, readdirSync, readlink
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(__dirname, "..");
@@ -101,6 +102,36 @@ function hoistPnpmPackageRecursive(intoNodeModulesDir, pkgName, copyFromDir, pnp
 
 function packageExistsInPnpmStore(pnpmRoot, pkgName) {
   return existsSync(pnpmRoot) && readdirSync(pnpmRoot).some((d) => d.startsWith(`${pkgName}@`));
+}
+
+// Confirmed the hard way (three separate times) that running electron-rebuild --force against
+// better-sqlite3 anywhere in this repo — even with --module-dir pointed at resources/universe or
+// resources/bp, never the repo root — can leave the REPO ROOT's own node_modules copy of
+// better-sqlite3 compiled for Electron's Node ABI instead of the system Node ABI plain `pnpm dev`
+// needs, breaking Rixie's chat (SessionStore/memory) with a NODE_MODULE_VERSION mismatch the very
+// next time `pnpm dev` runs. The exact mechanism was never fully pinned down (electron-rebuild's
+// own module-root detection likely doesn't respect --module-dir as strictly as it should inside a
+// pnpm workspace) — rather than keep chasing it, this makes the whole pipeline self-healing:
+// unconditionally re-fetch the correct system-Node prebuilt binary for the repo root's own copy as
+// the very last step, regardless of whether this particular run actually triggered the corruption.
+function restoreRootBetterSqlite3Abi() {
+  const repoRootPnpm = path.join(repoRoot, "node_modules", ".pnpm");
+  if (!packageExistsInPnpmStore(repoRootPnpm, "better-sqlite3")) return;
+  const versionDir = readdirSync(repoRootPnpm).find((d) => d.startsWith("better-sqlite3@"));
+  const pkgDir = path.join(repoRootPnpm, versionDir, "node_modules", "better-sqlite3");
+  console.log("Restoring the repo root's own better-sqlite3 to system Node's ABI (undoes any accidental Electron-ABI contamination from the rebuild above)...");
+  try {
+    // Resolved via better-sqlite3's own package.json rather than a hardcoded version — it's a
+    // direct dependency of better-sqlite3 itself, so this always finds whatever copy pnpm actually
+    // installed alongside it.
+    const prebuildInstallBin = createRequire(path.join(pkgDir, "package.json")).resolve("prebuild-install/bin.js");
+    execSync(`node "${prebuildInstallBin}" --force`, { cwd: pkgDir, stdio: "inherit" });
+  } catch (err) {
+    // Best-effort — if a dev server currently has the file open (EPERM on Windows), this just
+    // means the fix needs a manual re-run after stopping it; never fail the actual package build
+    // over a repo-root dev-convenience concern unrelated to what's being packaged.
+    console.warn(`Could not restore the repo root's better-sqlite3 ABI (${err.message.split("\n")[0]}) — if "pnpm dev" breaks afterward, stop it first and re-run this manually.`);
+  }
 }
 
 // The ONE real portability gap: pnpm's tracer leaves some symlinks (confirmed: react, react-dom,
@@ -300,5 +331,6 @@ function buildGamedevStatic() {
 buildNextStandaloneResources({ appDirName: "universe", outName: "universe", rebuildBetterSqlite3: true });
 buildNextStandaloneResources({ appDirName: "bp", outName: "bp", rebuildBetterSqlite3: true });
 buildGamedevStatic();
+restoreRootBetterSqlite3Abi();
 
 console.log("All resources ready for electron-builder.");

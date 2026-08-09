@@ -76,15 +76,31 @@ function generateMessageId(): string {
 }
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
-const ATTACHMENT_MARKER_RE = /\n\n\[Attached file: "([^"]+)"\]$/;
+const ATTACHMENT_MARKER_RE = /\n\n\[Attached file: (\{.*\})\]$/;
 
-/** Pulls the `[Attached file: "..."]` marker handleSend() appends back out of a stored message —
+/** Generates a collision-proof on-disk filename — uploads live in a shared hidden folder (not a
+ *  per-message one), so two attachments named "photo.png" must never collide the way they would
+ *  in a normal folder (the shared upload route below writes with `wx`/exclusive-create, same as
+ *  File Manager's own drag-drop, which correctly SHOULD 409 on a genuine same-folder collision). */
+function uniqueUploadName(originalName: string): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}-${originalName}`;
+}
+
+/** Pulls the `[Attached file: {...}]` marker handleSend() appends back out of a stored message —
  *  works the same whether the message was just sent or reloaded from a past session, since it's
- *  derived from the persisted content string itself rather than separate client-only state. */
-function parseAttachment(content: string): { caption: string; relPath: string; isImage: boolean } | null {
+ *  derived from the persisted content string itself rather than separate client-only state. JSON
+ *  (rather than a bare path) so the original filename survives independent of whatever
+ *  collision-proofing prefix the on-disk name ended up with. */
+function parseAttachment(content: string): { caption: string; relPath: string; displayName: string; isImage: boolean } | null {
   const match = content.match(ATTACHMENT_MARKER_RE);
   if (!match) return null;
-  return { caption: content.slice(0, match.index).trim(), relPath: match[1], isImage: IMAGE_EXT_RE.test(match[1]) };
+  try {
+    const parsed = JSON.parse(match[1]) as { path: string; name: string };
+    if (!parsed.path || !parsed.name) return null;
+    return { caption: content.slice(0, match.index).trim(), relPath: parsed.path, displayName: parsed.name, isImage: IMAGE_EXT_RE.test(parsed.path) };
+  } catch {
+    return null;
+  }
 }
 
 /** SessionRecord's timestamps are UNIX seconds (@veasna/ai's SessionStore uses
@@ -265,7 +281,7 @@ export default function RixieWindow({
     // is what Rixie parses for the real sandboxed path (same one desktop_read_file expects).
     const finalText =
       attachment && attachment.relPath
-        ? `${text || "Take a look and let me know what you find."}\n\n[Attached file: "${attachment.relPath}"]`
+        ? `${text || "Take a look and let me know what you find."}\n\n[Attached file: ${JSON.stringify({ path: attachment.relPath, name: attachment.file.name })}]`
         : text;
 
     setInput("");
@@ -277,8 +293,10 @@ export default function RixieWindow({
    *  caption) but only stages it in the composer — sending is a separate, explicit step the user
    *  controls via handleSend, with a chance to preview (image thumbnail), add a caption, or
    *  remove it first. Uploads straight into the sandbox (the same /api/files/upload route File
-   *  Manager's own drag-drop uses) under a dedicated "Rixie Uploads" folder — created
-   *  automatically on first use — so Rixie can act on it via her existing desktop_read_file tool. */
+   *  Manager's own drag-drop uses) under RIXIE_UPLOADS_DIR — a hidden folder, not a visible Desktop
+   *  one, since these are chat attachments the user didn't consciously place there, not real
+   *  desktop files — with a collision-proof on-disk name, so Rixie can act on it via her existing
+   *  desktop_read_file tool. */
   function handleFileSelected(file: File) {
     clearAttachment();
     const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
@@ -286,8 +304,9 @@ export default function RixieWindow({
 
     (async () => {
       try {
-        const relPath = `Rixie Uploads/${file.name}`;
-        const res = await fetch(`/api/files/upload?path=${encodeURIComponent("Rixie Uploads")}&name=${encodeURIComponent(file.name)}`, {
+        const uniqueName = uniqueUploadName(file.name);
+        const relPath = `.rixie-uploads/${uniqueName}`;
+        const res = await fetch(`/api/files/upload?path=${encodeURIComponent(".rixie-uploads")}&name=${encodeURIComponent(uniqueName)}`, {
           method: "POST",
           body: await file.arrayBuffer(),
         });
@@ -357,14 +376,14 @@ export default function RixieWindow({
                       {att && att.isImage && (
                         <img
                           src={`/api/files/raw?path=${encodeURIComponent(att.relPath)}`}
-                          alt={att.relPath.split("/").pop()}
+                          alt={att.displayName}
                           className="max-h-48 rounded-xl border border-[var(--os-border)] object-contain"
                         />
                       )}
                       {att && !att.isImage && (
                         <div className="flex items-center gap-1.5 rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] px-2 py-1 text-[10px] text-[var(--os-text-muted)]">
                           <Paperclip size={11} />
-                          {att.relPath.split("/").pop()}
+                          {att.displayName}
                         </div>
                       )}
                       <div className="whitespace-pre-wrap rounded-xl bg-[var(--os-accent-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--os-accent-text)]">
