@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import { execFile } from "node:child_process";
 import { createMainWindow } from "./windows/createMainWindow";
 import { spawnNextServer } from "./server/spawnNextServer";
 import { serveStaticDir } from "./server/serveStaticDir";
@@ -31,41 +32,32 @@ ipcMain.handle("settings:set-api-key", (_event, provider: RixieProvider, apiKey:
   setApiKey(provider, apiKey);
 });
 
-// "Add Local App" (packages/universe's DesktopContextMenu) — a real native picker, not a custom
-// dialog, since the whole point is choosing among the user's OWN already-installed software. Only
-// meaningful inside a real desktop app (window.veasnaApps is undefined in a plain browser tab, see
-// runtime.ts's getAppsBridge), so there's no dev-mode/web fallback to consider here.
-ipcMain.handle("apps:pick-local", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const openDialogOptions: Electron.OpenDialogOptions = {
-    title: "Choose an application",
-    properties: ["openFile"],
-    filters: [
-      { name: "Applications", extensions: ["exe", "lnk"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
-  };
-  const result = win ? await dialog.showOpenDialog(win, openDialogOptions) : await dialog.showOpenDialog(openDialogOptions);
-  if (result.canceled || result.filePaths.length === 0) return null;
-  const filePath = result.filePaths[0];
-  const name = path.basename(filePath).replace(/\.(exe|lnk)$/i, "");
-  let iconDataUrl: string | undefined;
-  try {
-    // Windows Shell's own icon for this exact file — real branding, not a generic glyph. Wrapped in
-    // try/catch since extraction failing shouldn't block installing the shortcut itself; the
-    // renderer falls back to a generic icon when this comes back undefined.
-    const icon = await app.getFileIcon(filePath, { size: "large" });
-    iconDataUrl = icon.toDataURL();
-  } catch {
-    // Fall through with no icon.
-  }
-  return { path: filePath, name, iconDataUrl };
+// "Install Software" (packages/universe's DesktopContextMenu + InstallSoftwareDialog) — installs a
+// real package via Windows' own built-in winget CLI, from a small curated catalog the renderer
+// already knows the winget package IDs for (see installSoftwareCatalog.ts). Only meaningful inside
+// a real desktop app (window.veasnaApps is undefined in a plain browser tab, see runtime.ts's
+// getAppsBridge) — winget itself isn't reachable from a web page regardless.
+//
+// Deliberately execFile (array args, no shell) rather than exec/a shell string — even though
+// wingetId always comes from our own fixed catalog today, not arbitrary user input, this avoids
+// ever depending on that staying true. 10 minutes covers a slow download on a slow connection;
+// winget itself has no useful progress-reporting hook to stream back mid-install.
+ipcMain.handle("apps:winget-install", (_event, wingetId: string) => {
+  return new Promise<{ status: "success" | "error"; message?: string }>((resolve) => {
+    execFile(
+      "winget",
+      ["install", "--id", wingetId, "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+      { timeout: 10 * 60 * 1000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          resolve({ status: "error", message: stderr.trim() || stdout.trim() || err.message });
+        } else {
+          resolve({ status: "success" });
+        }
+      }
+    );
+  });
 });
-
-// shell.openPath resolves with a human-readable error string on failure ("" on success) — it does
-// NOT reject, so this needs no try/catch of its own; the renderer surfaces a non-empty result as
-// an error banner.
-ipcMain.handle("apps:launch-local", (_event, filePath: string) => shell.openPath(filePath));
 
 /** Spawns Universe (the actual OS shell — must work, and now also hosts Rixie's chat) plus,
  *  best-effort, BP Studio and Game Dev Studio (bundled but non-critical: if either fails to

@@ -33,6 +33,6 @@ contextBridge.exposeInMainWorld("veasnaSettings", {
 });
 
 contextBridge.exposeInMainWorld("veasnaApps", {
-  pickLocal: () => ipcRenderer.invoke("apps:pick-local") as Promise<{ path: string; name: string; iconDataUrl?: string } | null>,
-  launchLocal: (path: string) => ipcRenderer.invoke("apps:launch-local", path) as Promise<string>,
+  wingetInstall: (wingetId: string) =>
+    ipcRenderer.invoke("apps:winget-install", wingetId) as Promise<{ status: "success" | "error"; message?: string }>,
 });

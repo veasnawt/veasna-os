@@ -17,9 +17,9 @@ interface DesktopContextMenuProps {
   onOpenTerminal: () => void;
   onInstallApp: () => void;
   /** Only passed inside the packaged Electron desktop app (see runtime.ts's getAppsBridge) — a
-   *  plain browser tab has no way to launch a real native executable, so the menu item is omitted
-   *  entirely there rather than shown disabled. */
-  onAddLocalApp?: () => void;
+   *  plain browser tab has no way to reach winget, so the menu item is omitted entirely there
+   *  rather than shown disabled. */
+  onInstallSoftware?: () => void;
   onClose: () => void;
 }
 
@@ -98,7 +98,7 @@ export default function DesktopContextMenu({
   pasteDisabled,
   onOpenTerminal,
   onInstallApp,
-  onAddLocalApp,
+  onInstallSoftware,
   onClose,
 }: DesktopContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -141,7 +141,7 @@ export default function DesktopContextMenu({
       <MenuDivider />
       <MenuActionItem label="Open in Terminal" onClick={onOpenTerminal} />
       <MenuActionItem label="Install Web App…" onClick={onInstallApp} />
-      {onAddLocalApp && <MenuActionItem label="Add Local App…" onClick={onAddLocalApp} />}
+      {onInstallSoftware && <MenuActionItem label="Install Software…" onClick={onInstallSoftware} />}
       <MenuDivider />
       <MenuCheckboxItem label="Auto arrange icons" checked={autoArrange} onClick={onToggleAutoArrange} />
       <MenuCheckboxItem

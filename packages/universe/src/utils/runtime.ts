@@ -124,21 +124,11 @@ export function getSettingsBridge(): SettingsBridge | undefined {
   return typeof window !== "undefined" ? window.veasnaSettings : undefined;
 }
 
-export interface LocalAppPickResult {
-  path: string;
-  name: string;
-  /** Windows Shell's own icon for the picked file, as a data: URL — undefined if extraction
-   *  failed (the desktop icon falls back to a generic glyph in that case). */
-  iconDataUrl?: string;
-}
-
 export interface AppsBridge {
-  /** Opens a native "choose an application" file picker (.exe/.lnk). Resolves to null if the user
-   *  cancels rather than rejecting, so callers don't need a try/catch just to handle "no-op". */
-  pickLocal: () => Promise<LocalAppPickResult | null>;
-  /** Launches the real app at `path` on the real machine via Electron's shell.openPath — resolves
-   *  to "" on success or a human-readable error message on failure; never rejects. */
-  launchLocal: (path: string) => Promise<string>;
+  /** Installs a real package via Windows' own winget CLI (id from InstallSoftwareDialog's fixed
+   *  catalog) — resolves with a status/message rather than rejecting, so callers can show a normal
+   *  error state without a try/catch. */
+  wingetInstall: (wingetId: string) => Promise<{ status: "success" | "error"; message?: string }>;
 }
 
 declare global {
@@ -147,9 +137,8 @@ declare global {
   }
 }
 
-/** Only defined inside the packaged Electron desktop app — there's no way to launch a real native
- *  executable (or show a native file picker) from a plain browser tab, so "Add Local App" is
- *  entirely absent there, not just disabled. */
+/** Only defined inside the packaged Electron desktop app — winget isn't reachable from a plain
+ *  browser tab, so "Install Software" is entirely absent there, not just disabled. */
 export function getAppsBridge(): AppsBridge | undefined {
   return typeof window !== "undefined" ? window.veasnaApps : undefined;
 }

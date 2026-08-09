@@ -3,7 +3,6 @@ import { Ai, Art, Create, Document, Folder, Game, Globe, Music, Settings as Sett
 import TerminalIcon from "./TerminalIcon";
 import BrowserIcon from "./BrowserIcon";
 import TaskManagerIcon from "./TaskManagerIcon";
-import LocalAppIcon from "./LocalAppIcon";
 import AboutOSIcon from "./AboutOSIcon";
 import OSUpdateIcon from "./OSUpdateIcon";
 import PropertiesWindow, { PropertiesSubject } from "./PropertiesWindow";
@@ -27,7 +26,6 @@ import {
 import { getFileKind, getFileIcon, getFileColor } from "../utils/fileTypes";
 import { flattenDroppedItems, uploadDroppedFiles, isExternalFileDrag } from "../utils/dropFiles";
 import { InstalledApp, loadInstalledApps, installApp, uninstallApp, faviconUrl } from "../utils/installedApps";
-import { LocalApp, loadLocalApps, installLocalApp, uninstallLocalApp } from "../utils/localApps";
 import { getAppsBridge } from "../utils/runtime";
 import DesktopIcon, { IconPosition } from "./DesktopIcon";
 import DesktopContextMenu from "./DesktopContextMenu";
@@ -37,6 +35,7 @@ import FileEditorWindow from "./FileEditorWindow";
 import FilePreviewWindow from "./FilePreviewWindow";
 import FileManager from "./FileManager";
 import InstallAppDialog from "./InstallAppDialog";
+import InstallSoftwareDialog from "./InstallSoftwareDialog";
 import InstalledAppWindow from "./InstalledAppWindow";
 import type { FloatingRect } from "./FloatingWindow";
 import DragGhost from "./DragGhost";
@@ -119,7 +118,7 @@ type Entry = {
   name: string;
   color: string;
   icon: React.ComponentType<{ size?: number }>;
-  kind: "studio" | "folder" | "file" | "filemanager" | "webapp" | "localapp" | "taskmanager" | "aboutos" | "osupdate";
+  kind: "studio" | "folder" | "file" | "filemanager" | "webapp" | "taskmanager" | "aboutos" | "osupdate";
   body?: CelestialBody;
   thumbnailUrl?: string;
 };
@@ -147,7 +146,6 @@ type UndoAction =
   | { type: "copy"; createdPaths: string[] }
   | { type: "delete"; trashed: { path: string; trashPath: string }[] }
   | { type: "installApp"; app: InstalledApp }
-  | { type: "installLocalApp"; app: LocalApp }
   | { type: "upload"; createdPaths: string[] };
 
 /** Result of hit-testing a drag against desktop folder icons and open window rects — `windowId` is
@@ -224,8 +222,8 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
   // Top-level real entries only (desktop icon grid) — fetched from the real filesystem, not localStorage.
   const [desktopItems, setDesktopItems] = useState<DesktopItemData[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
-  const [localApps, setLocalApps] = useState<LocalApp[]>([]);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
+  const [showInstallSoftwareDialog, setShowInstallSoftwareDialog] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [iconContextMenu, setIconContextMenu] = useState<{ x: number; y: number; itemId: string } | null>(null);
@@ -348,8 +346,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     }
     const apps = loadInstalledApps();
     setInstalledApps(apps);
-    const localAppsList = loadLocalApps();
-    setLocalApps(localAppsList);
     loadRoot().then((items) => {
       const allIds = [
         ...CELESTIAL_BODIES.map((b) => b.id),
@@ -359,7 +355,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         OS_UPDATE_ID,
         ...items.map((i) => i.path),
         ...apps.map((a) => a.id),
-        ...localAppsList.map((a) => a.id),
       ];
       setOrder(normalizeOrder(parsedOrder, allIds));
     });
@@ -379,21 +374,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
 
   function appendToOrder(path: string) {
     persistOrder([...order, path]);
-  }
-
-  /** "Add Local App…" (desktop context menu) — opens a native "choose an application" picker via
-   *  the Electron bridge (undefined/no-op outside the packaged desktop app, where the menu item
-   *  itself is already omitted — see DesktopContextMenu's onAddLocalApp). Resolves to null if the
-   *  user cancels the picker, in which case there's nothing to install. */
-  async function handleAddLocalApp() {
-    const bridge = getAppsBridge();
-    if (!bridge) return;
-    const picked = await bridge.pickLocal();
-    if (!picked) return;
-    const app = installLocalApp(picked.name, picked.path, picked.iconDataUrl);
-    setLocalApps((prev) => [...prev, app]);
-    appendToOrder(app.id);
-    pushUndo({ type: "installLocalApp", app });
   }
 
   /** Renames every currently-tracked reference (open viewers, selection, focus) under `oldPrefix`
@@ -891,16 +871,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
           });
           return;
         }
-        case "installLocalApp": {
-          uninstallLocalApp(action.app.id);
-          setLocalApps((prev) => prev.filter((a) => a.id !== action.app.id));
-          setOrder((prev) => {
-            const next = prev.filter((id) => id !== action.app.id);
-            localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
-            return next;
-          });
-          return;
-        }
       }
     } catch (err) {
       setBanner(errMessage(err));
@@ -909,7 +879,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
 
   const desktopItemsByPath = useMemo(() => new Map(desktopItems.map((i) => [i.path, i])), [desktopItems]);
   const installedAppsById = useMemo(() => new Map(installedApps.map((a) => [a.id, a])), [installedApps]);
-  const localAppsById = useMemo(() => new Map(localApps.map((a) => [a.id, a])), [localApps]);
 
   // ---- Minimize (taskbar integration) ----
   function handleMinimizeViewer(id: string) {
@@ -1024,17 +993,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       const app = installedAppsById.get(id);
       if (app) {
         return { id: app.id, name: app.name, color: app.color, icon: Globe, kind: "webapp", thumbnailUrl: faviconUrl(app.url) };
-      }
-      const localApp = localAppsById.get(id);
-      if (localApp) {
-        return {
-          id: localApp.id,
-          name: localApp.name,
-          color: localApp.color,
-          icon: LocalAppIcon,
-          kind: "localapp",
-          thumbnailUrl: localApp.iconDataUrl,
-        };
       }
       const item = desktopItemsByPath.get(id);
       if (item) {
@@ -1336,17 +1294,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                 } else if (entry.kind === "webapp") {
                   const app = installedAppsById.get(entry.id);
                   if (app) openViewer(app.id, { kind: "webapp", name: app.name, url: app.url, color: app.color });
-                } else if (entry.kind === "localapp") {
-                  // Launches the real app on the real machine — no viewer window to open here,
-                  // unlike every other entry kind.
-                  const app = localAppsById.get(entry.id);
-                  if (app) {
-                    getAppsBridge()
-                      ?.launchLocal(app.path)
-                      .then((error) => {
-                        if (error) setBanner(error);
-                      });
-                  }
                 } else if (entry.kind === "taskmanager") {
                   onOpenTaskManager();
                 } else if (entry.kind === "aboutos") {
@@ -1536,11 +1483,11 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
             setContextMenu(null);
             setShowInstallDialog(true);
           }}
-          onAddLocalApp={
+          onInstallSoftware={
             getAppsBridge()
               ? () => {
                   setContextMenu(null);
-                  handleAddLocalApp().catch((err) => setBanner(errMessage(err)));
+                  setShowInstallSoftwareDialog(true);
                 }
               : undefined
           }
@@ -1559,6 +1506,8 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
           onClose={() => setShowInstallDialog(false)}
         />
       )}
+
+      {showInstallSoftwareDialog && <InstallSoftwareDialog onClose={() => setShowInstallSoftwareDialog(false)} />}
 
       {iconContextMenu && (
         <IconContextMenu
@@ -1631,25 +1580,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                   });
                   setIconContextMenu(null);
                 }
-              : localAppsById.has(iconContextMenu.itemId)
-                ? () => {
-                    const id = iconContextMenu.itemId;
-                    uninstallLocalApp(id);
-                    setLocalApps((prev) => prev.filter((a) => a.id !== id));
-                    setOrder((prev) => {
-                      const next = prev.filter((oid) => oid !== id);
-                      localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
-                      return next;
-                    });
-                    setSelectedIds((prev) => {
-                      if (!prev.has(id)) return prev;
-                      const next = new Set(prev);
-                      next.delete(id);
-                      return next;
-                    });
-                    setIconContextMenu(null);
-                  }
-                : undefined
+              : undefined
           }
           onProperties={
             (() => {
@@ -1664,13 +1595,6 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
               if (app) {
                 return () => {
                   openProperties({ kind: "webapp", name: app.name, url: app.url, color: app.color });
-                  setIconContextMenu(null);
-                };
-              }
-              const localApp = localAppsById.get(iconContextMenu.itemId);
-              if (localApp) {
-                return () => {
-                  openProperties({ kind: "localapp", name: localApp.name, path: localApp.path, color: localApp.color });
                   setIconContextMenu(null);
                 };
               }
