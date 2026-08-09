@@ -12,6 +12,17 @@ export const runtime = "nodejs";
  *  user verbatim inside a chat bubble. Recognizes the handful of failure shapes actually worth a
  *  distinct message; anything unrecognized still falls back to the raw text rather than hiding a
  *  genuinely new error behind a vague catch-all. */
+/** Pulls a concrete retry delay out of the raw error text when the provider actually gave one —
+ *  Groq/OpenAI's plain-text "Please try again in 3.005s." and Gemini's JSON "retryDelay": "42s"
+ *  are the two shapes confirmed live this session. Rounded up to a whole second: the sub-second
+ *  precision providers report is real but not meaningfully actionable to a person reading a chat
+ *  bubble. Returns null (never a made-up number) when neither shape matches, so the caller can
+ *  fall back to a delay-free message instead of inventing one. */
+function extractRetryDelaySeconds(raw: string): number | null {
+  const match = raw.match(/try again in ([\d.]+)s/i) ?? raw.match(/"retryDelay"\s*:\s*"([\d.]+)s"/i);
+  return match ? Math.max(1, Math.ceil(parseFloat(match[1]))) : null;
+}
+
 function humanizeProviderError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/credit balance is too low/i.test(raw)) {
@@ -39,7 +50,10 @@ function humanizeProviderError(err: unknown): string {
       : "I can't respond right now — the model saved for this provider doesn't exist. Fix or clear the Model field for it in Settings → Rixie AI.";
   }
   if (/rate_limit_error|429/i.test(raw)) {
-    return "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
+    const delay = extractRetryDelaySeconds(raw);
+    return delay
+      ? `I'm being rate-limited by the AI provider right now — it should clear in about ${delay} second${delay === 1 ? "" : "s"}. Try again shortly.`
+      : "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
   }
   if (/overloaded_error|529/i.test(raw)) {
     return "The AI provider is overloaded right now — try again in a bit.";
