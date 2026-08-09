@@ -13,7 +13,11 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   gemini: "Google Gemini",
 };
 
-/** The web-mode counterpart to the Electron bridge — same two-method shape, backed by
+type KeyStatus = { activeProvider: RixieProvider; configured: Record<RixieProvider, boolean> };
+
+const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false };
+
+/** The web-mode counterpart to the Electron bridge — same shape, backed by
  *  /api/settings/rixie-key instead of an IPC call. That route writes to a gitignored .env.rixie
  *  file inside the checkout (studios/universe/app/api/_lib/rixieEnvFile.ts), read fresh by
  *  /api/agent on every request, so this behaves identically to the packaged app: no restart
@@ -21,7 +25,7 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
 const httpKeyBridge: SettingsBridge = {
   async getApiKeyStatus() {
     const res = await fetch("/api/settings/rixie-key");
-    if (!res.ok) return { provider: "anthropic", hasKey: false };
+    if (!res.ok) return { activeProvider: "anthropic", configured: EMPTY_CONFIGURED };
     return res.json();
   },
   async setApiKey(provider, apiKey) {
@@ -35,45 +39,85 @@ const httpKeyBridge: SettingsBridge = {
       throw new Error(data.error || `Failed to save (${res.status})`);
     }
   },
+  async setActiveProvider(provider) {
+    const res = await fetch("/api/settings/rixie-key", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Failed to switch (${res.status})`);
+    }
+  },
 };
 
 /** Lets the user enter Rixie's chat credentials from inside the app itself, instead of
  *  hand-editing a file — via the Electron bridge (Documents/Veasna OS/rixie.env) in the packaged
  *  desktop app, or httpKeyBridge above (a dev-local .env.rixie file) everywhere else. Either way,
  *  it takes effect on Rixie's very next message with no restart needed — Universe's own
- *  /api/agent route re-reads the relevant file fresh on every request. */
+ *  /api/agent route re-reads the relevant file fresh on every request.
+ *
+ *  Keys for every provider you've ever saved stick around (setApiKey merges, never replaces) —
+ *  picking an already-configured provider from the dropdown switches to it immediately with no
+ *  key re-entry; only a genuinely new provider prompts for one. */
 function RixieApiKeySection() {
   const [bridge] = useState<SettingsBridge>(() => getSettingsBridge() ?? httpKeyBridge);
-  const [status, setStatus] = useState<{ provider: RixieProvider; hasKey: boolean } | null>(null);
+  const [status, setStatus] = useState<KeyStatus | null>(null);
   const [provider, setProvider] = useState<RixieProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     bridge.getApiKeyStatus().then((s) => {
       setStatus(s);
-      setProvider(s.provider);
+      setProvider(s.activeProvider);
     });
   }, [bridge]);
+
+  async function handleProviderChange(next: RixieProvider) {
+    setProvider(next);
+    setApiKey("");
+    setSaved(null);
+    setError(null);
+    // Already have a key on file for this one — switch straight to it, no re-entry needed. A
+    // provider with no saved key just updates the local selection; handleSave below is what
+    // actually persists anything for it.
+    if (status?.configured[next] && next !== status.activeProvider) {
+      setSaving(true);
+      try {
+        await bridge.setActiveProvider(next);
+        setStatus((prev) => (prev ? { ...prev, activeProvider: next } : prev));
+        setSaved(`Switched to ${PROVIDER_LABELS[next]} — Rixie will use it on your next message.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to switch");
+      } finally {
+        setSaving(false);
+      }
+    }
+  }
 
   async function handleSave() {
     if (!apiKey.trim()) return;
     setSaving(true);
-    setSaved(false);
+    setSaved(null);
     setError(null);
     try {
       await bridge.setApiKey(provider, apiKey.trim());
-      setStatus({ provider, hasKey: true });
+      setStatus((prev) => ({ activeProvider: provider, configured: { ...(prev?.configured ?? EMPTY_CONFIGURED), [provider]: true } }));
       setApiKey("");
-      setSaved(true);
+      setSaved("Saved — Rixie will use it on your next message.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   }
+
+  const isActive = provider === status?.activeProvider;
+  const isConfigured = status?.configured[provider] ?? false;
 
   return (
     <div className="mt-6 space-y-3">
@@ -83,20 +127,25 @@ function RixieApiKeySection() {
 
       <div className="space-y-2.5 rounded-lg border border-[var(--os-border)] px-3 py-3">
         <div className="text-[11px] text-[var(--os-text-muted)]">
-          {status?.hasKey
-            ? `A key is configured for ${PROVIDER_LABELS[status.provider]}. Enter a new one below to replace it.`
-            : "No API key configured yet — Rixie won't be able to chat until one is set."}
+          {isActive
+            ? isConfigured
+              ? `Rixie is currently using ${PROVIDER_LABELS[provider]}.`
+              : `Rixie is set to ${PROVIDER_LABELS[provider]}, but no key is saved for it yet — enter one below.`
+            : isConfigured
+            ? `Switching to ${PROVIDER_LABELS[provider]} — it already has a saved key.`
+            : `No key saved for ${PROVIDER_LABELS[provider]} yet — paste one below.`}
         </div>
 
         <div className="flex items-center gap-2">
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as RixieProvider)}
+            onChange={(e) => handleProviderChange(e.target.value as RixieProvider)}
             className="rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2 py-1.5 text-xs text-[var(--os-text)] outline-none focus:border-[var(--os-accent-border)]"
           >
             {(Object.keys(PROVIDER_LABELS) as RixieProvider[]).map((p) => (
               <option key={p} value={p}>
                 {PROVIDER_LABELS[p]}
+                {status?.configured[p] ? " ✓" : ""}
               </option>
             ))}
           </select>
@@ -105,10 +154,10 @@ function RixieApiKeySection() {
             value={apiKey}
             onChange={(e) => {
               setApiKey(e.target.value);
-              setSaved(false);
+              setSaved(null);
               setError(null);
             }}
-            placeholder="Paste your API key"
+            placeholder={isConfigured ? "Paste a new key to replace the saved one" : "Paste your API key"}
             spellCheck={false}
             autoComplete="off"
             className="min-w-0 flex-1 rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2.5 py-1.5 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
@@ -121,9 +170,9 @@ function RixieApiKeySection() {
             disabled={!apiKey.trim() || saving}
             className="rounded-full bg-[var(--os-accent-soft)] px-3.5 py-1.5 text-[11px] font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : isConfigured ? "Replace key" : "Save"}
           </button>
-          {saved && <span className="text-[11px] text-emerald-400">Saved — Rixie will use it on your next message.</span>}
+          {saved && <span className="text-[11px] text-emerald-400">{saved}</span>}
           {error && <span className="text-[11px] text-red-400">{error}</span>}
         </div>
       </div>

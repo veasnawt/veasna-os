@@ -28,8 +28,13 @@ contextBridge.exposeInMainWorld("veasnaStudios", {
 });
 
 contextBridge.exposeInMainWorld("veasnaSettings", {
-  getApiKeyStatus: () => ipcRenderer.invoke("settings:get-api-key-status") as Promise<{ provider: string; hasKey: boolean }>,
+  getApiKeyStatus: () =>
+    ipcRenderer.invoke("settings:get-api-key-status") as Promise<{
+      activeProvider: string;
+      configured: Record<string, boolean>;
+    }>,
   setApiKey: (provider: string, apiKey: string) => ipcRenderer.invoke("settings:set-api-key", provider, apiKey) as Promise<void>,
+  setActiveProvider: (provider: string) => ipcRenderer.invoke("settings:set-active-provider", provider) as Promise<void>,
 });
 
 contextBridge.exposeInMainWorld("veasnaApps", {

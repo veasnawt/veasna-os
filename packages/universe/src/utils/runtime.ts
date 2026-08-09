@@ -102,13 +102,18 @@ export function subscribeStudioUrlsChanged(callback: () => void): () => void {
 export type RixieProvider = "anthropic" | "openai" | "gemini";
 
 export interface SettingsBridge {
-  /** Never returns the actual key value — only whether one is currently configured, and for
-   *  which provider. The renderer's Settings UI never needs (or should have) the real secret once
-   *  it's been saved. */
-  getApiKeyStatus: () => Promise<{ provider: RixieProvider; hasKey: boolean }>;
-  /** Writes the key to Documents/Veasna OS/rixie.env — takes effect on Rixie's very next message,
-   *  no restart needed (Universe's own /api/agent route re-reads that file per-request). */
+  /** Never returns any key value itself — only whether one is currently saved, PER PROVIDER (not
+   *  just the active one), since setApiKey merges rather than replaces — switching providers
+   *  doesn't lose an earlier one, so the UI can offer "switch back to X" with no re-typing needed
+   *  once a key already exists for it. */
+  getApiKeyStatus: () => Promise<{ activeProvider: RixieProvider; configured: Record<RixieProvider, boolean> }>;
+  /** Writes the key to Documents/Veasna OS/rixie.env AND makes it the active provider — takes
+   *  effect on Rixie's very next message, no restart needed (Universe's own /api/agent route
+   *  re-reads that file per-request). */
   setApiKey: (provider: RixieProvider, apiKey: string) => Promise<void>;
+  /** Switches the active provider WITHOUT touching any saved key — for reusing a key that was
+   *  already saved for it earlier. */
+  setActiveProvider: (provider: RixieProvider) => Promise<void>;
 }
 
 declare global {

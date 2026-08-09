@@ -44,26 +44,49 @@ export function loadRixieEnv(): Record<string, string> {
   return parseEnvFile(fs.readFileSync(envPath, "utf-8"));
 }
 
-/** Whether a real key is currently configured for the active provider — never returns the key
- *  value itself (the renderer's Settings UI only ever needs to know "configured or not", not the
- *  actual secret, so it's never sent back across the IPC bridge once saved). */
-export function getApiKeyStatus(): { provider: RixieProvider; hasKey: boolean } {
+export interface RixieKeyStatus {
+  activeProvider: RixieProvider;
+  /** Whether a key is saved for EACH provider, not just the active one — setApiKey merges rather
+   *  than replaces (see below), so switching providers doesn't lose earlier ones, and the
+   *  Settings UI needs to know which ones are already usable without asking the user to re-paste
+   *  a key it already has on disk. */
+  configured: Record<RixieProvider, boolean>;
+}
+
+/** Never returns any key value itself — the renderer's Settings UI only ever needs to know
+ *  "configured or not" per provider, not the actual secret, so it's never sent back across the
+ *  IPC bridge once saved. */
+export function getApiKeyStatus(): RixieKeyStatus {
   const env = loadRixieEnv();
-  const provider = (env.RIXIE_PROVIDER as RixieProvider) || "anthropic";
-  const keyVar = PROVIDER_KEY_VAR[provider] ?? PROVIDER_KEY_VAR.anthropic;
-  return { provider, hasKey: Boolean(env[keyVar]?.trim()) };
+  const activeProvider = (env.RIXIE_PROVIDER as RixieProvider) || "anthropic";
+  const configured = Object.fromEntries(
+    (Object.keys(PROVIDER_KEY_VAR) as RixieProvider[]).map((p) => [p, Boolean(env[PROVIDER_KEY_VAR[p]]?.trim())])
+  ) as Record<RixieProvider, boolean>;
+  return { activeProvider, configured };
+}
+
+function writeRixieEnv(values: Record<string, string>): void {
+  const envPath = rixieEnvPath();
+  fs.mkdirSync(path.dirname(envPath), { recursive: true });
+  const lines = Object.entries(values).map(([k, v]) => `${k}=${v}`);
+  fs.writeFileSync(envPath, lines.join("\n") + "\n", "utf-8");
 }
 
 /** Writes (merging with, not replacing, whatever's already there — e.g. a hand-edited
- *  RIXIE_MODEL survives) the provider + API key into Documents/Veasna OS/rixie.env. No server
- *  restart needed — the agent route reads this file fresh on every chat request. */
+ *  RIXIE_MODEL, or another provider's already-saved key, survives) the provider + API key into
+ *  Documents/Veasna OS/rixie.env, and makes it the active provider. No server restart needed —
+ *  the agent route reads this file fresh on every chat request. */
 export function setApiKey(provider: RixieProvider, apiKey: string): void {
-  const envPath = rixieEnvPath();
-  fs.mkdirSync(path.dirname(envPath), { recursive: true });
   const existing = loadRixieEnv();
-  const keyVar = PROVIDER_KEY_VAR[provider];
   existing.RIXIE_PROVIDER = provider;
-  existing[keyVar] = apiKey.trim();
-  const lines = Object.entries(existing).map(([k, v]) => `${k}=${v}`);
-  fs.writeFileSync(envPath, lines.join("\n") + "\n", "utf-8");
+  existing[PROVIDER_KEY_VAR[provider]] = apiKey.trim();
+  writeRixieEnv(existing);
+}
+
+/** Switches the active provider WITHOUT touching any stored key — for the common case where the
+ *  user already saved a key for this provider earlier and just wants to switch back to it. */
+export function setActiveProvider(provider: RixieProvider): void {
+  const existing = loadRixieEnv();
+  existing.RIXIE_PROVIDER = provider;
+  writeRixieEnv(existing);
 }

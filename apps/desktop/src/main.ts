@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { createMainWindow } from "./windows/createMainWindow";
 import { spawnNextServer } from "./server/spawnNextServer";
 import { serveStaticDir } from "./server/serveStaticDir";
-import { loadRixieEnv, getApiKeyStatus, setApiKey, RixieProvider } from "./server/rixieEnvFile";
+import { loadRixieEnv, getApiKeyStatus, setApiKey, setActiveProvider, RixieProvider } from "./server/rixieEnvFile";
 import { setupAutoUpdater } from "./updater";
 
 const stopFns: (() => Promise<void>)[] = [];
@@ -30,6 +30,12 @@ ipcMain.handle("settings:get-api-key-status", () => getApiKeyStatus());
 // re-forking its whole server.
 ipcMain.handle("settings:set-api-key", (_event, provider: RixieProvider, apiKey: string) => {
   setApiKey(provider, apiKey);
+});
+
+// Switches the active provider without touching any saved key — lets Settings offer "switch back
+// to a provider you already configured" with no re-typing needed.
+ipcMain.handle("settings:set-active-provider", (_event, provider: RixieProvider) => {
+  setActiveProvider(provider);
 });
 
 // "Install Software" (packages/universe's DesktopContextMenu + InstallSoftwareDialog) — installs a
