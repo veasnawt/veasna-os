@@ -75,6 +75,18 @@ function generateMessageId(): string {
   return `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const ATTACHMENT_MARKER_RE = /\n\n\[Attached file: "([^"]+)"\]$/;
+
+/** Pulls the `[Attached file: "..."]` marker handleSend() appends back out of a stored message —
+ *  works the same whether the message was just sent or reloaded from a past session, since it's
+ *  derived from the persisted content string itself rather than separate client-only state. */
+function parseAttachment(content: string): { caption: string; relPath: string; isImage: boolean } | null {
+  const match = content.match(ATTACHMENT_MARKER_RE);
+  if (!match) return null;
+  return { caption: content.slice(0, match.index).trim(), relPath: match[1], isImage: IMAGE_EXT_RE.test(match[1]) };
+}
+
 /** SessionRecord's timestamps are UNIX seconds (@veasna/ai's SessionStore uses
  *  Math.floor(Date.now() / 1000)), not milliseconds — the *1000 below converts before comparing
  *  against Date.now(). */
@@ -247,13 +259,13 @@ export default function RixieWindow({
     if (!text && !attachment) return;
     if (attachment && attachment.status !== "uploaded") return; // still uploading, or failed — button is disabled for these too
 
-    // The caption (if any) is what the user actually wrote; the attachment reference is appended
-    // so Rixie knows exactly where to look, same path desktop_read_file expects.
+    // Always appended in this exact shape when there's an attachment — parseAttachment() below
+    // strips it back out of the stored/reloaded content to render a real thumbnail instead of the
+    // raw marker text, so the caption (if any) is what the user actually wrote, while the marker
+    // is what Rixie parses for the real sandboxed path (same one desktop_read_file expects).
     const finalText =
       attachment && attachment.relPath
-        ? text
-          ? `${text}\n\n[Attached file: "${attachment.relPath}"]`
-          : `I just uploaded a file: "${attachment.relPath}". Take a look and let me know what you find.`
+        ? `${text || "Take a look and let me know what you find."}\n\n[Attached file: "${attachment.relPath}"]`
         : text;
 
     setInput("");
@@ -337,14 +349,31 @@ export default function RixieWindow({
                 Ask Rixie anything — she can see what you have open right now.
               </div>
             ) : (
-              messages.map((m) =>
-                m.role === "user" ? (
-                  <div key={m.id} className="ml-auto max-w-[85%]">
-                    <div className="whitespace-pre-wrap rounded-xl bg-[var(--os-accent-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--os-accent-text)]">
-                      {m.content}
+              messages.map((m) => {
+                if (m.role === "user") {
+                  const att = parseAttachment(m.content);
+                  return (
+                    <div key={m.id} className="ml-auto flex max-w-[85%] flex-col items-end gap-1.5">
+                      {att && att.isImage && (
+                        <img
+                          src={`/api/files/raw?path=${encodeURIComponent(att.relPath)}`}
+                          alt={att.relPath.split("/").pop()}
+                          className="max-h-48 rounded-xl border border-[var(--os-border)] object-contain"
+                        />
+                      )}
+                      {att && !att.isImage && (
+                        <div className="flex items-center gap-1.5 rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] px-2 py-1 text-[10px] text-[var(--os-text-muted)]">
+                          <Paperclip size={11} />
+                          {att.relPath.split("/").pop()}
+                        </div>
+                      )}
+                      <div className="whitespace-pre-wrap rounded-xl bg-[var(--os-accent-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--os-accent-text)]">
+                        {att ? att.caption : m.content}
+                      </div>
                     </div>
-                  </div>
-                ) : (
+                  );
+                }
+                return (
                   <div key={m.id} className="group flex gap-2">
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--os-accent-soft)] text-[var(--os-accent-text)]">
                       <Ai size={11} />
@@ -360,8 +389,8 @@ export default function RixieWindow({
                       </button>
                     </div>
                   </div>
-                )
-              )
+                );
+              })
             )}
             {loading && (
               <div className="flex items-center gap-2">
