@@ -41,9 +41,14 @@ export interface SpawnNextServerOptions {
 
 /** Forks a bundled standalone Next.js server (universe or bp) under Electron's own Node runtime
  *  (no system Node required on the end user's machine), bound to a free loopback port. Returns the
- *  server's URL once it's actually responding, plus a `stop()` to kill it (call on app quit — an
- *  un-stopped fork outlives the Electron app otherwise). */
-export async function spawnNextServer({ resourceName, logLabel, preferredPort, extraEnv }: SpawnNextServerOptions): Promise<{ url: string; stop: () => void }> {
+ *  server's URL once it's actually responding, plus a `stop()` that resolves once the process has
+ *  ACTUALLY exited (not just once a kill signal was sent) — call on app quit. `child.kill()` alone
+ *  is fire-and-forget; confirmed the hard way: the app's own quitAndInstall() (Settings → OS
+ *  Update) could let the downloaded installer start replacing files while a forked server was
+ *  still winding down and still holding a lock on them, surfacing as NSIS's "Veasna OS cannot be
+ *  closed" prompt. A 3s timeout guards against a process that never exits cleanly, so quitting
+ *  can't hang forever either. */
+export async function spawnNextServer({ resourceName, logLabel, preferredPort, extraEnv }: SpawnNextServerOptions): Promise<{ url: string; stop: () => Promise<void> }> {
   const serverJsPath = resolveServerJsPath(process.resourcesPath, resourceName);
   if (!fs.existsSync(serverJsPath)) {
     throw new Error(`Bundled "${resourceName}" server not found at "${serverJsPath}" — did the build:desktop pipeline run?`);
@@ -67,5 +72,15 @@ export async function spawnNextServer({ resourceName, logLabel, preferredPort, e
   const url = `http://127.0.0.1:${port}`;
   await waitForServerReady(url);
 
-  return { url, stop: () => child.kill() };
+  const stop = () =>
+    new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 3000);
+      child.once("exit", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      child.kill();
+    });
+
+  return { url, stop };
 }

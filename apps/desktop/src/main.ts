@@ -6,7 +6,7 @@ import { serveStaticDir } from "./server/serveStaticDir";
 import { loadRixieEnv, getApiKeyStatus, setApiKey, RixieProvider } from "./server/rixieEnvFile";
 import { setupAutoUpdater } from "./updater";
 
-const stopFns: (() => void)[] = [];
+const stopFns: (() => Promise<void>)[] = [];
 
 // Populated as each bundled studio finishes starting — read by the renderer via the
 // "studios:get-urls" IPC handler (packages/universe/src/utils/runtime.ts's
@@ -119,7 +119,21 @@ app.on("activate", () => {
   }
 });
 
-// Otherwise the forked/served studio servers outlive the Electron app on quit.
-app.on("before-quit", () => {
-  for (const stop of stopFns) stop();
+// Otherwise the forked/served studio servers outlive the Electron app on quit — or, worse, briefly
+// SURVIVE it: `before-quit` firing doesn't mean the child processes have actually exited yet,
+// `child.kill()` is fire-and-forget. That race is exactly what caused NSIS's "Veasna OS cannot be
+// closed" prompt on update: electron-updater's quitAndInstall() (Settings → OS Update) could let
+// the downloaded installer start overwriting files while a forked server was still winding down
+// and still holding a lock on one. Fix: intercept the FIRST before-quit, actually wait for every
+// server to confirm it exited (stop() now returns a Promise that does that — see
+// spawnNextServer.ts/serveStaticDir.ts), then quit for real; `hasCleanedUp` lets that second,
+// self-triggered quit through immediately instead of looping.
+let hasCleanedUp = false;
+app.on("before-quit", (event) => {
+  if (hasCleanedUp) return;
+  event.preventDefault();
+  Promise.all(stopFns.map((stop) => stop())).finally(() => {
+    hasCleanedUp = true;
+    app.quit();
+  });
 });
