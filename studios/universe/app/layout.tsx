@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Veasna OS — Living 3D Spatial Universe",
+  title: "Veasna OS",
   description: "Spatial 3D Operating System powered by Rixie AI Companion",
 };
 

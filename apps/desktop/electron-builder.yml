@@ -1,0 +1,54 @@
+appId: com.veasnawt.veasnaos
+productName: Veasna OS
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# studios/universe's and studios/bp's standalone Next.js servers (server.js + a pruned
+# node_modules + .next/static + public/ each), plus studios/gamedev's static Vite build — all
+# copied here by scripts/build-resources.mjs. universe/bp get utilityProcess.fork'd at runtime
+# (src/server/spawnNextServer.ts); gamedev is served by a plain local static file server
+# (src/server/serveStaticDir.ts). See src/main.ts's spawnPackagedServers.
+extraResources:
+  - from: resources/universe
+    to: universe
+    filter:
+      - "**/*"
+  - from: resources/bp
+    to: bp
+    filter:
+      - "**/*"
+  - from: resources/gamedev
+    to: gamedev
+    filter:
+      - "**/*"
+# Native addons (better-sqlite3) can't execute from inside a .asar archive — must be unpacked to a
+# real path on disk.
+asarUnpack:
+  - "**/*.node"
+# build/icon.png — a transparent-background crop of just the "V" glyph (no wordmark text, which
+# turns to illegible mush at real icon sizes like 16x16/32x32) from assets/images/logo-dark.png. A
+# single PNG is enough for electron-builder to auto-generate the per-platform .ico/.icns it needs;
+# no per-OS icon path required unless a hand-crafted one is added later.
+#
+# Where `electron-updater` (src/updater.ts) checks for new versions — GitHub Releases on this
+# repo's own remote. Setting this alone publishes nothing; an actual release still has to be
+# created and have `electron-builder --publish always`'s build artifacts (the installer +
+# latest.yml) uploaded to it, a separate, explicit step with its own GH_TOKEN requirement.
+publish:
+  provider: github
+  owner: veasnawt
+  repo: veasna-os
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target: dmg
+  category: public.app-category.utilities
+linux:
+  target: AppImage
+  category: Utility

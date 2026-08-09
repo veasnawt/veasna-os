@@ -30,10 +30,14 @@ export function uniqueItemName(base: string, ext: string, existingNamesLower: st
 export const FOLDER_COLOR = "#eab308";
 export const FILE_COLOR = "#94a3b8";
 
-/** A minimal summary of an open folder/file window, reported up to VeasnaShell so the taskbar can show it. */
+/** A minimal summary of an open folder/file/web-app window, reported up to VeasnaShell so the
+ *  taskbar (and Task Manager) can show it. */
 export interface ViewerSummary {
   id: string;
   name: string;
-  kind: "folder" | "file";
+  kind: "folder" | "file" | "webapp";
   minimized: boolean;
+  /** Only meaningful for `kind: "webapp"` — its own per-app color, since it has no file extension
+   *  for `getFileColor` to derive one from. */
+  color?: string;
 }

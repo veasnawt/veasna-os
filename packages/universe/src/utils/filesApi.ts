@@ -47,6 +47,53 @@ export async function searchFiles(query: string): Promise<RemoteEntry[]> {
   return data.entries;
 }
 
+export interface EntryStat {
+  kind: "folder" | "file";
+  /** Bytes — for a folder, the recursive sum of everything inside it (real Windows Properties
+   *  behavior), not the meaningless size of the directory inode itself. */
+  size: number;
+  mtime: string;
+  birthtime: string;
+}
+
+/** Real size/dates for a single file or folder — used by the Properties view. Not folded into
+ *  `listFolder`'s per-entry results since it costs a `stat` (and, for folders, a full recursive
+ *  walk) per item — only worth paying for the one item Properties is actually open on. */
+export async function statEntry(path: string): Promise<EntryStat> {
+  return callGet("stat", { path });
+}
+
+/** URL for the raw-bytes file endpoint — used as an `<img src>`/`<audio src>`/`<video src>`/PDF
+ *  `<iframe src>`, or as a plain "open in new tab" link. Unlike `readFile`, this never decodes
+ *  anything as UTF-8 text, so it's safe for actual binary files. */
+export function rawFileUrl(path: string): string {
+  return `/api/files/raw?${new URLSearchParams({ path }).toString()}`;
+}
+
+/** Uploads a real OS file (or any `Blob`) into the sandboxed filesystem — used for drag-and-drop
+ *  from the host OS. `relName` may contain "/" segments to preserve a dragged-in folder's internal
+ *  structure; unlike `writeFile`, this sends the raw bytes as the request body instead of JSON, so
+ *  it never risks corrupting binary content via text (de)serialization. */
+export async function uploadFile(targetFolderPath: string, relName: string, data: Blob): Promise<string> {
+  const query = new URLSearchParams({ path: targetFolderPath, name: relName });
+  const res = await fetch(`/api/files/upload?${query.toString()}`, { method: "POST", body: data });
+  const parsed = await parseJson(res);
+  if (!res.ok) throw new FilesApiError(parsed.error ?? "Upload failed", parsed.code);
+  return parsed.path;
+}
+
+/** Triggers a real browser download of a sandboxed file onto the host OS — the safe, universally
+ *  supported way to get a file "out" of Veasna OS (a literal native drag-out to the desktop only
+ *  works in Chromium and would conflict with the app's own mouse-driven internal drag system). */
+export function downloadFile(path: string, name: string): void {
+  const a = document.createElement("a");
+  a.href = rawFileUrl(path);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export async function readFile(path: string): Promise<string> {
   const data = await callGet("readFile", { path });
   return data.content;
@@ -95,8 +142,19 @@ export async function moveEntries(
 
 export async function deleteEntries(
   paths: string[]
-): Promise<{ deleted: string[]; errors: { path: string; message: string }[] }> {
+): Promise<{
+  deleted: string[];
+  trashed: { path: string; trashPath: string }[];
+  errors: { path: string; message: string }[];
+}> {
   return callPost({ action: "delete", paths });
+}
+
+/** Undoes one `deleteEntries` trashing (Ctrl+Z after a delete) — moves an item back from `.trash`
+ *  to its original path. */
+export async function restoreEntry(trashPath: string, originalPath: string): Promise<string> {
+  const data = await callPost({ action: "restore", trashPath, originalPath });
+  return data.path;
 }
 
 export async function copyEntry(path: string, targetFolderPath: string, name?: string): Promise<string> {

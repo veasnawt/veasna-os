@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Ai, Folder, Document } from "@veasnawt/vicons";
+import { Ai, Folder, Globe } from "@veasnawt/vicons";
 import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment } from "../types";
-import { ViewerSummary, FOLDER_COLOR, FILE_COLOR } from "../utils/desktopItems";
+import { ViewerSummary, FOLDER_COLOR } from "../utils/desktopItems";
+import { getFileIcon, getFileColor } from "../utils/fileTypes";
 import PinContextMenu from "./PinContextMenu";
 import TaskbarContextMenu from "./TaskbarContextMenu";
 import ModeToggle from "./ModeToggle";
@@ -253,8 +254,9 @@ export default function Taskbar({
           ))}
 
           {unpinnedViewers.map((viewer) => {
-            const color = viewer.kind === "folder" ? FOLDER_COLOR : FILE_COLOR;
-            const Icon = viewer.kind === "folder" ? Folder : Document;
+            const color =
+              viewer.kind === "folder" ? FOLDER_COLOR : viewer.kind === "webapp" ? (viewer.color ?? "#38bdf8") : getFileColor(viewer.name);
+            const Icon = viewer.kind === "folder" ? Folder : viewer.kind === "webapp" ? Globe : getFileIcon(viewer.name);
             return (
               <button
                 key={viewer.id}

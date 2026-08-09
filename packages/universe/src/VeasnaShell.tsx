@@ -6,6 +6,9 @@ import TraditionalShell, { STUDIO_ICONS, TraditionalShellHandle } from "./compon
 import Window from "./components/Window";
 import Taskbar from "./components/Taskbar";
 import SearchOverlay from "./components/SearchOverlay";
+import TaskManagerWindow from "./components/TaskManagerWindow";
+import AboutOSWindow from "./components/AboutOSWindow";
+import OSUpdateWindow from "./components/OSUpdateWindow";
 import { CELESTIAL_BODIES } from "./constants";
 import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment, WindowRect } from "./types";
 import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils/wallpaperGenerator";
@@ -47,7 +50,7 @@ function defaultRect(body: CelestialBody, cascadeIndex: number): WindowRect {
 }
 
 export default function VeasnaShell() {
-  const [mode, setMode] = useState<ShellMode>("3d");
+  const [mode, setMode] = useState<ShellMode>("list");
   const [openWindows, setOpenWindows] = useState<OpenWindow[]>([]);
   const [startMenuOpen, setStartMenuOpen] = useState(false);
   const [wallpaper, setWallpaper] = useState<string>(DEFAULT_WALLPAPER);
@@ -59,6 +62,15 @@ export default function VeasnaShell() {
   const [taskbarShowClock, setTaskbarShowClock] = useState(true);
   const [taskbarRevealed, setTaskbarRevealed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [taskManagerOpen, setTaskManagerOpen] = useState(false);
+  const [taskManagerMinimized, setTaskManagerMinimized] = useState(false);
+  const [taskManagerZ, setTaskManagerZ] = useState(0);
+  const [aboutOsOpen, setAboutOsOpen] = useState(false);
+  const [aboutOsMinimized, setAboutOsMinimized] = useState(false);
+  const [aboutOsZ, setAboutOsZ] = useState(0);
+  const [osUpdateOpen, setOsUpdateOpen] = useState(false);
+  const [osUpdateMinimized, setOsUpdateMinimized] = useState(false);
+  const [osUpdateZ, setOsUpdateZ] = useState(0);
   // A folder/file result picked from search while in 3D mode needs List mode mounted first (that's
   // where `TraditionalShell`/`FileManager` live) — this holds the pending open until the mode-switch
   // effect below sees `traditionalShellRef` actually attached to the freshly-mounted instance.
@@ -320,6 +332,15 @@ export default function VeasnaShell() {
     browserNavigate(DEFAULT_BROWSER_URL);
   }
 
+  /** "Open in Browser" for an .html/.htm file (Desktop or File Manager) — navigates the SAME shared
+   *  Browser studio real sites use, then opens/focuses it, matching what double-clicking an HTML file
+   *  does on a real OS (renders it, doesn't open a text editor). */
+  function openInBrowser(url: string) {
+    browserNavigate(url);
+    const browserBody = CELESTIAL_BODIES.find((b) => b.id === "browser");
+    if (browserBody) openApp(browserBody);
+  }
+
   function closeApp(id: StudioId) {
     setOpenWindows((prev) => prev.filter((w) => w.body.id !== id));
   }
@@ -360,6 +381,31 @@ export default function VeasnaShell() {
     setOpenWindows((prev) => prev.map((w) => (w.body.id === id ? { ...w, z: nextZ() } : w)));
   }
 
+  /** "Switch to" from Task Manager — unminimizes (if needed) and brings to front in one step,
+   *  unlike `toggleMinimize` (which would re-minimize an already-visible window) or `focusApp`
+   *  (which doesn't unminimize at all). */
+  function switchToApp(id: StudioId) {
+    setOpenWindows((prev) => prev.map((w) => (w.body.id === id ? { ...w, minimized: false, z: nextZ() } : w)));
+  }
+
+  function openTaskManager() {
+    setTaskManagerOpen(true);
+    setTaskManagerMinimized(false);
+    setTaskManagerZ(nextZ());
+  }
+
+  function openAboutOS() {
+    setAboutOsOpen(true);
+    setAboutOsMinimized(false);
+    setAboutOsZ(nextZ());
+  }
+
+  function openOSUpdate() {
+    setOsUpdateOpen(true);
+    setOsUpdateMinimized(false);
+    setOsUpdateZ(nextZ());
+  }
+
   // The taskbar is always rendered now — including a bare 3D view with nothing open/pinned — so the
   // Universe/Desktop toggle can live inside it permanently instead of needing a separate floating
   // fallback for that state. While auto-hide is on, it still doesn't permanently occupy screen space
@@ -381,6 +427,50 @@ export default function VeasnaShell() {
           onTogglePin={handleTogglePin}
           taskbarReserve={taskbarReserve}
           onOpenTerminalAt={openTerminalAt}
+          onOpenTaskManager={openTaskManager}
+          onOpenAboutOS={openAboutOS}
+          onOpenOSUpdate={openOSUpdate}
+          onOpenInBrowser={openInBrowser}
+        />
+      )}
+
+      {taskManagerOpen && (
+        <TaskManagerWindow
+          openWindows={openWindows}
+          icons={STUDIO_ICONS}
+          viewers={viewers}
+          zIndex={taskManagerZ}
+          taskbarReserve={taskbarReserve}
+          minimized={taskManagerMinimized}
+          onClose={() => setTaskManagerOpen(false)}
+          onMinimize={() => setTaskManagerMinimized(true)}
+          onFocus={() => setTaskManagerZ(nextZ())}
+          onEndApp={closeApp}
+          onSwitchToApp={switchToApp}
+          onEndViewer={(id) => traditionalShellRef.current?.closeViewer(id)}
+          onSwitchToViewer={(id) => traditionalShellRef.current?.focusViewer(id)}
+        />
+      )}
+
+      {aboutOsOpen && (
+        <AboutOSWindow
+          zIndex={aboutOsZ}
+          taskbarReserve={taskbarReserve}
+          minimized={aboutOsMinimized}
+          onClose={() => setAboutOsOpen(false)}
+          onMinimize={() => setAboutOsMinimized(true)}
+          onFocus={() => setAboutOsZ(nextZ())}
+        />
+      )}
+
+      {osUpdateOpen && (
+        <OSUpdateWindow
+          zIndex={osUpdateZ}
+          taskbarReserve={taskbarReserve}
+          minimized={osUpdateMinimized}
+          onClose={() => setOsUpdateOpen(false)}
+          onMinimize={() => setOsUpdateMinimized(true)}
+          onFocus={() => setOsUpdateZ(nextZ())}
         />
       )}
 
@@ -408,6 +498,8 @@ export default function VeasnaShell() {
               onTaskbarAlignmentChange={handleTaskbarAlignmentChange}
               taskbarShowClock={taskbarShowClock}
               onToggleTaskbarShowClock={handleToggleTaskbarShowClock}
+              onOpenAboutOS={openAboutOS}
+              onOpenOSUpdate={openOSUpdate}
               terminalSessionId={terminalSessionIdRef.current}
               terminalLines={terminalLines}
               onTerminalLinesChange={setTerminalLines}

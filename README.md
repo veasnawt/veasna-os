@@ -12,6 +12,11 @@ Every idea is a star.
 
 Every creation begins with curiosity.
 
+<p align="center">
+  <img src="assets/screenshots/cosmos.png" width="49%" alt="3D Living Universe view" />
+  <img src="assets/screenshots/desktop.png" width="49%" alt="Desktop view" />
+</p>
+
 ---
 
 ## The Shell
@@ -19,9 +24,13 @@ Every creation begins with curiosity.
 The front door to Veasna OS is **Universe** — a desktop-style shell with two faces:
 
 - 🌌 **3D mode** — each studio is a celestial body orbiting in a living cosmos, click one to open it.
-- 🖥️ **List mode** — a familiar Windows-style desktop: draggable/resizable windows, a taskbar with pinning and auto-hide, a Start menu, folders and files you can create right on the desktop.
+- 🖥️ **List mode** (default) — a familiar Windows-style desktop: draggable/resizable windows, a taskbar with pinning and auto-hide, a Start menu, folders and files you can create right on the desktop, a real terminal, a real file manager, and a real browser.
 
 Both modes share the same window system, so switching between them never loses what you have open.
+
+<p align="center">
+  <img src="assets/screenshots/windows.png" width="80%" alt="File Manager and Terminal open side by side" />
+</p>
 
 ---
 
@@ -30,11 +39,25 @@ Both modes share the same window system, so switching between them never loses w
 | Studio | What it is | Status |
 | --- | --- | --- |
 | 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
+| 🤖 Rixie Core | Persistent-memory AI agent chat | Active |
 | 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
 | 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
 | 🎵 Music | — | Coming soon |
 | 🎨 Art | — | Coming soon |
 | 🌍 Language | — | Coming soon |
+
+---
+
+## Desktop App
+
+Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, and Game Dev Studio are all bundled together, each running on its own local port under the hood; it feels like one app.
+
+```bash
+pnpm dev:desktop     # run it against your local dev servers, with hot reload
+pnpm build:desktop   # produce a real installer at apps/desktop/release/
+```
+
+Rixie's API key (for BP Studio's chat) can be entered right from **Settings → Rixie AI** — no `.env` file editing required once it's installed.
 
 ---
 
@@ -52,11 +75,14 @@ packages/
   universe/    shell UI: desktop, windows, taskbar, settings, cosmos
   ai/          shared AI utilities
   ui/, auth/, database/, storage/, editor/, analytics/, automation/, utils/, vicons/
+
+apps/
+  desktop/     the Electron wrapper — packages the studios above into a real installable app
 ```
 
 ### Running a studio
 
-Requires [Node.js](https://nodejs.org) 20.9+ and [pnpm](https://pnpm.io) (`corepack enable` will install the right pnpm version automatically from this repo's `packageManager` field). **Use an LTS release of Node (currently 22.x), not the latest "Current" one** — see the `better-sqlite3` troubleshooting note below for why.
+Requires [Node.js](https://nodejs.org) 20.9+ (an LTS release, e.g. 22.x) and [pnpm](https://pnpm.io) (`corepack enable` installs the right version automatically from this repo's `packageManager` field).
 
 ```bash
 git clone --recurse-submodules https://github.com/veasnawt/veasna-os.git
@@ -66,15 +92,20 @@ pnpm setup    # installs everything + creates studios/bp/.env.local from its tem
 pnpm dev:all  # everything at once — Universe, BP Studio, and Loom Engine together
 ```
 
-Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom` (otherwise it's just an empty folder — a plain `git clone` never fetches submodule content on its own).
+Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom`.
 
-Then open `studios/bp/.env.local` and fill in your own model provider API key (see `studios/bp/.env.example` for the full list of variables) — everything works without one except BP Studio's Rixie agent chat. `pnpm setup` never overwrites a `.env.local` that already exists, so it's safe to re-run any time.
+Then open `studios/bp/.env.local` and fill in your own model provider API key (see `studios/bp/.env.example`) — everything works without one except BP Studio's Rixie agent chat (or set it later, in-app, via **Settings → Rixie AI** in the desktop app). `pnpm setup` never overwrites an existing `.env.local`, so it's safe to re-run any time.
 
-**Windows: if `pnpm setup` fails on `better-sqlite3` with `gyp ERR! find VS` / "Could not find any Visual Studio installation"** — this is the most common install failure on Windows, confirmed from real error output, not a guess. `better-sqlite3` ships prebuilt binaries for common Node versions so it normally never needs to compile anything; the failure only happens when your Node version is newer than what's been prebuilt yet (this repo saw it on Node 24.19.0, a very recent "Current" release, not yet an LTS). Two fixes, pick one:
-- **Switch to Node LTS (recommended, no extra installs)** — e.g. with [nvm-windows](https://github.com/coreybutler/nvm-windows): `nvm install 22 && nvm use 22`, then delete `node_modules` and re-run `pnpm setup`. Prebuilt binaries almost always exist for LTS versions, so this avoids compiling anything at all.
-- **Or install the real build toolchain** — [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with the "Desktop development with C++" workload, needed if you specifically want to stay on a newer/non-LTS Node.
+<details>
+<summary><strong>Windows install troubleshooting</strong> (click to expand)</summary>
 
-**Windows, separately: if the failure instead mentions symlinks, `EPERM`, or "operation not permitted"** — pnpm's `node_modules` relies heavily on symlinks, and Windows only allows creating them for Administrators or accounts with Developer Mode enabled. Fix: **Settings → Privacy & security → For developers → turn on Developer Mode**, then re-run `pnpm setup`.
+**`pnpm setup` fails on `better-sqlite3` with `gyp ERR! find VS` / "Could not find any Visual Studio installation"** — `better-sqlite3` ships prebuilt binaries for common Node versions, so this only happens on a Node version newer than what's been prebuilt yet. Two fixes, pick one:
+- **Switch to Node LTS (recommended)** — e.g. with [nvm-windows](https://github.com/coreybutler/nvm-windows): `nvm install 22 && nvm use 22`, delete `node_modules`, re-run `pnpm setup`.
+- **Or install the real build toolchain** — [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022), "Desktop development with C++" workload.
+
+**The failure instead mentions symlinks, `EPERM`, or "operation not permitted"** — pnpm's `node_modules` relies on symlinks, which Windows only allows for Administrators or accounts with Developer Mode enabled. Fix: **Settings → Privacy & security → For developers → Developer Mode → On**, then re-run `pnpm setup`. (This also unlocks `pnpm build:desktop`'s installer step, which needs the same permission.)
+
+</details>
 
 Or run just what you need:
 

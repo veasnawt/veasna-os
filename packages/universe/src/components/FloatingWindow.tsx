@@ -91,6 +91,20 @@ export default function FloatingWindow({
   const [rect, setRect] = useState<FloatingRect>(() => initialRect(cascadeIndex, defaultWidth, defaultHeight));
   const [maximized, setMaximized] = useState(false);
   const preMaximizeRectRef = useRef<FloatingRect | null>(null);
+  // A full-viewport overlay, portaled above everything (iframes included) and toggled via direct DOM
+  // mutation (not React state, which is a render tick too late for a fast drag). Without it, the
+  // moment a drag/resize crosses onto this window's OWN iframe content (a PDF/HTML preview, or an
+  // installed web app) — a separate browsing context with its own event loop — further mousemove
+  // events fire on the iframe's document instead of bubbling to this component's `window` listener,
+  // so tracking silently stalls right where the cursor entered it. Same fix `Window.tsx` (studio
+  // windows) already uses for the identical problem with its own embedded iframes.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  function beginInteraction() {
+    if (overlayRef.current) overlayRef.current.style.display = "block";
+  }
+  function endInteraction() {
+    if (overlayRef.current) overlayRef.current.style.display = "none";
+  }
 
   useEffect(() => {
     onRectChange?.(rect);
@@ -114,6 +128,7 @@ export default function FloatingWindow({
       if (!dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
         dragging = true;
         document.body.style.userSelect = "none";
+        beginInteraction();
       }
       if (dragging) {
         const vw = window.innerWidth;
@@ -127,6 +142,7 @@ export default function FloatingWindow({
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
       document.body.style.userSelect = "";
+      endInteraction();
     }
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
@@ -136,6 +152,7 @@ export default function FloatingWindow({
     e.stopPropagation();
     if (e.button !== 0 || maximized) return;
     onFocus();
+    beginInteraction();
     const startX = e.clientX;
     const startY = e.clientY;
     const startRect = rect;
@@ -171,6 +188,7 @@ export default function FloatingWindow({
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
       document.body.style.userSelect = "";
+      endInteraction();
     }
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
@@ -192,47 +210,56 @@ export default function FloatingWindow({
   // matter how high the number is. Rendering in place, this could never out-stack a sibling
   // studio Window (rendered outside TraditionalShell entirely) even with a higher z-index.
   return createPortal(
-    <div
-      onMouseDown={(e) => {
-        e.stopPropagation();
-        onFocus();
-      }}
-      style={{
-        position: "fixed",
-        left: rect.x,
-        top: rect.y,
-        width: rect.width,
-        height: rect.height,
-        zIndex,
-        display: minimized ? "none" : undefined,
-      }}
-    >
-      <div className="relative h-full w-full">
-        <WindowChrome
-          title={title}
-          icon={icon}
-          color={color}
-          maximized={maximized}
-          onMaximizeToggle={handleMaximizeToggle}
-          onMinimize={onMinimize}
-          onClose={onClose}
-          onFocus={onFocus}
-          onTitleBarMouseDown={handleTitleBarMouseDown}
-          className="h-full w-full"
-        >
-          {children}
-        </WindowChrome>
+    <>
+      <div
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onFocus();
+        }}
+        // Portaled straight to <body> — doesn't inherit the app root's own `select-none`, since a
+        // portal isn't a real DOM descendant of it despite being one in the React tree. Without this,
+        // a marquee/rubber-band drag over tile labels triggers the browser's native text-selection
+        // gesture instead (or alongside it), which is exactly the kind of drag this window needs to
+        // support cleanly (e.g. FileManager's own rubber-band multi-select).
+        className="select-none"
+        style={{
+          position: "fixed",
+          left: rect.x,
+          top: rect.y,
+          width: rect.width,
+          height: rect.height,
+          zIndex,
+          display: minimized ? "none" : undefined,
+        }}
+      >
+        <div className="relative h-full w-full">
+          <WindowChrome
+            title={title}
+            icon={icon}
+            color={color}
+            maximized={maximized}
+            onMaximizeToggle={handleMaximizeToggle}
+            onMinimize={onMinimize}
+            onClose={onClose}
+            onFocus={onFocus}
+            onTitleBarMouseDown={handleTitleBarMouseDown}
+            className="h-full w-full"
+          >
+            {children}
+          </WindowChrome>
 
-        {!maximized &&
-          RESIZE_HANDLES.map(({ dir, className, cursor }) => (
-            <div
-              key={dir}
-              onMouseDown={(e) => handleResizeMouseDown(e, dir)}
-              className={`absolute z-20 ${className} ${cursor} transition-colors hover:bg-sky-400/25`}
-            />
-          ))}
+          {!maximized &&
+            RESIZE_HANDLES.map(({ dir, className, cursor }) => (
+              <div
+                key={dir}
+                onMouseDown={(e) => handleResizeMouseDown(e, dir)}
+                className={`absolute z-20 ${className} ${cursor} transition-colors hover:bg-sky-400/25`}
+              />
+            ))}
+        </div>
       </div>
-    </div>,
+      <div ref={overlayRef} className="fixed inset-0 hidden cursor-move" style={{ zIndex: 99999 }} />
+    </>,
     document.body
   );
 }

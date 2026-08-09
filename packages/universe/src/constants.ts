@@ -166,7 +166,7 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
   },
   {
     id: "settings",
-    name: "System Core",
+    name: "Settings",
     subtitle: "Chronometer Engine & Solis Core",
     description: "Titanium and solar brass chronometer sphere with rotating orbital rings and system telemetry.",
     color: "#64748b",

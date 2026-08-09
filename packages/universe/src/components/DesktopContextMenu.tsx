@@ -15,6 +15,7 @@ interface DesktopContextMenuProps {
   onPaste: () => void;
   pasteDisabled: boolean;
   onOpenTerminal: () => void;
+  onInstallApp: () => void;
   onClose: () => void;
 }
 
@@ -92,6 +93,7 @@ export default function DesktopContextMenu({
   onPaste,
   pasteDisabled,
   onOpenTerminal,
+  onInstallApp,
   onClose,
 }: DesktopContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -105,10 +107,13 @@ export default function DesktopContextMenu({
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
-    document.addEventListener("mousedown", handlePointerDown);
+    // Capture phase — desktop icons' own mousedown handlers call stopPropagation() (for drag
+    // support), which would otherwise silently stop a bubble-phase listener here from ever seeing a
+    // click on one. Capture fires before any of those handlers get a chance to stop anything.
+    document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("mousedown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
@@ -130,6 +135,7 @@ export default function DesktopContextMenu({
       <MenuActionItem label="Paste" onClick={onPaste} disabled={pasteDisabled} />
       <MenuDivider />
       <MenuActionItem label="Open in Terminal" onClick={onOpenTerminal} />
+      <MenuActionItem label="Install Web App…" onClick={onInstallApp} />
       <MenuDivider />
       <MenuCheckboxItem label="Auto arrange icons" checked={autoArrange} onClick={onToggleAutoArrange} />
       <MenuCheckboxItem

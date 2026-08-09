@@ -1,8 +1,109 @@
-import React, { useMemo, useRef, useState } from "react";
-import { WALLPAPER_PRESETS, generateWallpaper, isCustomWallpaper } from "../utils/wallpaperGenerator";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { WALLPAPER_PRESETS, resolveWallpaperUrl, isCustomWallpaper } from "../utils/wallpaperGenerator";
 import { THEME_PRESETS, ThemeMode } from "../utils/theme";
 import { TaskbarAlignment } from "../types";
 import Toggle from "./Toggle";
+import AboutOSIcon from "./AboutOSIcon";
+import OSUpdateIcon from "./OSUpdateIcon";
+import { getSettingsBridge, RixieProvider } from "../utils/runtime";
+
+const PROVIDER_LABELS: Record<RixieProvider, string> = {
+  anthropic: "Anthropic (Claude)",
+  openai: "OpenAI",
+  gemini: "Google Gemini",
+};
+
+/** Lets the user enter BP Studio's Rixie AI chat credentials from inside the app itself, instead
+ *  of hand-editing a file — writes to Documents/Veasna OS/bp.env via the main process (never
+ *  through the sandboxed .desktop files API, since that's a different, unrelated real folder) and
+ *  restarts BP Studio's server so the new key takes effect immediately. Only rendered when
+ *  `getSettingsBridge()` is available — i.e. only inside the packaged desktop app, where BP Studio
+ *  is actually bundled; in dev/web mode there's nothing here to configure this way at all. */
+function RixieApiKeySection() {
+  const [bridge] = useState(getSettingsBridge);
+  const [status, setStatus] = useState<{ provider: RixieProvider; hasKey: boolean } | null>(null);
+  const [provider, setProvider] = useState<RixieProvider>("anthropic");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.getApiKeyStatus().then((s) => {
+      setStatus(s);
+      setProvider(s.provider);
+    });
+  }, [bridge]);
+
+  if (!bridge) return null;
+
+  async function handleSave() {
+    if (!bridge || !apiKey.trim()) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      await bridge.setApiKey(provider, apiKey.trim());
+      setStatus({ provider, hasKey: true });
+      setApiKey("");
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 space-y-3">
+      <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--os-text-muted)] font-semibold">
+        Rixie AI (BP Studio)
+      </span>
+
+      <div className="space-y-2.5 rounded-lg border border-[var(--os-border)] px-3 py-3">
+        <div className="text-[11px] text-[var(--os-text-muted)]">
+          {status?.hasKey
+            ? `A key is configured for ${PROVIDER_LABELS[status.provider]}. Enter a new one below to replace it.`
+            : "No API key configured yet — Rixie's chat won't work in BP Studio until one is set."}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as RixieProvider)}
+            className="rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2 py-1.5 text-xs text-[var(--os-text)] outline-none focus:border-[var(--os-accent-border)]"
+          >
+            {(Object.keys(PROVIDER_LABELS) as RixieProvider[]).map((p) => (
+              <option key={p} value={p}>
+                {PROVIDER_LABELS[p]}
+              </option>
+            ))}
+          </select>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="Paste your API key"
+            spellCheck={false}
+            autoComplete="off"
+            className="min-w-0 flex-1 rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2.5 py-1.5 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={!apiKey.trim() || saving}
+            className="rounded-full bg-[var(--os-accent-soft)] px-3.5 py-1.5 text-[11px] font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {saved && <span className="text-[11px] text-emerald-400">Saved — BP Studio restarted with the new key.</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface SettingsPanelProps {
   wallpaper: string;
@@ -15,6 +116,41 @@ interface SettingsPanelProps {
   onTaskbarAlignmentChange: (alignment: TaskbarAlignment) => void;
   taskbarShowClock: boolean;
   onToggleTaskbarShowClock: () => void;
+  onOpenAboutOS: () => void;
+  onOpenOSUpdate: () => void;
+}
+
+function SystemRow({
+  icon: Icon,
+  color,
+  name,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ComponentType<{ size?: number }>;
+  color: string;
+  name: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-lg border border-[var(--os-border)] px-3 py-2.5 text-left transition hover:border-[var(--os-border-strong)] hover:bg-[var(--os-border-strong)]"
+    >
+      <span
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: `color-mix(in srgb, ${color} 30%, rgba(6, 8, 16, 0.72))`, color }}
+      >
+        <Icon size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-[var(--os-text)]">{name}</div>
+        <div className="text-[10px] text-[var(--os-text-muted)]">{subtitle}</div>
+      </div>
+      <span className="shrink-0 text-[var(--os-text-muted)]">›</span>
+    </button>
+  );
 }
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB — generous for a photo, small enough to not choke localStorage
@@ -44,7 +180,7 @@ function ThemeSwatch({ id }: { id: ThemeMode }) {
 }
 
 function WallpaperThumb({ presetId }: { presetId: string }) {
-  const url = useMemo(() => generateWallpaper(presetId, 240, 135), [presetId]);
+  const url = useMemo(() => resolveWallpaperUrl(presetId, 240, 135), [presetId]);
   return (
     <div
       className="h-full w-full rounded-lg bg-cover bg-center"
@@ -64,6 +200,8 @@ export default function SettingsPanel({
   onTaskbarAlignmentChange,
   taskbarShowClock,
   onToggleTaskbarShowClock,
+  onOpenAboutOS,
+  onOpenOSUpdate,
 }: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,12 +229,7 @@ export default function SettingsPanel({
 
   return (
     <div className="w-full max-w-2xl p-6">
-      <div className="flex items-center gap-2.5 pb-3 border-b border-[var(--os-border)]">
-        <span className="h-3 w-3 rounded-full bg-[var(--os-text-muted)] shadow-[0_0_10px_currentColor]" />
-        <h3 className="font-display text-sm font-bold text-[var(--os-text)]">Settings</h3>
-      </div>
-
-      <div className="mt-5 space-y-3">
+      <div className="space-y-3">
         <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--os-text-muted)] font-semibold">
           Appearance
         </span>
@@ -254,6 +387,17 @@ export default function SettingsPanel({
             e.target.value = "";
           }}
         />
+      </div>
+
+      <RixieApiKeySection />
+
+      <div className="mt-6 space-y-3">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--os-text-muted)] font-semibold">
+          System
+        </span>
+
+        <SystemRow icon={AboutOSIcon} color="#38bdf8" name="About OS" subtitle="Version, credits" onClick={onOpenAboutOS} />
+        <SystemRow icon={OSUpdateIcon} color="#34d399" name="OS Update" subtitle="Check update status" onClick={onOpenOSUpdate} />
       </div>
     </div>
   );

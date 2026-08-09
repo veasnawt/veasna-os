@@ -6,8 +6,28 @@ import { isLocalRequest, localOnlyResponse } from "../_lib/localOnlyGuard";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Monorepo root — studios/universe/app/api/terminal -> up to veasna-os/.
-const WORKSPACE_ROOT = path.resolve(process.cwd(), "../..");
+// Monorepo root — studios/universe/app/api/terminal -> up to veasna-os/. In the packaged Electron
+// desktop app there is no monorepo on disk at all, so apps/desktop sets VEASNA_WORKSPACE_ROOT to a
+// real, writable, user-visible folder (Documents/Veasna OS) when it forks this server; unset in
+// dev/pnpm-dev, where the process.cwd()-relative computation below still applies unchanged.
+const WORKSPACE_ROOT = process.env.VEASNA_WORKSPACE_ROOT ?? path.resolve(process.cwd(), "../..");
+
+const IS_WINDOWS = process.platform === "win32";
+
+/** Picks the real shell binary + argv for the current OS. `cmd.exe` and its `/d /s /c` flags are
+ *  Windows-only syntax; POSIX shells (`sh`, `bash`, `zsh`, ...) take a command string via `-c`
+ *  instead. `$SHELL` is the standard way a Unix process learns the user's preferred shell — `/bin/sh`
+ *  is the POSIX-guaranteed fallback if it's unset (e.g. this process wasn't launched from a real
+ *  interactive shell). */
+function buildSpawnArgs(command: string): { shell: string; args: string[] } {
+  if (IS_WINDOWS) {
+    const comspec = process.env.ComSpec || "cmd.exe";
+    // Force UTF-8 console output codepage so non-ASCII text round-trips correctly — cmd.exe
+    // defaults to a legacy codepage otherwise. POSIX shells don't need this; they're UTF-8 already.
+    return { shell: comspec, args: ["/d", "/s", "/c", `chcp 65001>nul & ${command}`] };
+  }
+  return { shell: process.env.SHELL || "/bin/sh", args: ["-c", command] };
+}
 
 interface TerminalSession {
   cwd: string;
@@ -93,18 +113,22 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     } catch {
-      return new Response(
-        "The system cannot find the path specified.\n" + metaChunk(session.cwd, 1),
-        { headers: { "Content-Type": "text/plain; charset=utf-8" } }
-      );
+      // Matches each OS's own familiar phrasing for this — cosmetic, but a real shell on either
+      // platform would say roughly this, and `cd` here is intercepted rather than actually spawned
+      // (see the comment above), so nothing else produces this message for us.
+      const notFoundMessage = IS_WINDOWS ? "The system cannot find the path specified." : "No such file or directory";
+      return new Response(notFoundMessage + "\n" + metaChunk(session.cwd, 1), {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     }
   }
 
-  const comspec = process.env.ComSpec || "cmd.exe";
-  // Force UTF-8 console output codepage so non-ASCII text round-trips correctly.
-  const child = spawn(comspec, ["/d", "/s", "/c", `chcp 65001>nul & ${command}`], {
+  const { shell, args } = buildSpawnArgs(command);
+  const child = spawn(shell, args, {
     cwd: session.cwd,
-    windowsHide: true,
+    // Windows-only option — Node ignores it on other platforms, but keeping it scoped to the
+    // Windows branch makes the intent explicit rather than relying on that silent cross-platform no-op.
+    ...(IS_WINDOWS ? { windowsHide: true } : {}),
   });
   session.currentProc = child;
 

@@ -1,18 +1,40 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Ai, Art, Create, Document, Folder, Game, Music, Settings as SettingsIcon } from "@veasnawt/vicons";
+import { Ai, Art, Create, Document, Folder, Game, Globe, Music, Settings as SettingsIcon } from "@veasnawt/vicons";
 import TerminalIcon from "./TerminalIcon";
 import BrowserIcon from "./BrowserIcon";
+import TaskManagerIcon from "./TaskManagerIcon";
+import AboutOSIcon from "./AboutOSIcon";
+import OSUpdateIcon from "./OSUpdateIcon";
+import PropertiesWindow, { PropertiesSubject } from "./PropertiesWindow";
 import { CELESTIAL_BODIES } from "../constants";
 import { CelestialBody, PinnableId, StudioId } from "../types";
 import { resolveWallpaperUrl } from "../utils/wallpaperGenerator";
-import { DesktopItemData, parentPath, isDescendantOf, uniqueItemName, FOLDER_COLOR, FILE_COLOR, ViewerSummary } from "../utils/desktopItems";
-import { listFolder, mkdir, createFile, renameEntry, moveEntries, deleteEntries, copyEntries } from "../utils/filesApi";
+import { DesktopItemData, parentPath, isDescendantOf, uniqueItemName, FOLDER_COLOR, ViewerSummary } from "../utils/desktopItems";
+import {
+  listFolder,
+  mkdir,
+  createFile,
+  renameEntry,
+  moveEntry,
+  moveEntries,
+  deleteEntries,
+  copyEntries,
+  downloadFile,
+  rawFileUrl,
+  restoreEntry,
+} from "../utils/filesApi";
+import { getFileKind, getFileIcon, getFileColor } from "../utils/fileTypes";
+import { flattenDroppedItems, uploadDroppedFiles, isExternalFileDrag } from "../utils/dropFiles";
+import { InstalledApp, loadInstalledApps, installApp, uninstallApp, faviconUrl } from "../utils/installedApps";
 import DesktopIcon, { IconPosition } from "./DesktopIcon";
 import DesktopContextMenu from "./DesktopContextMenu";
 import IconContextMenu from "./IconContextMenu";
 import PinContextMenu from "./PinContextMenu";
 import FileEditorWindow from "./FileEditorWindow";
+import FilePreviewWindow from "./FilePreviewWindow";
 import FileManager from "./FileManager";
+import InstallAppDialog from "./InstallAppDialog";
+import InstalledAppWindow from "./InstalledAppWindow";
 import type { FloatingRect } from "./FloatingWindow";
 import DragGhost from "./DragGhost";
 
@@ -39,6 +61,16 @@ const ICON_ORDER_KEY = "veasna-os:icon-order";
 // alongside the real studio ids, not a real filesystem item either.
 const FILE_MANAGER_ID = "filemanager";
 const FILE_MANAGER_NAME = "File Manager";
+
+// Same idea as File Manager above — a permanent synthetic desktop entry, not a real studio or file.
+const TASK_MANAGER_ID = "taskmanager";
+const TASK_MANAGER_NAME = "Task Manager";
+
+// Same idea again — permanent synthetic desktop entries, not real studios or files.
+const ABOUT_OS_ID = "aboutos";
+const ABOUT_OS_NAME = "About OS";
+const OS_UPDATE_ID = "osupdate";
+const OS_UPDATE_NAME = "OS Update";
 
 const GRID_COL_W = 104;
 const GRID_ROW_H = 96;
@@ -84,13 +116,35 @@ type Entry = {
   name: string;
   color: string;
   icon: React.ComponentType<{ size?: number }>;
-  kind: "studio" | "folder" | "file" | "filemanager";
+  kind: "studio" | "folder" | "file" | "filemanager" | "webapp" | "taskmanager" | "aboutos" | "osupdate";
   body?: CelestialBody;
+  thumbnailUrl?: string;
 };
 
-type ViewerMeta = { kind: "folder" | "file"; name: string };
+type ViewerMeta = {
+  kind: "folder" | "file" | "webapp";
+  name: string;
+  url?: string;
+  color?: string;
+  /** Forces the plain-text editor even for a kind (currently just "html") that normally opens
+   *  somewhere else by default — how "Edit" reaches an .html file's actual source. */
+  forceText?: boolean;
+};
 
 type ClipboardState = { paths: string[]; mode: "cut" | "copy" };
+
+/** One reversible file-system-affecting action, pushed after it succeeds — Ctrl+Z pops and reverses
+ *  the most recent one. Deliberately only covers actions that have a real, lossless inverse: a
+ *  "delete" reverses via `.trash` (see the backend's `deleteEntries`/`restoreEntry`), everything else
+ *  reverses via the same primitive APIs (rename/move/copy/delete) already used elsewhere in this file. */
+type UndoAction =
+  | { type: "create"; path: string }
+  | { type: "rename"; from: string; to: string }
+  | { type: "move"; moves: { from: string; to: string }[] }
+  | { type: "copy"; createdPaths: string[] }
+  | { type: "delete"; trashed: { path: string; trashPath: string }[] }
+  | { type: "installApp"; app: InstalledApp }
+  | { type: "upload"; createdPaths: string[] };
 
 /** Result of hit-testing a drag against desktop folder icons and open window rects — `windowId` is
  *  set only when the target is an open window (vs a desktop folder icon or the desktop root itself). */
@@ -110,6 +164,17 @@ interface TraditionalShellProps {
   /** Opens the Terminal studio (if needed) and `cd`s its session into the given `.desktop`-relative
    *  path ("" = Desktop root) — owned by VeasnaShell since the terminal session itself is lifted there. */
   onOpenTerminalAt: (desktopRelPath: string) => void;
+  /** Opens the Task Manager window — owned by VeasnaShell since it needs to see both studio windows
+   *  AND folder/file/web-app viewers, and only VeasnaShell has visibility into both. */
+  onOpenTaskManager: () => void;
+  /** Opens the About OS / OS Update windows — owned by VeasnaShell for the same reason Task Manager
+   *  is (its z-index/minimize state is managed alongside every other top-level floating window
+   *  there), even though these two don't themselves need cross-cutting visibility. */
+  onOpenAboutOS: () => void;
+  onOpenOSUpdate: () => void;
+  /** Opens an .html/.htm file's rendered content in the Browser studio — owned by VeasnaShell since
+   *  the Browser's navigation history is lifted there (same reasoning as `onOpenTerminalAt`). */
+  onOpenInBrowser: (url: string) => void;
 }
 
 export interface TraditionalShellHandle {
@@ -118,23 +183,51 @@ export interface TraditionalShellHandle {
   /** Opens a specific `.desktop`-relative path directly — a folder opens a `FileManager` rooted
    *  there, a file opens it in `FileEditorWindow`. Used by the global search overlay. */
   openDesktopPath: (path: string, kind: "folder" | "file", name: string) => void;
+  /** Both used by Task Manager (owned by VeasnaShell, which only sees viewers via `ViewerSummary` —
+   *  these are the only way it can actually act on one). */
+  closeViewer: (id: string) => void;
+  focusViewer: (id: string) => void;
 }
 
 const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProps>(function TraditionalShell(
-  { onOpenApp, wallpaper, onViewersChange, pinnedIds, onTogglePin, taskbarReserve, getNextZIndex, onOpenTerminalAt },
+  {
+    onOpenApp,
+    wallpaper,
+    onViewersChange,
+    pinnedIds,
+    onTogglePin,
+    taskbarReserve,
+    getNextZIndex,
+    onOpenTerminalAt,
+    onOpenTaskManager,
+    onOpenAboutOS,
+    onOpenOSUpdate,
+    onOpenInBrowser,
+  },
   ref
 ) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [autoArrange, setAutoArrange] = useState(true);
   const [alignToGrid, setAlignToGrid] = useState(false);
   const [positions, setPositions] = useState<Record<string, IconPosition>>({});
-  const [order, setOrder] = useState<string[]>(() => [...CELESTIAL_BODIES.map((b) => b.id), FILE_MANAGER_ID]);
+  const [order, setOrder] = useState<string[]>(() => [
+    ...CELESTIAL_BODIES.map((b) => b.id),
+    FILE_MANAGER_ID,
+    TASK_MANAGER_ID,
+    ABOUT_OS_ID,
+    OS_UPDATE_ID,
+  ]);
   // Top-level real entries only (desktop icon grid) — fetched from the real filesystem, not localStorage.
   const [desktopItems, setDesktopItems] = useState<DesktopItemData[]>([]);
+  const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
+  const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [iconContextMenu, setIconContextMenu] = useState<{ x: number; y: number; itemId: string } | null>(null);
   const [pinMenu, setPinMenu] = useState<{ x: number; y: number; id: PinnableId } | null>(null);
+  const [propertiesTarget, setPropertiesTarget] = useState<PropertiesSubject | null>(null);
+  const [propertiesMinimized, setPropertiesMinimized] = useState(false);
+  const [propertiesZ, setPropertiesZ] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
   const [openViewerIds, setOpenViewerIds] = useState<string[]>([]);
   // kind/name for every currently-open viewer, keyed by path — needed because an open file can be
@@ -171,8 +264,27 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
   }
   const [externalDropTargetWindowId, setExternalDropTargetWindowId] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
+  const UNDO_STACK_LIMIT = 30;
+  const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
+  function pushUndo(action: UndoAction) {
+    setUndoStack((prev) => [...prev.slice(-(UNDO_STACK_LIMIT - 1)), action]);
+  }
+  /** Undo touches whichever folder(s) the reversed action happened to affect, which varies per type —
+   *  simpler and safer to just refresh every currently open File Manager window than to precisely
+   *  track which ones. Undo is not a hot path, so the extra refresh calls cost nothing noticeable. */
+  function bumpRefreshForAllWindows() {
+    setWindowRefreshTokens((prev) => {
+      const next = { ...prev };
+      for (const id of Object.keys(windowCurrentPathsRef.current)) next[id] = (next[id] ?? 0) + 1;
+      return next;
+    });
+  }
   /** Which "surface" currently owns keyboard shortcuts like Delete — null means the desktop itself. */
   const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
+  // Real OS files (Mac/Windows/Linux) dragged in from outside the browser onto the bare Desktop —
+  // see the matching comment on FileManager's own `dragDepthRef` for why a nesting counter is needed.
+  const [isExternalDragOver, setIsExternalDragOver] = useState(false);
+  const desktopDragDepthRef = useRef(0);
   const [dragState, setDragState] = useState<{
     ids: string[];
     dx: number;
@@ -229,8 +341,18 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         // ignore corrupt storage
       }
     }
+    const apps = loadInstalledApps();
+    setInstalledApps(apps);
     loadRoot().then((items) => {
-      const allIds = [...CELESTIAL_BODIES.map((b) => b.id), FILE_MANAGER_ID, ...items.map((i) => i.path)];
+      const allIds = [
+        ...CELESTIAL_BODIES.map((b) => b.id),
+        FILE_MANAGER_ID,
+        TASK_MANAGER_ID,
+        ABOUT_OS_ID,
+        OS_UPDATE_ID,
+        ...items.map((i) => i.path),
+        ...apps.map((a) => a.id),
+      ];
       setOrder(normalizeOrder(parsedOrder, allIds));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -370,6 +492,10 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     const allEntries = [
       ...CELESTIAL_BODIES.map((b) => ({ id: b.id, name: b.name })),
       { id: FILE_MANAGER_ID, name: FILE_MANAGER_NAME },
+      { id: TASK_MANAGER_ID, name: TASK_MANAGER_NAME },
+      { id: ABOUT_OS_ID, name: ABOUT_OS_NAME },
+      { id: OS_UPDATE_ID, name: OS_UPDATE_NAME },
+      ...installedApps.map((a) => ({ id: a.id, name: a.name })),
       ...desktopItems.map((i) => ({ id: i.path, name: i.name })),
     ];
     const sorted = allEntries.sort((a, b) => a.name.localeCompare(b.name)).map((e) => e.id);
@@ -384,6 +510,12 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     setContextMenu(null);
     setSelectedIds(new Set());
     loadRoot();
+  }
+
+  function openProperties(subject: PropertiesSubject) {
+    setPropertiesTarget(subject);
+    setPropertiesMinimized(false);
+    setPropertiesZ(getNextZIndex());
   }
 
   function handlePersonalize() {
@@ -405,6 +537,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     const parent = parentPathArg ?? "";
     const name = await computeUniqueName(parent, "New folder", "");
     const newPath = await mkdir(parent, name);
+    pushUndo({ type: "create", path: newPath });
     if (parent === "") {
       setDesktopItems((prev) => [...prev, { path: newPath, kind: "folder", name }]);
       appendToOrder(newPath);
@@ -419,6 +552,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     const parent = parentPathArg ?? "";
     const name = await computeUniqueName(parent, "New Text Document", ".txt");
     const newPath = await createFile(parent, name);
+    pushUndo({ type: "create", path: newPath });
     if (parent === "") {
       setDesktopItems((prev) => [...prev, { path: newPath, kind: "file", name }]);
       appendToOrder(newPath);
@@ -433,6 +567,11 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     const trimmed = newNameRaw.trim();
     if (!trimmed) return;
     const newPath = await renameEntry(oldPath, trimmed);
+    // Confirming a freshly-created item's default name (Enter without actually changing it) round-trips
+    // through here too — the backend already treats that as a no-op (`newPath === oldPath`), so nothing
+    // real happened and it shouldn't get its own undo entry or trigger a wasted round of state updates.
+    if (newPath === oldPath) return;
+    pushUndo({ type: "rename", from: oldPath, to: newPath });
     setDesktopItems((prev) => prev.map((it) => (it.path === oldPath ? { ...it, path: newPath, name: trimmed } : it)));
     setOrder((prev) => {
       if (!prev.includes(oldPath)) return prev;
@@ -453,7 +592,8 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
 
   async function handleDeleteItems(paths: string[]): Promise<void> {
     setIconContextMenu(null);
-    const { deleted, errors } = await deleteEntries(paths);
+    const { deleted, trashed, errors } = await deleteEntries(paths);
+    if (trashed.length > 0) pushUndo({ type: "delete", trashed });
     if (deleted.length > 0) {
       const isRemoved = (p: string) => deleted.some((d) => p === d || isDescendantOf(p, d));
       setDesktopItems((prev) => prev.filter((it) => !isRemoved(it.path)));
@@ -509,6 +649,9 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
   async function moveItems(paths: string[], targetFolderPath: string | null): Promise<void> {
     const target = targetFolderPath ?? "";
     const movable = paths.filter((p) => {
+      // Studio icons, the synthetic File Manager entry, and installed web apps aren't real
+      // sandboxed files — only ever hand the backend ids it actually knows how to resolve.
+      if (!desktopItemsByPath.has(p)) return false;
       if (p === target) return false;
       if (parentPath(p) === target) return false; // already there
       if (isDescendantOf(target, p)) return false;
@@ -518,6 +661,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     const { moved, errors } = await moveEntries(movable, target);
     for (const { from, to } of moved) remapOpenViewers(from, to);
     if (moved.length > 0) {
+      pushUndo({ type: "move", moves: moved });
       await loadRoot();
       bumpRefreshForPath(target);
       const movedFrom = new Set(moved.map((m) => m.from));
@@ -579,6 +723,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     }
     const { copied, errors } = await copyEntries(clipboard.paths, targetPath, names);
     if (copied.length > 0) {
+      pushUndo({ type: "copy", createdPaths: copied.map((c) => c.to) });
       if (targetPath === "") {
         await loadRoot();
         setOrder((prev) => {
@@ -596,7 +741,141 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     if (errors.length > 0) setBanner(errors.map((e) => e.message).join("; "));
   }
 
+  /** Imports real OS files (dragged in from the host Mac/Windows/Linux desktop) into `targetPath`
+   *  ("" = Desktop root). Mirrors `pasteClipboard`'s copy-branch: de-duplicates against the target
+   *  folder's current listing via the same `uniqueItemName` helper, then refreshes whichever surface
+   *  needs it (the desktop icon layer for the root, or any open File Manager window on that path). */
+  async function handleExternalFilesDropped(dataTransfer: DataTransfer, targetPath: string): Promise<void> {
+    const dropped = await flattenDroppedItems(dataTransfer);
+    if (dropped.length === 0) return;
+    const siblingNames =
+      targetPath === ""
+        ? [...CELESTIAL_BODIES.map((b) => b.name), FILE_MANAGER_NAME, ...desktopItems.map((i) => i.name)]
+        : (await listFolder(targetPath)).map((e) => e.name);
+    const { uploadedTopNames, errors } = await uploadDroppedFiles(
+      dropped,
+      targetPath,
+      siblingNames.map((n) => n.toLowerCase())
+    );
+    if (uploadedTopNames.length > 0) {
+      pushUndo({
+        type: "upload",
+        createdPaths: uploadedTopNames.map((name) => (targetPath ? `${targetPath}/${name}` : name)),
+      });
+      if (targetPath === "") {
+        await loadRoot();
+        setOrder((prev) => {
+          let next = [...prev];
+          for (const name of uploadedTopNames) {
+            if (!next.includes(name)) next.push(name);
+          }
+          next = Array.from(new Set(next));
+          localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      bumpRefreshForPath(targetPath);
+    }
+    if (errors.length > 0) setBanner(errors.map((e) => `${e.name}: ${e.message}`).join("; "));
+  }
+
+  /** Ctrl+Z — pops and reverses the most recent undoable action. Deliberately calls the raw
+   *  `filesApi` primitives directly rather than the `handleX`/`moveItems`/`pasteClipboard` wrappers
+   *  above (except where reversing IS literally "delete the thing that got created", which safely
+   *  reuses `handleDeleteItems` as-is) — those wrappers call `pushUndo` themselves, and doing so again
+   *  here would let a single Ctrl+Z ironically make itself undoable, growing the stack forever with no
+   *  redo to ever use it. No redo is implemented — not asked for, and keeping this one-directional
+   *  keeps the whole thing far simpler. */
+  async function performUndo(): Promise<void> {
+    const action = undoStack[undoStack.length - 1];
+    if (!action) return;
+    setUndoStack((prev) => prev.slice(0, -1));
+    try {
+      switch (action.type) {
+        case "create":
+        case "copy":
+          await handleDeleteItems(action.type === "create" ? [action.path] : action.createdPaths);
+          return;
+        case "upload":
+          await handleDeleteItems(action.createdPaths);
+          return;
+        case "rename": {
+          const oldName = action.from.split("/").pop() ?? action.from;
+          const restoredPath = await renameEntry(action.to, oldName);
+          setDesktopItems((prev) => prev.map((it) => (it.path === action.to ? { ...it, path: restoredPath, name: oldName } : it)));
+          setOrder((prev) => {
+            if (!prev.includes(action.to)) return prev;
+            const next = Array.from(new Set(prev.map((id) => (id === action.to ? restoredPath : id))));
+            localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+            return next;
+          });
+          setPositions((prev) => {
+            if (!(action.to in prev)) return prev;
+            const next = { ...prev };
+            next[restoredPath] = next[action.to];
+            delete next[action.to];
+            localStorage.setItem(ICON_POSITIONS_KEY, JSON.stringify(next));
+            return next;
+          });
+          remapOpenViewers(action.to, restoredPath, oldName);
+          bumpRefreshForAllWindows();
+          return;
+        }
+        case "move": {
+          const reversed: { from: string; to: string }[] = [];
+          for (const { from, to } of action.moves) {
+            const restoredPath = await moveEntry(to, parentPath(from));
+            reversed.push({ from: to, to: restoredPath });
+          }
+          for (const { from, to } of reversed) remapOpenViewers(from, to);
+          await loadRoot();
+          setOrder((prev) => {
+            let next = prev.filter((id) => !reversed.some((r) => r.from === id));
+            for (const { to } of reversed) {
+              if (parentPath(to) === "" && !next.includes(to)) next.push(to);
+            }
+            next = Array.from(new Set(next));
+            localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+            return next;
+          });
+          bumpRefreshForAllWindows();
+          return;
+        }
+        case "delete": {
+          for (const { path: originalPath, trashPath } of action.trashed) {
+            await restoreEntry(trashPath, originalPath);
+          }
+          await loadRoot();
+          setOrder((prev) => {
+            let next = [...prev];
+            for (const { path: originalPath } of action.trashed) {
+              if (parentPath(originalPath) === "" && !next.includes(originalPath)) next.push(originalPath);
+            }
+            next = Array.from(new Set(next));
+            localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+            return next;
+          });
+          bumpRefreshForAllWindows();
+          return;
+        }
+        case "installApp": {
+          uninstallApp(action.app.id);
+          setInstalledApps((prev) => prev.filter((a) => a.id !== action.app.id));
+          setOrder((prev) => {
+            const next = prev.filter((id) => id !== action.app.id);
+            localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+            return next;
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      setBanner(errMessage(err));
+    }
+  }
+
   const desktopItemsByPath = useMemo(() => new Map(desktopItems.map((i) => [i.path, i])), [desktopItems]);
+  const installedAppsById = useMemo(() => new Map(installedApps.map((a) => [a.id, a])), [installedApps]);
 
   // ---- Minimize (taskbar integration) ----
   function handleMinimizeViewer(id: string) {
@@ -630,7 +909,24 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       openViewer("", { kind: "folder", name: "Desktop" });
     },
     openDesktopPath(path: string, kind: "folder" | "file", name: string) {
+      if (kind === "file" && getFileKind(name) === "html") {
+        onOpenInBrowser(rawFileUrl(path));
+        return;
+      }
       openViewer(path, { kind, name });
+    },
+    closeViewer(id: string) {
+      closeViewer(id);
+    },
+    focusViewer(id: string) {
+      setMinimizedViewerIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setActiveWindowId(id);
+      bringViewerToFront(id);
     },
   }));
 
@@ -640,7 +936,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         .map((id): ViewerSummary | null => {
           const meta = openViewerMeta[id];
           if (!meta) return null;
-          return { id, name: meta.name, kind: meta.kind, minimized: minimizedViewerIds.has(id) };
+          return { id, name: meta.name, kind: meta.kind, minimized: minimizedViewerIds.has(id), color: meta.color };
         })
         .filter((v): v is ViewerSummary => v !== null),
     [openViewerIds, openViewerMeta, minimizedViewerIds]
@@ -676,14 +972,34 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       if (id === FILE_MANAGER_ID) {
         return { id: FILE_MANAGER_ID, name: FILE_MANAGER_NAME, color: FOLDER_COLOR, icon: Folder, kind: "filemanager" };
       }
+      if (id === TASK_MANAGER_ID) {
+        return {
+          id: TASK_MANAGER_ID,
+          name: TASK_MANAGER_NAME,
+          color: "#f87171",
+          icon: TaskManagerIcon,
+          kind: "taskmanager",
+        };
+      }
+      if (id === ABOUT_OS_ID) {
+        return { id: ABOUT_OS_ID, name: ABOUT_OS_NAME, color: "#38bdf8", icon: AboutOSIcon, kind: "aboutos" };
+      }
+      if (id === OS_UPDATE_ID) {
+        return { id: OS_UPDATE_ID, name: OS_UPDATE_NAME, color: "#34d399", icon: OSUpdateIcon, kind: "osupdate" };
+      }
+      const app = installedAppsById.get(id);
+      if (app) {
+        return { id: app.id, name: app.name, color: app.color, icon: Globe, kind: "webapp", thumbnailUrl: faviconUrl(app.url) };
+      }
       const item = desktopItemsByPath.get(id);
       if (item) {
         return {
           id: item.path,
           name: item.name,
-          color: item.kind === "folder" ? FOLDER_COLOR : FILE_COLOR,
-          icon: item.kind === "folder" ? Folder : Document,
+          color: item.kind === "folder" ? FOLDER_COLOR : getFileColor(item.name),
+          icon: item.kind === "folder" ? Folder : getFileIcon(item.name),
           kind: item.kind,
+          thumbnailUrl: item.kind === "file" && getFileKind(item.name) === "image" ? rawFileUrl(item.path) : undefined,
         };
       }
       return null;
@@ -717,12 +1033,17 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         if (clipboard) pasteClipboard("").catch((err) => setBanner(errMessage(err)));
         return;
       }
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        performUndo();
+        return;
+      }
       if (e.key === "Escape") setClipboard(null);
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, renamingId, desktopItemsByPath, activeWindowId, clipboard]);
+  }, [selectedIds, renamingId, desktopItemsByPath, activeWindowId, clipboard, undoStack]);
 
   // ---- Selection (click / ctrl-click / shift-click) ----
   function handleIconSelect(id: string, index: number, e: React.MouseEvent) {
@@ -896,6 +1217,32 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     }
   }
 
+  function handleDesktopExternalDragEnter(e: React.DragEvent) {
+    if (!isExternalFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    desktopDragDepthRef.current += 1;
+    setIsExternalDragOver(true);
+  }
+
+  function handleDesktopExternalDragOver(e: React.DragEvent) {
+    if (!isExternalFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+  }
+
+  function handleDesktopExternalDragLeave(e: React.DragEvent) {
+    if (!isExternalFileDrag(e.dataTransfer)) return;
+    desktopDragDepthRef.current = Math.max(0, desktopDragDepthRef.current - 1);
+    if (desktopDragDepthRef.current === 0) setIsExternalDragOver(false);
+  }
+
+  function handleDesktopExternalDrop(e: React.DragEvent) {
+    if (!isExternalFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    desktopDragDepthRef.current = 0;
+    setIsExternalDragOver(false);
+    handleExternalFilesDropped(e.dataTransfer, "").catch((err) => setBanner(errMessage(err)));
+  }
+
   return (
     <div
       className="fixed inset-0 flex flex-col overflow-hidden bg-[#050810] text-slate-100 select-none bg-cover bg-center"
@@ -905,7 +1252,18 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         setSelectedIds(new Set());
         setContextMenu({ x: e.clientX, y: e.clientY });
       }}
+      onDragEnter={handleDesktopExternalDragEnter}
+      onDragOver={handleDesktopExternalDragOver}
+      onDragLeave={handleDesktopExternalDragLeave}
+      onDrop={handleDesktopExternalDrop}
     >
+      {isExternalDragOver && (
+        <div className="pointer-events-none fixed inset-0 z-[9400] flex items-center justify-center bg-emerald-950/30 outline outline-4 -outline-offset-4 outline-dashed outline-emerald-400">
+          <span className="rounded-full bg-emerald-500/90 px-5 py-2 text-sm font-semibold text-white shadow-2xl">
+            Drop to add to Desktop
+          </span>
+        </div>
+      )}
       <div
         ref={containerRef}
         onMouseDown={handleDesktopMouseDown}
@@ -922,6 +1280,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
               name={entry.name}
               color={entry.color}
               icon={entry.icon}
+              thumbnailUrl={entry.thumbnailUrl}
               selected={selectedIds.has(entry.id)}
               onSelect={(e) => handleIconSelect(entry.id, index, e)}
               onOpen={() => {
@@ -929,6 +1288,17 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                   onOpenApp(entry.body);
                 } else if (entry.kind === "filemanager") {
                   openViewer("", { kind: "folder", name: "Desktop" });
+                } else if (entry.kind === "webapp") {
+                  const app = installedAppsById.get(entry.id);
+                  if (app) openViewer(app.id, { kind: "webapp", name: app.name, url: app.url, color: app.color });
+                } else if (entry.kind === "taskmanager") {
+                  onOpenTaskManager();
+                } else if (entry.kind === "aboutos") {
+                  onOpenAboutOS();
+                } else if (entry.kind === "osupdate") {
+                  onOpenOSUpdate();
+                } else if (entry.kind === "file" && getFileKind(entry.name) === "html") {
+                  onOpenInBrowser(rawFileUrl(entry.id));
                 } else {
                   openViewer(entry.id, { kind: entry.kind as "folder" | "file", name: entry.name });
                 }
@@ -939,6 +1309,9 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                 setSelectedIds((prev) => (prev.has(entry.id) ? prev : new Set([entry.id])));
                 if (entry.kind === "studio" || entry.kind === "filemanager") {
                   setPinMenu({ x: e.clientX, y: e.clientY, id: entry.id as PinnableId });
+                } else if (entry.kind === "taskmanager" || entry.kind === "aboutos" || entry.kind === "osupdate") {
+                  // Not a real file (nothing to Cut/Copy/Rename/Delete/Download) and not pinnable —
+                  // right-click just selects it, matching how a plain click already does.
                 } else {
                   setIconContextMenu({ x: e.clientX, y: e.clientY, itemId: entry.id });
                 }
@@ -953,6 +1326,9 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
               renaming={renamingId === entry.id}
               onRenameSubmit={(name) => handleRenameSubmit(entry.id, name).catch((err) => setBanner(errMessage(err)))}
               onRenameCancel={() => setRenamingId(null)}
+              onRequestRename={
+                entry.kind === "file" || entry.kind === "folder" ? () => setRenamingId(entry.id) : undefined
+              }
             />
           );
         })}
@@ -1007,7 +1383,15 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
               onRename={handleRenameSubmit}
               onDelete={handleDeleteItems}
               onMove={moveItems}
-              onOpenFile={(filePath, fileName) => openViewer(filePath, { kind: "file", name: fileName })}
+              onOpenFile={(filePath, fileName) => {
+                if (getFileKind(fileName) === "html") {
+                  onOpenInBrowser(rawFileUrl(filePath));
+                } else {
+                  openViewer(filePath, { kind: "file", name: fileName });
+                }
+              }}
+              onEditFile={(filePath, fileName) => openViewer(filePath, { kind: "file", name: fileName, forceText: true })}
+              onOpenProperties={(filePath, kind, name) => openProperties({ kind, name, path: filePath })}
               onRectChange={(rect) => setWindowRects((prev) => ({ ...prev, [id]: rect }))}
               onCurrentPathChange={(path) => setWindowCurrentPaths((prev) => ({ ...prev, [id]: path }))}
               refreshToken={windowRefreshTokens[id]}
@@ -1019,12 +1403,36 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
               onCopy={(paths) => setClipboard({ paths, mode: "copy" })}
               onClearClipboard={() => setClipboard(null)}
               onPaste={pasteClipboard}
+              onUndo={performUndo}
               onOpenTerminal={onOpenTerminalAt}
             />
           );
         }
+        if (meta.kind === "webapp") {
+          return (
+            <InstalledAppWindow
+              key={id}
+              name={meta.name}
+              url={meta.url ?? ""}
+              color={meta.color ?? "#38bdf8"}
+              icon={Globe}
+              cascadeIndex={idx}
+              zIndex={viewerZ[id] ?? 200 + idx}
+              taskbarReserve={taskbarReserve}
+              minimized={minimized}
+              onClose={() => closeViewer(id)}
+              onMinimize={() => handleMinimizeViewer(id)}
+              onFocus={() => {
+                setActiveWindowId(id);
+                bringViewerToFront(id);
+              }}
+            />
+          );
+        }
+        const ViewerComponent =
+          meta.forceText || getFileKind(meta.name) === "text" ? FileEditorWindow : FilePreviewWindow;
         return (
-          <FileEditorWindow
+          <ViewerComponent
             key={id}
             path={id}
             name={meta.name}
@@ -1068,7 +1476,23 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
             setContextMenu(null);
             onOpenTerminalAt("");
           }}
+          onInstallApp={() => {
+            setContextMenu(null);
+            setShowInstallDialog(true);
+          }}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {showInstallDialog && (
+        <InstallAppDialog
+          onInstall={(name, url) => {
+            const app = installApp(name, url);
+            setInstalledApps((prev) => [...prev, app]);
+            appendToOrder(app.id);
+            pushUndo({ type: "installApp", app });
+          }}
+          onClose={() => setShowInstallDialog(false)}
         />
       )}
 
@@ -1097,6 +1521,26 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
             setRenamingId(iconContextMenu.itemId);
             setIconContextMenu(null);
           }}
+          onDownload={
+            desktopItemsByPath.get(iconContextMenu.itemId)?.kind === "file"
+              ? () => {
+                  const item = desktopItemsByPath.get(iconContextMenu.itemId)!;
+                  downloadFile(item.path, item.name);
+                  setIconContextMenu(null);
+                }
+              : undefined
+          }
+          onEdit={
+            (() => {
+              const item = desktopItemsByPath.get(iconContextMenu.itemId);
+              return item?.kind === "file" && getFileKind(item.name) === "html"
+                ? () => {
+                    openViewer(item.path, { kind: "file", name: item.name, forceText: true });
+                    setIconContextMenu(null);
+                  }
+                : undefined;
+            })()
+          }
           onDelete={() => {
             const ids =
               selectedIds.has(iconContextMenu.itemId) && selectedIds.size > 1
@@ -1104,6 +1548,46 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                 : [iconContextMenu.itemId];
             handleDeleteItems(ids).catch((err) => setBanner(errMessage(err)));
           }}
+          onUninstall={
+            installedAppsById.has(iconContextMenu.itemId)
+              ? () => {
+                  const id = iconContextMenu.itemId;
+                  uninstallApp(id);
+                  setInstalledApps((prev) => prev.filter((a) => a.id !== id));
+                  setOrder((prev) => {
+                    const next = prev.filter((oid) => oid !== id);
+                    localStorage.setItem(ICON_ORDER_KEY, JSON.stringify(next));
+                    return next;
+                  });
+                  setSelectedIds((prev) => {
+                    if (!prev.has(id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                  });
+                  setIconContextMenu(null);
+                }
+              : undefined
+          }
+          onProperties={
+            (() => {
+              const item = desktopItemsByPath.get(iconContextMenu.itemId);
+              if (item) {
+                return () => {
+                  openProperties({ kind: item.kind, name: item.name, path: item.path });
+                  setIconContextMenu(null);
+                };
+              }
+              const app = installedAppsById.get(iconContextMenu.itemId);
+              if (app) {
+                return () => {
+                  openProperties({ kind: "webapp", name: app.name, url: app.url, color: app.color });
+                  setIconContextMenu(null);
+                };
+              }
+              return undefined;
+            })()
+          }
           onClose={() => setIconContextMenu(null)}
         />
       )}
@@ -1118,6 +1602,18 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
             setPinMenu(null);
           }}
           onClose={() => setPinMenu(null)}
+        />
+      )}
+
+      {propertiesTarget && (
+        <PropertiesWindow
+          subject={propertiesTarget}
+          zIndex={propertiesZ}
+          taskbarReserve={taskbarReserve}
+          minimized={propertiesMinimized}
+          onClose={() => setPropertiesTarget(null)}
+          onMinimize={() => setPropertiesMinimized(true)}
+          onFocus={() => setPropertiesZ(getNextZIndex())}
         />
       )}
 

@@ -9,6 +9,7 @@ import StudioDetailCard from "./StudioDetailCard";
 import SettingsPanel from "./SettingsPanel";
 import TerminalPanel from "./TerminalPanel";
 import BrowserPanel from "./BrowserPanel";
+import StudioFrame from "./StudioFrame";
 
 interface WindowProps {
   win: OpenWindow;
@@ -32,6 +33,8 @@ interface WindowProps {
   onTaskbarAlignmentChange: (alignment: TaskbarAlignment) => void;
   taskbarShowClock: boolean;
   onToggleTaskbarShowClock: () => void;
+  onOpenAboutOS: () => void;
+  onOpenOSUpdate: () => void;
   terminalSessionId: string;
   terminalLines: string[];
   onTerminalLinesChange: (lines: string[]) => void;
@@ -131,6 +134,8 @@ export default function Window({
   onTaskbarAlignmentChange,
   taskbarShowClock,
   onToggleTaskbarShowClock,
+  onOpenAboutOS,
+  onOpenOSUpdate,
   terminalSessionId,
   terminalLines,
   onTerminalLinesChange,
@@ -339,11 +344,7 @@ export default function Window({
           className="h-full w-full"
         >
           {win.body.launchUrl ? (
-            <iframe
-              src={win.body.launchUrl}
-              title={win.body.name}
-              className="h-full w-full border-0 bg-white"
-            />
+            <StudioFrame body={win.body} />
           ) : win.body.id === "settings" ? (
             <SettingsPanel
               wallpaper={wallpaper}
@@ -356,6 +357,8 @@ export default function Window({
               onTaskbarAlignmentChange={onTaskbarAlignmentChange}
               taskbarShowClock={taskbarShowClock}
               onToggleTaskbarShowClock={onToggleTaskbarShowClock}
+              onOpenAboutOS={onOpenAboutOS}
+              onOpenOSUpdate={onOpenOSUpdate}
             />
           ) : win.body.id === "terminal" ? (
             <TerminalPanel

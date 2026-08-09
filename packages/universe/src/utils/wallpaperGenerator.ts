@@ -7,11 +7,17 @@
 export interface WallpaperPreset {
   id: string;
   name: string;
-  /** [background base, nebula color A, nebula color B] */
-  colors: [string, string, string];
+  /** [background base, nebula color A, nebula color B] — only used for procedurally-generated
+   *  presets; real-image presets (see `imageUrl`) don't need it. */
+  colors?: [string, string, string];
+  /** A real static image (served from public/) instead of a procedurally-generated one. When set,
+   *  `resolveWallpaperUrl`/the settings thumbnail both use it directly — no canvas involved. */
+  imageUrl?: string;
 }
 
 export const WALLPAPER_PRESETS: WallpaperPreset[] = [
+  { id: "veasna-dark", name: "Veasna Dark", imageUrl: "/wallpapers/wallpaper-dark.png" },
+  { id: "veasna-light", name: "Veasna Light", imageUrl: "/wallpapers/wallpaper.png" },
   { id: "nebula-blue", name: "Nebula Blue", colors: ["#050814", "#38bdf8", "#818cf8"] },
   { id: "ocean-depths", name: "Ocean Depths", colors: ["#03101a", "#0ea5e9", "#10b981"] },
   { id: "aurora", name: "Aurora", colors: ["#020e0c", "#10b981", "#38bdf8"] },
@@ -19,7 +25,9 @@ export const WALLPAPER_PRESETS: WallpaperPreset[] = [
   { id: "amethyst", name: "Amethyst", colors: ["#0d0616", "#a855f7", "#f43f5e"] },
 ];
 
-export const DEFAULT_WALLPAPER = WALLPAPER_PRESETS[0].id;
+// Matches DEFAULT_THEME ("dark") in utils/theme.ts — the dark brand wallpaper is the one that
+// actually looks right against the OS's default dark chrome.
+export const DEFAULT_WALLPAPER = "veasna-dark";
 
 /** Custom (user-uploaded) wallpapers are stored as data: URLs directly, distinguishing them from preset ids. */
 export function isCustomWallpaper(value: string): boolean {
@@ -29,6 +37,8 @@ export function isCustomWallpaper(value: string): boolean {
 /** Resolves any wallpaper value (preset id or custom data URL) to a paintable image URL. */
 export function resolveWallpaperUrl(value: string, width = 1920, height = 1080): string {
   if (isCustomWallpaper(value)) return value;
+  const preset = WALLPAPER_PRESETS.find((p) => p.id === value);
+  if (preset?.imageUrl) return preset.imageUrl;
   return generateWallpaper(value, width, height);
 }
 

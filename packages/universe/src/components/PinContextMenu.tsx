@@ -20,10 +20,11 @@ export default function PinContextMenu({ x, y, pinned, onTogglePin, onClose }: P
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
-    document.addEventListener("mousedown", handlePointerDown);
+    // Capture phase — see the matching comment in DesktopContextMenu.tsx for why.
+    document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("mousedown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);

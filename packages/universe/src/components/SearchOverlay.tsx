@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Folder, Document } from "@veasnawt/vicons";
+import { Folder } from "@veasnawt/vicons";
 import { CelestialBody, StudioId } from "../types";
 import { RemoteEntry, searchFiles } from "../utils/filesApi";
-import { FOLDER_COLOR, FILE_COLOR } from "../utils/desktopItems";
+import { FOLDER_COLOR } from "../utils/desktopItems";
+import { getFileIcon, getFileColor } from "../utils/fileTypes";
 
 interface SearchOverlayProps {
   bodies: CelestialBody[];
@@ -99,8 +100,8 @@ export default function SearchOverlay({ bodies, icons, onOpenApp, onOpenFileMana
         id: entry.path,
         name: entry.name,
         subtitle: entry.kind === "folder" ? `Folder — Desktop/${entry.path}` : `File — Desktop/${entry.path}`,
-        color: entry.kind === "folder" ? FOLDER_COLOR : FILE_COLOR,
-        icon: entry.kind === "folder" ? Folder : Document,
+        color: entry.kind === "folder" ? FOLDER_COLOR : getFileColor(entry.name),
+        icon: entry.kind === "folder" ? Folder : getFileIcon(entry.name),
         onSelect: () => onOpenDesktopPath(entry.path, entry.kind, entry.name),
       });
     }
