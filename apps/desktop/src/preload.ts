@@ -31,3 +31,8 @@ contextBridge.exposeInMainWorld("veasnaSettings", {
   getApiKeyStatus: () => ipcRenderer.invoke("settings:get-api-key-status") as Promise<{ provider: string; hasKey: boolean }>,
   setApiKey: (provider: string, apiKey: string) => ipcRenderer.invoke("settings:set-api-key", provider, apiKey) as Promise<void>,
 });
+
+contextBridge.exposeInMainWorld("veasnaApps", {
+  pickLocal: () => ipcRenderer.invoke("apps:pick-local") as Promise<{ path: string; name: string; iconDataUrl?: string } | null>,
+  launchLocal: (path: string) => ipcRenderer.invoke("apps:launch-local", path) as Promise<string>,
+});

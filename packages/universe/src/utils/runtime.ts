@@ -124,6 +124,36 @@ export function getSettingsBridge(): SettingsBridge | undefined {
   return typeof window !== "undefined" ? window.veasnaSettings : undefined;
 }
 
+export interface LocalAppPickResult {
+  path: string;
+  name: string;
+  /** Windows Shell's own icon for the picked file, as a data: URL — undefined if extraction
+   *  failed (the desktop icon falls back to a generic glyph in that case). */
+  iconDataUrl?: string;
+}
+
+export interface AppsBridge {
+  /** Opens a native "choose an application" file picker (.exe/.lnk). Resolves to null if the user
+   *  cancels rather than rejecting, so callers don't need a try/catch just to handle "no-op". */
+  pickLocal: () => Promise<LocalAppPickResult | null>;
+  /** Launches the real app at `path` on the real machine via Electron's shell.openPath — resolves
+   *  to "" on success or a human-readable error message on failure; never rejects. */
+  launchLocal: (path: string) => Promise<string>;
+}
+
+declare global {
+  interface Window {
+    veasnaApps?: AppsBridge;
+  }
+}
+
+/** Only defined inside the packaged Electron desktop app — there's no way to launch a real native
+ *  executable (or show a native file picker) from a plain browser tab, so "Add Local App" is
+ *  entirely absent there, not just disabled. */
+export function getAppsBridge(): AppsBridge | undefined {
+  return typeof window !== "undefined" ? window.veasnaApps : undefined;
+}
+
 /** `CELESTIAL_BODIES`' `launchUrl`s are hardcoded to each studio's well-known DEV port (bp:3001,
  *  gamedev:5173) — correct as-is in a browser tab or `pnpm dev`, where those dev servers really do
  *  run on those fixed ports. Inside the packaged Electron app, BP Studio and Game Dev Studio are

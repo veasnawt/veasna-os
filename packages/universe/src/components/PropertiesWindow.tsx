@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Folder, Globe } from "@veasnawt/vicons";
 import FloatingWindow from "./FloatingWindow";
+import LocalAppIcon from "./LocalAppIcon";
 import { getFileIcon, getFileColor, getFileKind } from "../utils/fileTypes";
 import { FOLDER_COLOR, parentPath } from "../utils/desktopItems";
 import { statEntry, EntryStat, FilesApiError } from "../utils/filesApi";
 
 export type PropertiesSubject =
   | { kind: "file" | "folder"; name: string; path: string }
-  | { kind: "webapp"; name: string; url: string; color: string };
+  | { kind: "webapp"; name: string; url: string; color: string }
+  | { kind: "localapp"; name: string; path: string; color: string };
 
 interface PropertiesWindowProps {
   subject: PropertiesSubject;
@@ -75,8 +77,13 @@ export default function PropertiesWindow({ subject, zIndex, taskbarReserve, mini
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when the subject itself changes
   }, [isFileLike, subject.kind === "file" || subject.kind === "folder" ? subject.path : null]);
 
-  const Icon = subject.kind === "webapp" ? Globe : subject.kind === "folder" ? Folder : getFileIcon(subject.name);
-  const color = subject.kind === "webapp" ? subject.color : subject.kind === "folder" ? FOLDER_COLOR : getFileColor(subject.name);
+  const Icon = subject.kind === "webapp" ? Globe : subject.kind === "localapp" ? LocalAppIcon : subject.kind === "folder" ? Folder : getFileIcon(subject.name);
+  const color =
+    subject.kind === "webapp" || subject.kind === "localapp"
+      ? subject.color
+      : subject.kind === "folder"
+        ? FOLDER_COLOR
+        : getFileColor(subject.name);
 
   return (
     <FloatingWindow
@@ -108,7 +115,13 @@ export default function PropertiesWindow({ subject, zIndex, taskbarReserve, mini
               {subject.name}
             </div>
             <div className="text-[10px] text-[var(--os-text-muted)]">
-              {subject.kind === "webapp" ? "Installed Web App" : subject.kind === "folder" ? "File folder" : getFileKind(subject.name)}
+              {subject.kind === "webapp"
+                ? "Installed Web App"
+                : subject.kind === "localapp"
+                  ? "Local Application"
+                  : subject.kind === "folder"
+                    ? "File folder"
+                    : getFileKind(subject.name)}
             </div>
           </div>
         </div>
@@ -118,6 +131,11 @@ export default function PropertiesWindow({ subject, zIndex, taskbarReserve, mini
             <>
               <Row label="Type" value="Installed Web App" />
               <Row label="Address" value={subject.url} />
+            </>
+          ) : subject.kind === "localapp" ? (
+            <>
+              <Row label="Type" value="Local Application" />
+              <Row label="Path" value={subject.path} />
             </>
           ) : error ? (
             <div className="pt-3 text-xs text-rose-400">{error}</div>
