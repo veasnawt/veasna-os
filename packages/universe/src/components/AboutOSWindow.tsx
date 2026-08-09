@@ -5,7 +5,7 @@ import { getUpdaterBridge } from "../utils/runtime";
 
 // Same fallback OSUpdateWindow.tsx uses — shown only in a plain browser tab/`pnpm dev`, where
 // there's no packaged app version to ask about at all (window.veasnaUpdater doesn't exist there).
-const FALLBACK_VERSION = "0.2.5";
+const FALLBACK_VERSION = "0.2.6";
 
 interface AboutOSWindowProps {
   zIndex: number;
