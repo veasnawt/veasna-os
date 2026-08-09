@@ -13,12 +13,13 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   gemini: "Google Gemini",
 };
 
-/** Lets the user enter BP Studio's Rixie AI chat credentials from inside the app itself, instead
- *  of hand-editing a file — writes to Documents/Veasna OS/bp.env via the main process (never
- *  through the sandboxed .desktop files API, since that's a different, unrelated real folder) and
- *  restarts BP Studio's server so the new key takes effect immediately. Only rendered when
- *  `getSettingsBridge()` is available — i.e. only inside the packaged desktop app, where BP Studio
- *  is actually bundled; in dev/web mode there's nothing here to configure this way at all. */
+/** Lets the user enter Rixie's chat credentials from inside the app itself, instead of
+ *  hand-editing a file — writes to Documents/Veasna OS/rixie.env via the main process (never
+ *  through the sandboxed .desktop files API, since that's a different, unrelated real folder).
+ *  Takes effect on Rixie's very next message with no restart needed — Universe's own /api/agent
+ *  route re-reads this file fresh on every request. Only rendered when `getSettingsBridge()` is
+ *  available — i.e. only inside the packaged desktop app; in dev/web mode there's nothing here to
+ *  configure this way at all (edit .env.local directly, same as always). */
 function RixieApiKeySection() {
   const [bridge] = useState(getSettingsBridge);
   const [status, setStatus] = useState<{ provider: RixieProvider; hasKey: boolean } | null>(null);
@@ -54,14 +55,14 @@ function RixieApiKeySection() {
   return (
     <div className="mt-6 space-y-3">
       <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--os-text-muted)] font-semibold">
-        Rixie AI (BP Studio)
+        Rixie AI
       </span>
 
       <div className="space-y-2.5 rounded-lg border border-[var(--os-border)] px-3 py-3">
         <div className="text-[11px] text-[var(--os-text-muted)]">
           {status?.hasKey
             ? `A key is configured for ${PROVIDER_LABELS[status.provider]}. Enter a new one below to replace it.`
-            : "No API key configured yet — Rixie's chat won't work in BP Studio until one is set."}
+            : "No API key configured yet — Rixie won't be able to chat until one is set."}
         </div>
 
         <div className="flex items-center gap-2">
@@ -98,7 +99,7 @@ function RixieApiKeySection() {
           >
             {saving ? "Saving…" : "Save"}
           </button>
-          {saved && <span className="text-[11px] text-emerald-400">Saved — BP Studio restarted with the new key.</span>}
+          {saved && <span className="text-[11px] text-emerald-400">Saved — Rixie will use it on your next message.</span>}
         </div>
       </div>
     </div>

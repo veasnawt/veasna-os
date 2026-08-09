@@ -9,6 +9,7 @@ import SearchOverlay from "./components/SearchOverlay";
 import TaskManagerWindow from "./components/TaskManagerWindow";
 import AboutOSWindow from "./components/AboutOSWindow";
 import OSUpdateWindow from "./components/OSUpdateWindow";
+import RixieWindow, { OsContext } from "./components/RixieWindow";
 import { CELESTIAL_BODIES } from "./constants";
 import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment, WindowRect } from "./types";
 import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils/wallpaperGenerator";
@@ -71,6 +72,9 @@ export default function VeasnaShell() {
   const [osUpdateOpen, setOsUpdateOpen] = useState(false);
   const [osUpdateMinimized, setOsUpdateMinimized] = useState(false);
   const [osUpdateZ, setOsUpdateZ] = useState(0);
+  const [rixieOpen, setRixieOpen] = useState(false);
+  const [rixieMinimized, setRixieMinimized] = useState(false);
+  const [rixieZ, setRixieZ] = useState(0);
   // A folder/file result picked from search while in 3D mode needs List mode mounted first (that's
   // where `TraditionalShell`/`FileManager` live) — this holds the pending open until the mode-switch
   // effect below sees `traditionalShellRef` actually attached to the freshly-mounted instance.
@@ -251,6 +255,13 @@ export default function VeasnaShell() {
   }
 
   function openApp(body: CelestialBody) {
+    // Rixie isn't a studio you "launch" anymore — she's core to the OS, always reachable via her
+    // own taskbar icon (see Taskbar below). Clicking her 3D sun or any lingering desktop entry
+    // opens the same real chat window instead of a generic studio Window pointed at a URL.
+    if (body.id === "rixie") {
+      openRixie();
+      return;
+    }
     setStartMenuOpen(false);
     setOpenWindows((prev) => {
       const existing = prev.find((w) => w.body.id === body.id);
@@ -406,6 +417,33 @@ export default function VeasnaShell() {
     setOsUpdateZ(nextZ());
   }
 
+  function openRixie() {
+    setRixieOpen(true);
+    setRixieMinimized(false);
+    setRixieZ(nextZ());
+  }
+
+  /** What's actually happening in the shell right now, in the terms Rixie's system prompt
+   *  understands — read fresh at send-time (see RixieWindow's `getContext` prop) rather than
+   *  snapshotted once, so a long-idle chat window still reports what's CURRENTLY open. Only real,
+   *  currently-true state — no inferred intent, matching Task Manager's own "no fabricated
+   *  numbers" discipline. */
+  function getRixieContext(): OsContext {
+    const visibleWindows = openWindows.filter((w) => !w.minimized);
+    const activeWindow = visibleWindows.reduce<OpenWindow | null>(
+      (top, w) => (!top || w.z > top.z ? w : top),
+      null
+    );
+    const openFolder = viewers.find((v) => v.kind === "folder" && !v.minimized);
+    return {
+      mode,
+      openStudios: visibleWindows.map((w) => w.body.name),
+      activeStudio: activeWindow?.body.name ?? null,
+      terminalCwd: openWindows.some((w) => w.body.id === "terminal") ? terminalCwd : null,
+      browsingPath: openFolder ? openFolder.id : null,
+    };
+  }
+
   // The taskbar is always rendered now — including a bare 3D view with nothing open/pinned — so the
   // Universe/Desktop toggle can live inside it permanently instead of needing a separate floating
   // fallback for that state. While auto-hide is on, it still doesn't permanently occupy screen space
@@ -431,6 +469,18 @@ export default function VeasnaShell() {
           onOpenAboutOS={openAboutOS}
           onOpenOSUpdate={openOSUpdate}
           onOpenInBrowser={openInBrowser}
+        />
+      )}
+
+      {rixieOpen && (
+        <RixieWindow
+          zIndex={rixieZ}
+          taskbarReserve={taskbarReserve}
+          minimized={rixieMinimized}
+          onClose={() => setRixieOpen(false)}
+          onMinimize={() => setRixieMinimized(true)}
+          onFocus={() => setRixieZ(nextZ())}
+          getContext={getRixieContext}
         />
       )}
 
@@ -557,6 +607,7 @@ export default function VeasnaShell() {
             if (settingsBody) openApp(settingsBody);
           }}
           onOpenSearch={() => setSearchOpen(true)}
+          onOpenRixie={openRixie}
           mode={mode}
           onModeChange={handleModeChange}
         />

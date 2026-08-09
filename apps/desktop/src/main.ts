@@ -3,12 +3,10 @@ import path from "node:path";
 import { createMainWindow } from "./windows/createMainWindow";
 import { spawnNextServer } from "./server/spawnNextServer";
 import { serveStaticDir } from "./server/serveStaticDir";
-import { loadBpEnv, getApiKeyStatus, setApiKey, RixieProvider } from "./server/bpEnvFile";
+import { loadRixieEnv, getApiKeyStatus, setApiKey, RixieProvider } from "./server/rixieEnvFile";
 import { setupAutoUpdater } from "./updater";
 
 const stopFns: (() => void)[] = [];
-let bpStop: (() => void) | null = null;
-let mainWindow: BrowserWindow | null = null;
 
 // Populated as each bundled studio finishes starting — read by the renderer via the
 // "studios:get-urls" IPC handler (packages/universe/src/utils/runtime.ts's
@@ -23,44 +21,21 @@ function workspaceRoot(): string {
   return path.join(app.getPath("documents"), "Veasna OS");
 }
 
-/** BP Studio is started (and, after a new API key is saved, RE-started) separately from Universe
- *  and Game Dev Studio — its env vars can change at runtime (see settings:set-api-key below),
- *  which the other two never need. */
-async function startBp(): Promise<void> {
-  const bp = await spawnNextServer({
-    resourceName: "bp",
-    logLabel: "[bp]",
-    // Same port bp's own `pnpm dev` uses — see pickFreePort.ts's comment for why a STABLE port
-    // matters (browser localStorage is scoped to it) even though bp itself doesn't currently rely
-    // on localStorage the way Universe does; kept consistent across both studios regardless.
-    preferredPort: 3001,
-    // RIXIE_MEMORY_DB redirected to the same real, visible, writable workspace folder Universe
-    // uses — NOT the dev machine's own absolute path from studios/bp/.env.local. Any real API key
-    // comes from an optional user-created Documents/Veasna OS/bp.env (written by the Settings UI's
-    // "settings:set-api-key" handler below), never from the dev machine's own .env.local (which
-    // the packaging step refuses to ship in the first place).
-    extraEnv: { RIXIE_MEMORY_DB: path.join(workspaceRoot(), "rixie-memory.db"), ...loadBpEnv() },
-  });
-  bpStop = bp.stop;
-  studioUrls.bp = bp.url;
-}
-
 ipcMain.handle("settings:get-api-key-status", () => getApiKeyStatus());
 
-ipcMain.handle("settings:set-api-key", async (_event, provider: RixieProvider, apiKey: string) => {
+// Rixie's chat lives in Universe's own /api/agent route now (moved from BP Studio), which reads
+// Documents/Veasna OS/rixie.env fresh on every request — no server restart needed for a newly
+// saved key to take effect, unlike when this lived in BP Studio and required killing and
+// re-forking its whole server.
+ipcMain.handle("settings:set-api-key", (_event, provider: RixieProvider, apiKey: string) => {
   setApiKey(provider, apiKey);
-  // The new key only takes effect for a FRESH fork (env vars are read once, at process start) —
-  // restart BP Studio's server in place rather than requiring the whole app to restart, then tell
-  // the renderer its URL changed so any open BP Studio/Rixie window reloads against the new one.
-  bpStop?.();
-  await startBp().catch((err) => console.error("Failed to restart BP Studio after saving API key:", err));
-  mainWindow?.webContents.send("studios:urls-changed");
 });
 
-/** Spawns Universe (the actual OS shell — must work) plus, best-effort, BP Studio and Game Dev
- *  Studio (bundled but non-critical: if either fails to start, Window.tsx's StudioFrame falls
- *  back to a "coming soon" card for it rather than the whole app refusing to launch). Returns
- *  Universe's own URL, which is what the main window actually loads. */
+/** Spawns Universe (the actual OS shell — must work, and now also hosts Rixie's chat) plus,
+ *  best-effort, BP Studio and Game Dev Studio (bundled but non-critical: if either fails to
+ *  start, Window.tsx's StudioFrame falls back to a "coming soon" card for it rather than the
+ *  whole app refusing to launch). Returns Universe's own URL, which is what the main window
+ *  actually loads. */
 async function spawnPackagedServers(): Promise<string> {
   const universe = await spawnNextServer({
     resourceName: "universe",
@@ -72,13 +47,29 @@ async function spawnPackagedServers(): Promise<string> {
     // exact bug reported as "installed apps disappear when I close and reopen"). 3000 matches
     // Universe's own `pnpm dev` port for the same reason bp below uses 3001.
     preferredPort: 3000,
-    extraEnv: { VEASNA_WORKSPACE_ROOT: workspaceRoot() },
+    extraEnv: {
+      VEASNA_WORKSPACE_ROOT: workspaceRoot(),
+      // RIXIE_MEMORY_DB redirected to the same real, visible, writable workspace folder — NOT the
+      // dev machine's own absolute path from .env.local. Set once at fork time (unlike the API
+      // key, this isn't expected to change without a restart). Any real API key comes from an
+      // optional user-created Documents/Veasna OS/rixie.env — the route itself re-reads that file
+      // per-request too, this is just a fallback for the very first request before it's read.
+      RIXIE_MEMORY_DB: path.join(workspaceRoot(), "rixie-memory.db"),
+      ...loadRixieEnv(),
+    },
   });
   stopFns.push(universe.stop);
 
   try {
-    await startBp();
-    stopFns.push(() => bpStop?.());
+    const bp = await spawnNextServer({
+      resourceName: "bp",
+      logLabel: "[bp]",
+      // Same port bp's own `pnpm dev` uses — see pickFreePort.ts's comment for why a stable port
+      // matters (browser localStorage is scoped to it).
+      preferredPort: 3001,
+    });
+    stopFns.push(bp.stop);
+    studioUrls.bp = bp.url;
   } catch (err) {
     console.error("BP Studio failed to start:", err);
   }
@@ -106,10 +97,6 @@ async function launch() {
   const serverUrl = app.isPackaged ? await spawnPackagedServers() : "http://localhost:3000";
 
   const win = createMainWindow();
-  mainWindow = win;
-  win.on("closed", () => {
-    if (mainWindow === win) mainWindow = null;
-  });
   // No real update feed to check in dev mode (nothing published from a local, unbuilt checkout).
   if (app.isPackaged) setupAutoUpdater(win);
   await win.loadURL(serverUrl);

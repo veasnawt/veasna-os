@@ -285,7 +285,10 @@ function buildGamedevStatic() {
   console.log(`Done — resources/gamedev ready.`);
 }
 
-buildNextStandaloneResources({ appDirName: "universe", outName: "universe", rebuildBetterSqlite3: false });
+// Rixie's chat (SQLite-backed memory/session store, via @veasna/ai) now lives in Universe's own
+// /api/agent route — better-sqlite3 is genuinely used at runtime here now, unlike before this
+// migration when Next's tracer included it only because @veasna/ai was an unused dependency.
+buildNextStandaloneResources({ appDirName: "universe", outName: "universe", rebuildBetterSqlite3: true });
 buildNextStandaloneResources({ appDirName: "bp", outName: "bp", rebuildBetterSqlite3: true });
 buildGamedevStatic();
 

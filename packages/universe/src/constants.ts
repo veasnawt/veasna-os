@@ -21,8 +21,10 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
       "SQLite Long-term Knowledge Vault",
       "Autonomous Agent Orchestration",
       "Empirical Proof & Verification"
-    ],
-    launchUrl: "http://localhost:3001/agent"
+    ]
+    // No launchUrl — Rixie isn't a studio you open, she's core to the OS. VeasnaShell's openApp
+    // special-cases id === "rixie" to open her real chat window (RixieWindow.tsx) directly,
+    // whether clicked here (the 3D sun) or via her permanent taskbar icon.
   },
   {
     id: "bp",

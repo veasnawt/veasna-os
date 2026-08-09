@@ -28,6 +28,8 @@ The front door to Veasna OS is **Universe** — a desktop-style shell with two f
 
 Both modes share the same window system, so switching between them never loses what you have open.
 
+**Rixie** is the sun at the center of the cosmos — and she's genuinely core to the OS, not a studio you have to go open. A persistent-memory AI agent chat, one click away from her own taskbar icon in any mode, with real awareness of what you actually have open right now (active window, terminal location, the folder you're browsing).
+
 <p align="center">
   <img src="assets/screenshots/windows.png" width="80%" alt="File Manager and Terminal open side by side" />
 </p>
@@ -39,7 +41,6 @@ Both modes share the same window system, so switching between them never loses w
 | Studio | What it is | Status |
 | --- | --- | --- |
 | 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
-| 🤖 Rixie Core | Persistent-memory AI agent chat | Active |
 | 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
 | 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
 | 🎵 Music | — | Coming soon |
@@ -57,7 +58,7 @@ pnpm dev:desktop     # run it against your local dev servers, with hot reload
 pnpm build:desktop   # produce a real installer at apps/desktop/release/
 ```
 
-Rixie's API key (for BP Studio's chat) can be entered right from **Settings → Rixie AI** — no `.env` file editing required once it's installed.
+Rixie's API key can be entered right from **Settings → Rixie AI** — no `.env` file editing required once it's installed, and it takes effect on her very next reply with no restart needed.
 
 ---
 
@@ -88,13 +89,13 @@ Requires [Node.js](https://nodejs.org) 20.9+ (an LTS release, e.g. 22.x) and [pn
 git clone --recurse-submodules https://github.com/veasnawt/veasna-os.git
 cd veasna-os
 
-pnpm setup    # installs everything + creates studios/bp/.env.local from its template
+pnpm setup    # installs everything + creates studios/universe/.env.local from its template
 pnpm dev:all  # everything at once — Universe, BP Studio, and Loom Engine together
 ```
 
 Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom`.
 
-Then open `studios/bp/.env.local` and fill in your own model provider API key (see `studios/bp/.env.example`) — everything works without one except BP Studio's Rixie agent chat (or set it later, in-app, via **Settings → Rixie AI** in the desktop app). `pnpm setup` never overwrites an existing `.env.local`, so it's safe to re-run any time.
+Then open `studios/universe/.env.local` and fill in your own model provider API key (see `studios/universe/.env.example`) — everything works without one except Rixie's chat (or set it later, in-app, via **Settings → Rixie AI** in the desktop app). `pnpm setup` never overwrites an existing `.env.local`, so it's safe to re-run any time.
 
 <details>
 <summary><strong>Windows install troubleshooting</strong> (click to expand)</summary>

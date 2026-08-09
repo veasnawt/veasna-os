@@ -5,7 +5,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const ENV_PAIRS = [{ example: "studios/bp/.env.example", target: "studios/bp/.env.local" }];
+const ENV_PAIRS = [{ example: "studios/universe/.env.example", target: "studios/universe/.env.local" }];
 
 let createdAny = false;
 
@@ -26,7 +26,7 @@ for (const { example, target } of ENV_PAIRS) {
 
 if (createdAny) {
   console.log("\nSetup created new .env.local file(s) with placeholder values.");
-  console.log("Open studios/bp/.env.local and fill in your own API key before running BP Studio's agent chat.");
+  console.log("Open studios/universe/.env.local and fill in your own API key before chatting with Rixie.");
   console.log("(Everything else works without it — see README's Security section for what's optional.)\n");
 } else {
   console.log("\nAll .env.local files already exist — nothing to set up.\n");

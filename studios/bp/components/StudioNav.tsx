@@ -1,6 +1,9 @@
 import Link from "next/link";
-import { Ai } from "@veasnawt/vicons";
 
+// Rixie's chat used to be reachable from here (linking to /agent) — she's core OS infrastructure
+// now, not a BP Studio feature, reachable from Veasna OS's own taskbar instead (see
+// packages/universe/src/components/RixieWindow.tsx). No replacement link belongs here; BP Studio
+// itself never depended on that route for anything else.
 export function StudioNav() {
   return (
     <nav className="flex items-center justify-between">
@@ -12,14 +15,6 @@ export function StudioNav() {
         <span className="text-xs font-semibold tracking-wide text-foreground">
           BP Studio
         </span>
-      </Link>
-
-      <Link
-        href="/agent"
-        className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20 hover:border-primary/50"
-      >
-        <Ai size={14} />
-        <span>Rixie</span>
       </Link>
     </nav>
   );

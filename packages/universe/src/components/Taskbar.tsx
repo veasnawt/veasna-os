@@ -26,6 +26,9 @@ interface TaskbarProps {
   onOpenFileManager: () => void;
   onOpenTaskbarSettings: () => void;
   onOpenSearch: () => void;
+  /** Rixie is core to the OS now, not a studio you have to go find — always one click away from
+   *  the taskbar, in any mode, regardless of what else is open. */
+  onOpenRixie: () => void;
   mode: ShellMode;
   onModeChange: (mode: ShellMode) => void;
 }
@@ -58,6 +61,7 @@ export default function Taskbar({
   onOpenApp,
   onOpenFileManager,
   onOpenTaskbarSettings,
+  onOpenRixie,
   onOpenSearch,
   mode,
   onModeChange,
@@ -208,6 +212,14 @@ export default function Taskbar({
               <circle cx="11" cy="11" r="7" />
               <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
             </svg>
+          </button>
+
+          <button
+            onClick={onOpenRixie}
+            title="Ask Rixie"
+            className="flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[#38bdf8]"
+          >
+            <Ai size={14} />
           </button>
 
           {pinnedEntries.map((entry) => (

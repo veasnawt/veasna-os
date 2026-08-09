@@ -106,8 +106,8 @@ export interface SettingsBridge {
    *  which provider. The renderer's Settings UI never needs (or should have) the real secret once
    *  it's been saved. */
   getApiKeyStatus: () => Promise<{ provider: RixieProvider; hasKey: boolean }>;
-  /** Writes the key to Documents/Veasna OS/bp.env and restarts BP Studio's server so it takes
-   *  effect immediately, without needing a full app restart. */
+  /** Writes the key to Documents/Veasna OS/rixie.env — takes effect on Rixie's very next message,
+   *  no restart needed (Universe's own /api/agent route re-reads that file per-request). */
   setApiKey: (provider: RixieProvider, apiKey: string) => Promise<void>;
 }
 
@@ -118,7 +118,7 @@ declare global {
 }
 
 /** Only defined inside the packaged Electron desktop app — undefined in a plain browser tab or
- *  `pnpm dev`, where BP Studio's key is configured the ordinary way (studios/bp/.env.local) and
+ *  `pnpm dev`, where Rixie's key is configured the ordinary way (studios/universe/.env.local) and
  *  needs no in-app UI. */
 export function getSettingsBridge(): SettingsBridge | undefined {
   return typeof window !== "undefined" ? window.veasnaSettings : undefined;
