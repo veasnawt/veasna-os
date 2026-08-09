@@ -13,6 +13,18 @@ const PROVIDER_KEY_VAR: Record<RixieProvider, string> = {
   groq: "GROQ_API_KEY",
 };
 
+// Deliberately PER-PROVIDER, not a single shared RIXIE_MODEL — confirmed the hard way that a
+// single override survives a provider switch and gets sent to whatever provider is now active,
+// which breaks the moment it's a model name that only exists on the PREVIOUS provider's API (e.g.
+// an Anthropic model name sent to Groq: a 404, not a working chat). Each provider remembers its
+// own model choice independently, exactly like PROVIDER_KEY_VAR above.
+const PROVIDER_MODEL_VAR: Record<RixieProvider, string> = {
+  anthropic: "RIXIE_MODEL_ANTHROPIC",
+  openai: "RIXIE_MODEL_OPENAI",
+  gemini: "RIXIE_MODEL_GEMINI",
+  groq: "RIXIE_MODEL_GROQ",
+};
+
 function rixieEnvPath(): string {
   return path.join(app.getPath("documents"), "Veasna OS", "rixie.env");
 }
@@ -52,6 +64,9 @@ export interface RixieKeyStatus {
    *  Settings UI needs to know which ones are already usable without asking the user to re-paste
    *  a key it already has on disk. */
   configured: Record<RixieProvider, boolean>;
+  /** The raw model override PER PROVIDER, if any — empty string means "no override for this
+   *  provider," i.e. Rixie uses @veasna/ai's own defaultModelForProvider(that provider) guess. */
+  models: Record<RixieProvider, string>;
 }
 
 /** Never returns any key value itself — the renderer's Settings UI only ever needs to know
@@ -63,7 +78,10 @@ export function getApiKeyStatus(): RixieKeyStatus {
   const configured = Object.fromEntries(
     (Object.keys(PROVIDER_KEY_VAR) as RixieProvider[]).map((p) => [p, Boolean(env[PROVIDER_KEY_VAR[p]]?.trim())])
   ) as Record<RixieProvider, boolean>;
-  return { activeProvider, configured };
+  const models = Object.fromEntries(
+    (Object.keys(PROVIDER_MODEL_VAR) as RixieProvider[]).map((p) => [p, env[PROVIDER_MODEL_VAR[p]] ?? ""])
+  ) as Record<RixieProvider, string>;
+  return { activeProvider, configured, models };
 }
 
 function writeRixieEnv(values: Record<string, string>): void {
@@ -89,5 +107,17 @@ export function setApiKey(provider: RixieProvider, apiKey: string): void {
 export function setActiveProvider(provider: RixieProvider): void {
   const existing = loadRixieEnv();
   existing.RIXIE_PROVIDER = provider;
+  writeRixieEnv(existing);
+}
+
+/** Sets (or, given an empty/whitespace-only string, CLEARS) this SPECIFIC provider's model
+ *  override — never touches any other provider's, or the active provider itself. Clearing it
+ *  falls back to @veasna/ai's own defaultModelForProvider(provider) guess. */
+export function setModel(provider: RixieProvider, model: string): void {
+  const existing = loadRixieEnv();
+  const trimmed = model.trim();
+  const varName = PROVIDER_MODEL_VAR[provider];
+  if (trimmed) existing[varName] = trimmed;
+  else delete existing[varName];
   writeRixieEnv(existing);
 }

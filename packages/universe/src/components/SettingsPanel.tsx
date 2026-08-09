@@ -14,9 +14,21 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   groq: "Groq",
 };
 
-type KeyStatus = { activeProvider: RixieProvider; configured: Record<RixieProvider, boolean> };
+// Display-only mirror of @veasna/ai's defaultModelForProvider — that package is Node-only
+// (better-sqlite3), so it can never be imported into this client bundle; this is just what's
+// shown as the model input's placeholder, not something functionally load-bearing (the real
+// default is applied server-side, in route.ts, if no override is saved).
+const DEFAULT_MODEL_LABEL: Record<RixieProvider, string> = {
+  anthropic: "claude-sonnet-5",
+  openai: "gpt-4o",
+  gemini: "gemini-2.0-flash",
+  groq: "llama-3.3-70b-versatile",
+};
+
+type KeyStatus = { activeProvider: RixieProvider; configured: Record<RixieProvider, boolean>; models: Record<RixieProvider, string> };
 
 const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false, groq: false };
+const EMPTY_MODELS: Record<RixieProvider, string> = { anthropic: "", openai: "", gemini: "", groq: "" };
 
 /** The web-mode counterpart to the Electron bridge — same shape, backed by
  *  /api/settings/rixie-key instead of an IPC call. That route writes to a gitignored .env.rixie
@@ -26,7 +38,7 @@ const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, ope
 const httpKeyBridge: SettingsBridge = {
   async getApiKeyStatus() {
     const res = await fetch("/api/settings/rixie-key");
-    if (!res.ok) return { activeProvider: "anthropic", configured: EMPTY_CONFIGURED };
+    if (!res.ok) return { activeProvider: "anthropic", configured: EMPTY_CONFIGURED, models: EMPTY_MODELS };
     return res.json();
   },
   async setApiKey(provider, apiKey) {
@@ -51,6 +63,17 @@ const httpKeyBridge: SettingsBridge = {
       throw new Error(data.error || `Failed to switch (${res.status})`);
     }
   },
+  async setModel(provider, model) {
+    const res = await fetch("/api/settings/rixie-key", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, model }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Failed to save model (${res.status})`);
+    }
+  },
 };
 
 /** Lets the user enter Rixie's chat credentials from inside the app itself, instead of
@@ -67,7 +90,9 @@ function RixieApiKeySection() {
   const [status, setStatus] = useState<KeyStatus | null>(null);
   const [provider, setProvider] = useState<RixieProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
+  const [modelInput, setModelInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,12 +100,14 @@ function RixieApiKeySection() {
     bridge.getApiKeyStatus().then((s) => {
       setStatus(s);
       setProvider(s.activeProvider);
+      setModelInput(s.models[s.activeProvider] ?? "");
     });
   }, [bridge]);
 
   async function handleProviderChange(next: RixieProvider) {
     setProvider(next);
     setApiKey("");
+    setModelInput(status?.models[next] ?? "");
     setSaved(null);
     setError(null);
     // Already have a key on file for this one — switch straight to it, no re-entry needed. A
@@ -107,7 +134,11 @@ function RixieApiKeySection() {
     setError(null);
     try {
       await bridge.setApiKey(provider, apiKey.trim());
-      setStatus((prev) => ({ activeProvider: provider, configured: { ...(prev?.configured ?? EMPTY_CONFIGURED), [provider]: true } }));
+      setStatus((prev) => ({
+        activeProvider: provider,
+        configured: { ...(prev?.configured ?? EMPTY_CONFIGURED), [provider]: true },
+        models: prev?.models ?? EMPTY_MODELS,
+      }));
       setApiKey("");
       setSaved("Saved — Rixie will use it on your next message.");
     } catch (err) {
@@ -117,8 +148,25 @@ function RixieApiKeySection() {
     }
   }
 
+  async function handleSaveModel() {
+    setSavingModel(true);
+    setSaved(null);
+    setError(null);
+    try {
+      await bridge.setModel(provider, modelInput.trim());
+      setStatus((prev) => (prev ? { ...prev, models: { ...prev.models, [provider]: modelInput.trim() } } : prev));
+      setSaved(modelInput.trim() ? "Model saved." : "Cleared — back to the default model for this provider.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save model");
+    } finally {
+      setSavingModel(false);
+    }
+  }
+
   const isActive = provider === status?.activeProvider;
   const isConfigured = status?.configured[provider] ?? false;
+  const savedModel = status?.models[provider] ?? "";
+  const modelDirty = modelInput.trim() !== savedModel;
 
   return (
     <div className="mt-6 space-y-3">
@@ -173,9 +221,39 @@ function RixieApiKeySection() {
           >
             {saving ? "Saving…" : isConfigured ? "Replace key" : "Save"}
           </button>
-          {saved && <span className="text-[11px] text-emerald-400">{saved}</span>}
-          {error && <span className="text-[11px] text-red-400">{error}</span>}
         </div>
+
+        <div className="border-t border-[var(--os-border)] pt-2.5">
+          <div className="mb-1.5 text-[10px] text-[var(--os-text-muted)]">
+            Model for {PROVIDER_LABELS[provider]} — optional, overrides the default. Useful for a model this provider
+            just released.
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={modelInput}
+              onChange={(e) => {
+                setModelInput(e.target.value);
+                setSaved(null);
+                setError(null);
+              }}
+              placeholder={`Default: ${DEFAULT_MODEL_LABEL[provider]}`}
+              spellCheck={false}
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2.5 py-1.5 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
+            />
+            <button
+              onClick={handleSaveModel}
+              disabled={!modelDirty || savingModel}
+              className="rounded-full border border-[var(--os-border)] px-3 py-1.5 text-[11px] font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)] disabled:opacity-40"
+            >
+              {savingModel ? "Saving…" : "Save model"}
+            </button>
+          </div>
+        </div>
+
+        {saved && <div className="text-[11px] text-emerald-400">{saved}</div>}
+        {error && <div className="text-[11px] text-red-400">{error}</div>}
       </div>
     </div>
   );

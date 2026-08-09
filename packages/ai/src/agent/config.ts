@@ -11,18 +11,29 @@ export const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
 export const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
 export const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
 
-export const MODEL =
-  process.env.RIXIE_MODEL ??
-  process.env.VEASNA_MODEL ??
-  (PROVIDER === "openai"
-    ? "gpt-4o"
-    : PROVIDER === "gemini"
-    ? "gemini-2.0-flash"
-    : PROVIDER === "ollama"
-    ? "llama3.1"
-    : PROVIDER === "groq"
-    ? "llama-3.3-70b-versatile"
-    : "claude-sonnet-5");
+/** Exported separately from MODEL below so a host that resolves its OWN active provider at
+ *  runtime (e.g. studios/universe's route.ts, which reads it from a Settings-writable file rather
+ *  than process.env) can look up the right default model for THAT provider — process.env.PROVIDER
+ *  (below) is a snapshot from whenever this module first loaded and can be stale/wrong for a host
+ *  like that one. Confirmed the hard way: switching providers in Settings without also
+ *  hand-editing RIXIE_MODEL sent Groq a "claude-sonnet-5" request (a model that only exists on
+ *  Anthropic's API), a 404 from Groq's API instead of a working chat. */
+export function defaultModelForProvider(provider: string): string {
+  switch (provider) {
+    case "openai":
+      return "gpt-4o";
+    case "gemini":
+      return "gemini-2.0-flash";
+    case "ollama":
+      return "llama3.1";
+    case "groq":
+      return "llama-3.3-70b-versatile";
+    default:
+      return "claude-sonnet-5";
+  }
+}
+
+export const MODEL = process.env.RIXIE_MODEL ?? process.env.VEASNA_MODEL ?? defaultModelForProvider(PROVIDER);
 
 export const MAX_TOKENS = parseInt(
   process.env.RIXIE_MAX_TOKENS ?? process.env.VEASNA_MAX_TOKENS ?? "2048",

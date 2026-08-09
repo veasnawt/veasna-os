@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { RixieAgent, createProvider, generateTopicTitle } from "@veasna/ai";
+import { RixieAgent, createProvider, generateTopicTitle, defaultModelForProvider } from "@veasna/ai";
 import { getSessionStore } from "../_lib/sessionStore";
 import { buildVeasnaOsTools } from "./_lib/veasnaOsTools";
-import { loadRixieEnv } from "../_lib/rixieEnvFile";
+import { loadRixieEnv, modelOverrideFrom, RixieProvider } from "../_lib/rixieEnvFile";
 
 export const runtime = "nodejs";
 
@@ -27,6 +27,16 @@ function humanizeProviderError(err: unknown): string {
   // waiting, so telling the user to "try again shortly" would be actively misleading.
   if (/RESOURCE_EXHAUSTED/i.test(raw) && /\blimit:\s*0\b/i.test(raw)) {
     return "I can't respond right now — this API key's project has zero free-tier quota for this model (not a temporary rate limit, waiting won't help). Check the project's quota/billing at ai.google.dev, try a different Gemini model, or switch providers in Settings → Rixie AI.";
+  }
+  if (/model_not_found|does not exist or you do not have access/i.test(raw)) {
+    // Groq/OpenAI's exact phrasing wraps the bad model name in backticks — worth pulling out for a
+    // specific, actionable message now that Settings → Rixie AI has a real per-provider Model
+    // field a typo or a since-retired name could land in (this is exactly the error a bad value
+    // there produces — confirmed live by typing "test" into it).
+    const badModel = raw.match(/model `([^`]+)`/i)?.[1];
+    return badModel
+      ? `I can't respond right now — the model "${badModel}" doesn't exist for this provider. Fix or clear the Model field for it in Settings → Rixie AI.`
+      : "I can't respond right now — the model saved for this provider doesn't exist. Fix or clear the Model field for it in Settings → Rixie AI.";
   }
   if (/rate_limit_error|429/i.test(raw)) {
     return "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
@@ -100,9 +110,19 @@ function getAgent(providerType?: string, modelName?: string): RixieAgent {
     geminiApiKey: overrides.GEMINI_API_KEY,
     groqApiKey: overrides.GROQ_API_KEY,
   });
+  // NOT `|| undefined` down to RixieAgent's own config.MODEL fallback — that constant is computed
+  // once from process.env.RIXIE_PROVIDER, a stale snapshot from whenever this server started,
+  // completely blind to a provider switched at runtime via Settings (which writes to the separate
+  // rixieEnvFile.ts-backed file `overrides` comes from). Confirmed the hard way: switching to Groq
+  // without also hand-editing .env.local's RIXIE_MODEL kept sending "claude-sonnet-5" — a model
+  // that doesn't exist on Groq's API — a 404 instead of a working chat. modelOverrideFrom is
+  // PER-PROVIDER for the same reason: a single shared override would reintroduce the exact same
+  // bug the moment you switch providers again.
+  const effectiveProvider = (resolvedProvider || "anthropic") as RixieProvider;
+  const model = modelName || modelOverrideFrom(overrides, effectiveProvider) || defaultModelForProvider(effectiveProvider);
   return new RixieAgent({
     provider,
-    model: modelName || overrides.RIXIE_MODEL || undefined,
+    model,
     systemPrompt: SYSTEM_PROMPT,
     disabledTools: DISABLED_TOOLS,
     extraTools: [buildVeasnaOsTools()],

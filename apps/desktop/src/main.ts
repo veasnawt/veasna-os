@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { createMainWindow } from "./windows/createMainWindow";
 import { spawnNextServer } from "./server/spawnNextServer";
 import { serveStaticDir } from "./server/serveStaticDir";
-import { loadRixieEnv, getApiKeyStatus, setApiKey, setActiveProvider, RixieProvider } from "./server/rixieEnvFile";
+import { loadRixieEnv, getApiKeyStatus, setApiKey, setActiveProvider, setModel, RixieProvider } from "./server/rixieEnvFile";
 import { setupAutoUpdater } from "./updater";
 
 const stopFns: (() => Promise<void>)[] = [];
@@ -36,6 +36,14 @@ ipcMain.handle("settings:set-api-key", (_event, provider: RixieProvider, apiKey:
 // to a provider you already configured" with no re-typing needed.
 ipcMain.handle("settings:set-active-provider", (_event, provider: RixieProvider) => {
   setActiveProvider(provider);
+});
+
+// Sets (or, given an empty string, clears back to the smart per-provider default) an explicit
+// model override FOR THAT SPECIFIC PROVIDER — lets Settings offer a model a provider just
+// released without a Veasna OS update, without risking a stale model name once you switch
+// providers (each provider remembers its own choice independently).
+ipcMain.handle("settings:set-model", (_event, provider: RixieProvider, model: string) => {
+  setModel(provider, model);
 });
 
 // "Install Software" (packages/universe's DesktopContextMenu + InstallSoftwareDialog) — installs a

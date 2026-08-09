@@ -32,9 +32,11 @@ contextBridge.exposeInMainWorld("veasnaSettings", {
     ipcRenderer.invoke("settings:get-api-key-status") as Promise<{
       activeProvider: string;
       configured: Record<string, boolean>;
+      models: Record<string, string>;
     }>,
   setApiKey: (provider: string, apiKey: string) => ipcRenderer.invoke("settings:set-api-key", provider, apiKey) as Promise<void>,
   setActiveProvider: (provider: string) => ipcRenderer.invoke("settings:set-active-provider", provider) as Promise<void>,
+  setModel: (provider: string, model: string) => ipcRenderer.invoke("settings:set-model", provider, model) as Promise<void>,
 });
 
 contextBridge.exposeInMainWorld("veasnaApps", {

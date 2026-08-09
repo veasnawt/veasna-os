@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isLocalRequest, localOnlyResponse } from "../../_lib/localOnlyGuard";
-import { getApiKeyStatus, setApiKey, setActiveProvider, RixieProvider } from "../../_lib/rixieEnvFile";
+import { getApiKeyStatus, setApiKey, setActiveProvider, setModel, RixieProvider } from "../../_lib/rixieEnvFile";
 
 export const runtime = "nodejs";
 
@@ -60,6 +60,23 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` }, { status: 400 });
     }
     setActiveProvider(provider as RixieProvider);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// PUT /api/settings/rixie-key — { provider, model } -> sets an explicit model override FOR THAT
+// PROVIDER (empty string clears it back to @veasna/ai's own defaultModelForProvider guess).
+export async function PUT(req: NextRequest) {
+  if (!isLocalRequest(req)) return localOnlyResponse();
+  try {
+    const { provider, model } = (await req.json()) as { provider?: string; model?: string };
+    if (badProvider(provider)) {
+      return NextResponse.json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` }, { status: 400 });
+    }
+    setModel(provider as RixieProvider, model ?? "");
     return NextResponse.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

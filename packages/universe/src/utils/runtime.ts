@@ -106,7 +106,7 @@ export interface SettingsBridge {
    *  just the active one), since setApiKey merges rather than replaces — switching providers
    *  doesn't lose an earlier one, so the UI can offer "switch back to X" with no re-typing needed
    *  once a key already exists for it. */
-  getApiKeyStatus: () => Promise<{ activeProvider: RixieProvider; configured: Record<RixieProvider, boolean> }>;
+  getApiKeyStatus: () => Promise<{ activeProvider: RixieProvider; configured: Record<RixieProvider, boolean>; models: Record<RixieProvider, string> }>;
   /** Writes the key to Documents/Veasna OS/rixie.env AND makes it the active provider — takes
    *  effect on Rixie's very next message, no restart needed (Universe's own /api/agent route
    *  re-reads that file per-request). */
@@ -114,6 +114,11 @@ export interface SettingsBridge {
   /** Switches the active provider WITHOUT touching any saved key — for reusing a key that was
    *  already saved for it earlier. */
   setActiveProvider: (provider: RixieProvider) => Promise<void>;
+  /** Sets an explicit model override FOR THAT PROVIDER, or clears it back to the smart
+   *  per-provider default when given an empty string — lets a just-released model be used
+   *  without a Veasna OS update. Per-provider, not global, so switching providers never leaves a
+   *  stale override from a different one behind. */
+  setModel: (provider: RixieProvider, model: string) => Promise<void>;
 }
 
 declare global {
