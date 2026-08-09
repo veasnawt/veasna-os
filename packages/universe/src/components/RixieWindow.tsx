@@ -410,8 +410,9 @@ export default function RixieWindow({
               messages.map((m) => {
                 if (m.role === "user") {
                   const att = parseAttachment(m.content);
+                  const visibleText = att ? att.caption : m.content;
                   return (
-                    <div key={m.id} className="ml-auto flex max-w-[85%] flex-col items-end gap-1.5">
+                    <div key={m.id} className="group ml-auto flex max-w-[85%] flex-col items-end gap-1.5">
                       {att && att.isImage && (
                         <img
                           src={`/api/files/raw?path=${encodeURIComponent(att.relPath)}`}
@@ -426,8 +427,17 @@ export default function RixieWindow({
                         </div>
                       )}
                       <div className="whitespace-pre-wrap rounded-xl bg-[var(--os-accent-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--os-accent-text)]">
-                        {att ? att.caption : m.content}
+                        {visibleText}
                       </div>
+                      {visibleText && (
+                        <button
+                          onClick={() => navigator.clipboard.writeText(visibleText)}
+                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--os-text-muted)] opacity-0 transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)] group-hover:opacity-100"
+                        >
+                          <Copy size={10} />
+                          Copy
+                        </button>
+                      )}
                     </div>
                   );
                 }
