@@ -7,6 +7,29 @@ import { buildVeasnaOsTools } from "./_lib/veasnaOsTools";
 
 export const runtime = "nodejs";
 
+/** Provider SDKs (the Anthropic SDK in particular) throw errors whose `.message` is the raw HTTP
+ *  status + JSON error body — e.g. `400 {"type":"error","error":{"type":"invalid_request_error",
+ *  "message":"Your credit balance is too low..."}}`. Fine in a server log, not something to hand a
+ *  user verbatim inside a chat bubble. Recognizes the handful of failure shapes actually worth a
+ *  distinct message; anything unrecognized still falls back to the raw text rather than hiding a
+ *  genuinely new error behind a vague catch-all. */
+function humanizeProviderError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/credit balance is too low/i.test(raw)) {
+    return "I can't respond right now — the AI provider account is out of credits. Add credits (or switch providers) in Settings → Rixie AI, then try again.";
+  }
+  if (/invalid x-api-key|authentication_error|incorrect api key/i.test(raw)) {
+    return "I can't respond right now — the AI provider rejected the API key. Check it in Settings → Rixie AI.";
+  }
+  if (/rate_limit_error|429/i.test(raw)) {
+    return "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
+  }
+  if (/overloaded_error|529/i.test(raw)) {
+    return "The AI provider is overloaded right now — try again in a bit.";
+  }
+  return raw;
+}
+
 /** In the packaged desktop app, an optional `Documents/Veasna OS/rixie.env` (written by
  *  Settings → Rixie AI) can override the provider/API key that would otherwise come from
  *  process.env — read fresh on every request rather than once at server-start, so saving a new
@@ -198,7 +221,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error("[/api/agent]", err);
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: humanizeProviderError(err) }, { status: 500 });
   }
 }
