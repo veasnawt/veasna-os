@@ -98,7 +98,7 @@ async function launch() {
 
   const win = createMainWindow();
   // No real update feed to check in dev mode (nothing published from a local, unbuilt checkout).
-  if (app.isPackaged) setupAutoUpdater(win);
+  if (app.isPackaged) setupAutoUpdater(win, stopAllServers);
   await win.loadURL(serverUrl);
 }
 
@@ -121,18 +121,32 @@ app.on("activate", () => {
 
 // Otherwise the forked/served studio servers outlive the Electron app on quit — or, worse, briefly
 // SURVIVE it: `before-quit` firing doesn't mean the child processes have actually exited yet,
-// `child.kill()` is fire-and-forget. That race is exactly what caused NSIS's "Veasna OS cannot be
-// closed" prompt on update: electron-updater's quitAndInstall() (Settings → OS Update) could let
-// the downloaded installer start overwriting files while a forked server was still winding down
-// and still holding a lock on one. Fix: intercept the FIRST before-quit, actually wait for every
-// server to confirm it exited (stop() now returns a Promise that does that — see
-// spawnNextServer.ts/serveStaticDir.ts), then quit for real; `hasCleanedUp` lets that second,
-// self-triggered quit through immediately instead of looping.
+// `child.kill()` is fire-and-forget. Cached (not re-run) so both the before-quit handler below AND
+// updater.ts's "updater:install" handler can call this and share the SAME in-flight stop, rather
+// than racing two separate Promise.all(stopFns...) runs against the same already-killed children
+// (whose 'exit' event only fires once — a second wait would just burn the full 3s timeout).
+let stopAllServersPromise: Promise<void> | null = null;
+function stopAllServers(): Promise<void> {
+  if (!stopAllServersPromise) {
+    stopAllServersPromise = Promise.all(stopFns.map((stop) => stop())).then(() => undefined);
+  }
+  return stopAllServersPromise;
+}
+
+// This alone fixed a manual window-close/quit, but NOT Settings → OS Update: electron-updater's
+// quitAndInstall() (see updater.ts) spawns the downloaded NSIS installer SYNCHRONOUSLY, before it
+// gets around to calling app.quit() (one tick later) — so before-quit firing here was already too
+// late. The installer's own "close the running app" check ran against an app plus two forked
+// Next.js servers (all sharing this same exe image) that hadn't been told to quit yet, which is
+// what actually produced NSIS's "Veasna OS cannot be closed" prompt specifically on update (a
+// manual close-then-reinstall never hit this, since this handler already had time to run first).
+// updater.ts now awaits stopAllServers() itself before ever calling quitAndInstall() — this
+// handler stays as the fallback for every OTHER way the app can quit (window close, Alt+F4, etc).
 let hasCleanedUp = false;
 app.on("before-quit", (event) => {
   if (hasCleanedUp) return;
   event.preventDefault();
-  Promise.all(stopFns.map((stop) => stop())).finally(() => {
+  stopAllServers().finally(() => {
     hasCleanedUp = true;
     app.quit();
   });
