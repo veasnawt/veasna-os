@@ -468,6 +468,7 @@ export default function VeasnaShell() {
       activeStudio: activeWindow?.body.name ?? null,
       terminalCwd: openWindows.some((w) => w.body.id === "terminal") ? terminalCwd : null,
       browsingPath: openFolder ? openFolder.id : null,
+      companionActive: companionVisible,
     };
   }
 

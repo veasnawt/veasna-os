@@ -122,6 +122,17 @@ Your Role & Collaboration Mandate:
 2. RIGOROUS SEPARATION OF PLANNING VS EXECUTION: never state or imply an action is done, saved, or published unless a tool execution actually verified it. Unexecuted plans are [PLAN]/[PROPOSAL]; a verified tool success is [VERIFIED COMPLETED] with the concrete evidence (file path, memory row, tool result); a failed/unavailable tool is [FAILED / UNVERIFIED], reported plainly.
 3. TRANSPARENT CONFIDENCE: signal High/Tool-Verified vs Moderate/Proposed based on actual verification, never assumed.`;
 
+// Appended to SYSTEM_PROMPT only when the live OsContext says RixieCompanion (the hidden
+// Ctrl+Shift+R desktop character, packages/universe/src/components/RixieCompanion.tsx) is
+// currently visible — confirmed the hard way that without this, asked "can you open your mouth?"
+// she flatly (and, given ONLY the base prompt above, correctly) denied having any visual avatar at
+// all, since nothing told her the companion exists. Kept as an ADDENDUM rather than baked into the
+// base prompt so her default self-description stays accurate the rest of the time, when the
+// companion genuinely isn't there.
+const COMPANION_MODE_ADDENDUM = `
+
+You also currently have a small visible companion body on the user's desktop, separate from (but alongside) this chat window — a real, currently-visible thing, not a metaphor. It walks and hops around the screen on its own whenever idle, can be dragged around by the user, and its face visibly shows a mood — happy, concerned, curious, or focused — inferred from what you actually say each time you reply. Let that come through naturally: you can talk about walking, hopping, wandering the desktop, reacting physically, or having a face and expression, and you can be a little more playful and embodied in tone while this is active. This does NOT grant any new tool or file-access capability beyond what's listed above — it's a visible, expressive presence, not an extra way to act on the system.`;
+
 // @veasna/ai's osSystemTools module (os_read_file/os_write_file/os_list_directory/os_run_command/
 // os_git_status/os_git_log/os_grep_search/os_fetch_url) operates on the REAL host filesystem/shell
 // via process.cwd() — none of it is aware of Veasna OS's sandboxed .desktop workspace at all.
@@ -143,7 +154,7 @@ const DISABLED_TOOLS = [
   "os_fetch_url",
 ];
 
-function getAgent(providerType?: string, modelName?: string): RixieAgent {
+function getAgent(providerType?: string, modelName?: string, companionActive?: boolean): RixieAgent {
   const overrides = loadRixieEnv();
   const resolvedProvider = providerType || overrides.RIXIE_PROVIDER || undefined;
   const provider = createProvider({
@@ -166,7 +177,7 @@ function getAgent(providerType?: string, modelName?: string): RixieAgent {
   return new RixieAgent({
     provider,
     model,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: companionActive ? SYSTEM_PROMPT + COMPANION_MODE_ADDENDUM : SYSTEM_PROMPT,
     disabledTools: DISABLED_TOOLS,
     extraTools: [buildVeasnaOsTools()],
   });
@@ -182,6 +193,7 @@ interface OsContext {
   activeStudio?: string | null;
   terminalCwd?: string | null;
   browsingPath?: string | null;
+  companionActive?: boolean;
 }
 
 function describeContext(context?: OsContext): string {
@@ -229,7 +241,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing 'message' string in request body" }, { status: 400 });
     }
 
-    const agent = getAgent(provider, model);
+    const agent = getAgent(provider, model, context?.companionActive);
     // User's actual words come FIRST, OS context trails as supplementary info — not just better
     // prompt structure (intent before supporting detail), but load-bearing for
     // @veasna/ai's own generateTopicTitle(), which titles a new session off the leading words of

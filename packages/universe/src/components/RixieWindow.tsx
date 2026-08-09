@@ -10,6 +10,10 @@ export interface OsContext {
   activeStudio?: string | null;
   terminalCwd?: string | null;
   browsingPath?: string | null;
+  /** Whether RixieCompanion (the hidden desktop character, VeasnaShell's Ctrl+Shift+R toggle) is
+   *  currently visible — lets route.ts's system prompt tell her she has a literal visible/physical
+   *  presence right now, not just this chat window. */
+  companionActive?: boolean;
 }
 
 interface ChatMessage {

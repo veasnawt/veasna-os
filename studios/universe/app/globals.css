@@ -105,3 +105,36 @@ body.veasna-dragging iframe {
   from { opacity: 0; transform: scale(0.85); }
   to { opacity: 1; transform: scale(1); }
 }
+
+@keyframes rixie-walk {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-3px) rotate(-3deg); }
+  75% { transform: translateY(-3px) rotate(3deg); }
+}
+
+@keyframes rixie-jump {
+  0% { transform: translateY(0) scale(1, 1); }
+  30% { transform: translateY(-2px) scale(1.06, 0.9); }
+  55% { transform: translateY(-28px) scale(0.94, 1.06); }
+  80% { transform: translateY(-2px) scale(1.06, 0.9); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+/* RixieCompanion's side-profile walk cycle — each leg/the arm is its own <g> rotated around a hip-
+   or shoulder-height transform-origin (set inline, since that varies per element), not swapped
+   discrete frames. -f/-b are exact opposite phases of each other (one leg swings forward exactly
+   as the other swings back), and the arm swings opposite its same-side leg, matching real gait. */
+@keyframes rixie-leg-swing-f {
+  0%, 100% { transform: rotate(-16deg); }
+  50% { transform: rotate(16deg); }
+}
+
+@keyframes rixie-leg-swing-b {
+  0%, 100% { transform: rotate(16deg); }
+  50% { transform: rotate(-16deg); }
+}
+
+@keyframes rixie-arm-swing {
+  0%, 100% { transform: rotate(14deg); }
+  50% { transform: rotate(-14deg); }
+}
