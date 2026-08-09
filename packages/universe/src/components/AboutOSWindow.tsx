@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import FloatingWindow from "./FloatingWindow";
 import AboutOSIcon from "./AboutOSIcon";
+import { getUpdaterBridge } from "../utils/runtime";
 
-const APP_VERSION = "0.1.0";
+// Same fallback OSUpdateWindow.tsx uses — shown only in a plain browser tab/`pnpm dev`, where
+// there's no packaged app version to ask about at all (window.veasnaUpdater doesn't exist there).
+const FALLBACK_VERSION = "0.2.4";
 
 interface AboutOSWindowProps {
   zIndex: number;
@@ -14,6 +17,14 @@ interface AboutOSWindowProps {
 }
 
 export default function AboutOSWindow({ zIndex, taskbarReserve, minimized, onClose, onFocus, onMinimize }: AboutOSWindowProps) {
+  const [bridge] = useState(getUpdaterBridge);
+  const [version, setVersion] = useState(FALLBACK_VERSION);
+
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.getVersion().then(setVersion).catch(() => {});
+  }, [bridge]);
+
   return (
     <FloatingWindow
       title="About OS"
@@ -38,7 +49,7 @@ export default function AboutOSWindow({ zIndex, taskbarReserve, minimized, onClo
         </span>
         <div>
           <div className="text-lg font-semibold text-[var(--os-text)]">Veasna OS</div>
-          <div className="text-xs text-[var(--os-text-muted)]">Version {APP_VERSION}</div>
+          <div className="text-xs text-[var(--os-text-muted)]">Version {version}</div>
         </div>
         <p className="max-w-[260px] text-xs leading-relaxed text-[var(--os-text-muted)]">
           Spatial 3D Operating System powered by Rixie AI Companion — a desktop-metaphor shell with a real
