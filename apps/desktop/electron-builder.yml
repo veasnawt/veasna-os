@@ -1,5 +1,10 @@
 appId: com.veasnawt.veasnaos
 productName: Veasna OS
+# "maximum" (electron-builder's own default) drives NSIS's LZMA compressor to request a large
+# contiguous memory buffer for its dictionary — on a memory-constrained dev machine this can make
+# makensis.exe fail outright with "Internal compiler error #12345: error creating mmap" rather than
+# just running slower. "normal" still compresses, just with a smaller buffer.
+compression: normal
 directories:
   output: release
   buildResources: build
