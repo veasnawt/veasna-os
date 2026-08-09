@@ -84,41 +84,48 @@ export default function RixieWindow({ zIndex, taskbarReserve, minimized, onClose
       onMinimize={onMinimize}
     >
       <div className="flex h-full flex-col">
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3">
-          {messages.length === 0 && !loading && (
-            <div className="mt-10 text-center text-xs text-[var(--os-text-muted)]">
-              Ask Rixie anything — she can see what you have open right now.
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
-                m.role === "user"
-                  ? "ml-auto bg-[var(--os-accent-soft)] text-[var(--os-accent-text)]"
-                  : "border border-[var(--os-border)] bg-[var(--os-surface)] text-[var(--os-text)]"
-              }`}
-            >
-              {m.content}
-            </div>
-          ))}
-          {loading && <div className="text-[11px] text-[var(--os-text-muted)]">Rixie is thinking…</div>}
+        {/* mx-auto max-w-2xl keeps the chat column readable when the window is maximized —
+            without it, message bubbles (sized off their parent's %) stretched edge-to-edge
+            across the full screen width instead of staying a normal chat-width column. */}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="mx-auto flex w-full max-w-2xl flex-col space-y-2.5">
+            {messages.length === 0 && !loading && (
+              <div className="mt-10 text-center text-xs text-[var(--os-text-muted)]">
+                Ask Rixie anything — she can see what you have open right now.
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                  m.role === "user"
+                    ? "ml-auto bg-[var(--os-accent-soft)] text-[var(--os-accent-text)]"
+                    : "border border-[var(--os-border)] bg-[var(--os-surface)] text-[var(--os-text)]"
+                }`}
+              >
+                {m.content}
+              </div>
+            ))}
+            {loading && <div className="text-[11px] text-[var(--os-text-muted)]">Rixie is thinking…</div>}
+          </div>
         </div>
-        <form onSubmit={handleSend} className="flex shrink-0 gap-2 border-t border-[var(--os-border)] p-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask Rixie…"
-            className="min-w-0 flex-1 rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] px-3 py-2 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || loading}
-            className="shrink-0 rounded-lg bg-[var(--os-accent-soft)] px-4 py-2 text-xs font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
-          >
-            Send
-          </button>
+        <form onSubmit={handleSend} className="shrink-0 border-t border-[var(--os-border)] p-3">
+          <div className="mx-auto flex w-full max-w-2xl gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask Rixie…"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] px-3 py-2 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || loading}
+              className="shrink-0 rounded-lg bg-[var(--os-accent-soft)] px-4 py-2 text-xs font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
+            >
+              Send
+            </button>
+          </div>
         </form>
       </div>
     </FloatingWindow>
