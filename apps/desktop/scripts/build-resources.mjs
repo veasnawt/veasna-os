@@ -258,7 +258,16 @@ function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite
       hoistPnpmPackage(outDir, "better-sqlite3", repoRootPnpm);
     }
     console.log(`Rebuilding better-sqlite3 for Electron's Node ABI (${outName})...`);
-    execSync(`pnpm exec electron-rebuild --module-dir "${outDir}" --only better-sqlite3`, { cwd: desktopRoot, stdio: "inherit" });
+    // --force is load-bearing, not defensive: confirmed by direct reproduction that
+    // electron-rebuild silently SKIPS the actual rebuild (still printing "Rebuild Complete") once
+    // it believes — via some cache/state check that isn't scoped to this specific outDir and
+    // doesn't get cleared by deleting resources/ or even electron-rebuild's own tarball cache —
+    // that the target is already built. That left a system-Node-ABI (127) binary in place while
+    // Electron 33 needs 130, surfacing as a live "NODE_MODULE_VERSION 127... requires 130" error
+    // in a PUBLISHED release. Verified the fix by hash-diffing the .node file before/after: without
+    // --force the file (and its hash) never changes; with it, it does, and the result actually
+    // loads under Electron's own Node runtime.
+    execSync(`pnpm exec electron-rebuild --module-dir "${outDir}" --only better-sqlite3 --force`, { cwd: desktopRoot, stdio: "inherit" });
   } else if (existsSync(sqliteEntry)) {
     // Present but genuinely unused by this particular app's own runtime code paths (confirmed for
     // universe: Next's tracer only includes it because @veasna/ai lists it as a dependency, not
