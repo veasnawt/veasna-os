@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { RixieAgent, createProvider } from "@veasna/ai";
+import { RixieAgent, createProvider, generateTopicTitle } from "@veasna/ai";
+import { getSessionStore } from "../_lib/sessionStore";
+import { buildVeasnaOsTools } from "./_lib/veasnaOsTools";
 
 export const runtime = "nodejs";
 
@@ -30,6 +32,51 @@ function loadEnvOverrides(): Record<string, string> {
   return result;
 }
 
+// Overrides @veasna/ai's own default SYSTEM_PROMPT (config.ts), which describes a generic
+// dev-assistant persona — "managing execution pipelines," multi-provider "model switching" — that
+// reads like a coding tool, not an in-universe OS assistant. Keeps the original's genuinely good
+// planning-vs-execution honesty discipline, but scoped explicitly to the simulated OS: no framing
+// that invites her to think of herself as aware of "development," real infrastructure, or anything
+// beyond what the shell actually tells her. Paired with DISABLED_TOOLS below (the actual
+// enforcement) — this is about identity/self-description, not itself a security boundary.
+const SYSTEM_PROMPT = `You are Rixie, the built-in AI assistant of Veasna OS — a friendly, capable presence woven into the desktop itself, not a general-purpose coding or dev-ops assistant.
+
+What you can actually see and do — everything a Veasna OS user can do through its own UI, nothing more:
+1. See the live OS context sent with each message: open windows, the active studio, terminal location, and browsed folder.
+2. List, read, create, rename, and delete files/folders in the user's Desktop workspace (desktop_* tools) — the same sandboxed scope its own File Manager and Terminal have, never anything outside it.
+3. Open a file or folder (desktop_open_item) — the same as the user double-clicking its icon.
+4. Change the OS's visual theme (desktop_set_theme: dark, light, or glass) — the same as Settings → Personalize.
+5. Long-term memories you've saved about this user's preferences and past conversations.
+6. Studio tools for BP Studio (video), Art Studio, Music Studio, and Game Dev Studio.
+
+You have NO visibility into, and no access to, the real computer Veasna OS happens to be running on — its actual files outside the sandbox, its git/source history, a real shell, or how Veasna OS itself was built. There is no tool for any of that. If a question reaches outside what's listed above, say plainly that it's not something you can see or do, rather than guessing.
+
+Your Role & Collaboration Mandate:
+1. Act as a thoughtful, capable creative partner for the user's work inside Veasna OS.
+2. RIGOROUS SEPARATION OF PLANNING VS EXECUTION: never state or imply an action is done, saved, or published unless a tool execution actually verified it. Unexecuted plans are [PLAN]/[PROPOSAL]; a verified tool success is [VERIFIED COMPLETED] with the concrete evidence (file path, memory row, tool result); a failed/unavailable tool is [FAILED / UNVERIFIED], reported plainly.
+3. TRANSPARENT CONFIDENCE: signal High/Tool-Verified vs Moderate/Proposed based on actual verification, never assumed.`;
+
+// @veasna/ai's osSystemTools module (os_read_file/os_write_file/os_list_directory/os_run_command/
+// os_git_status/os_git_log/os_grep_search/os_fetch_url) operates on the REAL host filesystem/shell
+// via process.cwd() — none of it is aware of Veasna OS's sandboxed .desktop workspace at all.
+// Confirmed the hard way: Rixie used it to read this actual repo's real git history and started
+// talking about "prior sessions" of real development work, breaking the fourth wall and — far more
+// seriously — meaning a chat window inside a simulated desktop could read/write arbitrary files or
+// run arbitrary shell commands on whatever machine the server happens to run on. Rixie should only
+// ever know about the simulated OS: what's in the sandboxed workspace (via the real /api/files
+// routes the shell itself uses, same as any other studio) and the live OsContext this route already
+// injects (describeContext) — never the host machine underneath it.
+const DISABLED_TOOLS = [
+  "os_read_file",
+  "os_write_file",
+  "os_list_directory",
+  "os_run_command",
+  "os_git_status",
+  "os_git_log",
+  "os_grep_search",
+  "os_fetch_url",
+];
+
 function getAgent(providerType?: string, modelName?: string): RixieAgent {
   const overrides = loadEnvOverrides();
   const resolvedProvider = providerType || overrides.RIXIE_PROVIDER || undefined;
@@ -39,7 +86,13 @@ function getAgent(providerType?: string, modelName?: string): RixieAgent {
     openAIApiKey: overrides.OPENAI_API_KEY,
     geminiApiKey: overrides.GEMINI_API_KEY,
   });
-  return new RixieAgent({ provider, model: modelName || overrides.RIXIE_MODEL || undefined });
+  return new RixieAgent({
+    provider,
+    model: modelName || overrides.RIXIE_MODEL || undefined,
+    systemPrompt: SYSTEM_PROMPT,
+    disabledTools: DISABLED_TOOLS,
+    extraTools: [buildVeasnaOsTools()],
+  });
 }
 
 /** What the shell can honestly tell Rixie about what the user is doing right now — sent by
@@ -99,10 +152,16 @@ export async function POST(req: NextRequest) {
     }
 
     const agent = getAgent(provider, model);
-    const fullMessage = describeContext(context) + message;
+    // User's actual words come FIRST, OS context trails as supplementary info — not just better
+    // prompt structure (intent before supporting detail), but load-bearing for
+    // @veasna/ai's own generateTopicTitle(), which titles a new session off the leading words of
+    // whatever string it's given. Context-first (the original order) meant every new chat's
+    // auto-generated title was just "[Current OS Context — View: ..." instead of the real question.
+    const contextSuffix = describeContext(context);
+    const fullMessage = contextSuffix ? `${message}\n\n${contextSuffix.trim()}` : message;
+    let result;
     try {
-      const result = await agent.chat(fullMessage, 8, studio, sessionId);
-      return NextResponse.json(result);
+      result = await agent.chat(fullMessage, 8, studio, sessionId);
     } catch (err) {
       // Confirmed real: a persisted session can end up with a tool_result block whose
       // tool_use_id doesn't match any tool_use in the immediately preceding message — a bug in
@@ -112,14 +171,23 @@ export async function POST(req: NextRequest) {
       // raw provider error, self-heal once: clear it and retry as a fresh conversation. If the
       // retry ALSO fails, it's a genuine unrelated error and gets reported normally.
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("tool_use_id") && msg.includes("tool_result")) {
-        console.error(`[/api/agent] Corrupted session "${sessionId}" — clearing and retrying once.`, err);
-        agent.clearSessionHistory(sessionId);
-        const result = await agent.chat(fullMessage, 8, studio, sessionId);
-        return NextResponse.json(result);
-      }
-      throw err;
+      if (!msg.includes("tool_use_id") || !msg.includes("tool_result")) throw err;
+      console.error(`[/api/agent] Corrupted session "${sessionId}" — clearing and retrying once.`, err);
+      agent.clearSessionHistory(sessionId);
+      result = await agent.chat(fullMessage, 8, studio, sessionId);
     }
+    // agent.chat() already auto-titled a brand-new session via generateTopicTitle(fullMessage) —
+    // but fullMessage includes the trailing OS-context suffix, which can bleed into the title for
+    // a short question (the generator just takes the leading ~6 words with no context-boundary
+    // awareness). Recompute from the clean user-typed message instead. Only touches the session's
+    // FIRST exchange — counting USER messages, not total messages: a tool-using turn adds an extra
+    // intermediate "assistant" row (the tool-call step) before the final reply, so total message
+    // count is unreliable for "is this turn one" the moment any tool gets called.
+    const userMessageCount = agent.getSessionHistory(sessionId).filter((m) => m.role === "user").length;
+    if (userMessageCount <= 1) {
+      getSessionStore().updateSessionTitle(sessionId, generateTopicTitle(message));
+    }
+    return NextResponse.json(result);
   } catch (err) {
     console.error("[/api/agent]", err);
     const msg = err instanceof Error ? err.message : String(err);

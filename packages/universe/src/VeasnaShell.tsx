@@ -481,6 +481,8 @@ export default function VeasnaShell() {
           onMinimize={() => setRixieMinimized(true)}
           onFocus={() => setRixieZ(nextZ())}
           getContext={getRixieContext}
+          onOpenPath={openDesktopPathFromSearch}
+          onSetTheme={handleThemeChange}
         />
       )}
 

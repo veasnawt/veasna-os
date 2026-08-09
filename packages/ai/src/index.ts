@@ -8,4 +8,5 @@ export { LocalResolver } from "./agent/localResolver";
 export { MemoryStore, type MemoryItem, type Studio } from "./memory/memoryStore";
 export { SessionStore, type SessionRecord, type UiChatMessage, generateTopicTitle } from "./memory/sessionStore";
 export { buildToolset } from "./agent/toolsRegistry";
+export { type ToolSchema, type ToolFn, type ToolModule } from "./tools/types";
 export * from "./providers";

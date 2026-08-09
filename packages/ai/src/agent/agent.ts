@@ -9,7 +9,7 @@ import { buildToolset } from "./toolsRegistry";
 import { MemoryItem, MemoryStore } from "../memory/memoryStore";
 import { SessionStore, UiChatMessage, generateTopicTitle } from "../memory/sessionStore";
 import { extractMemories } from "../memory/extractor";
-import { ToolFn, ToolSchema } from "../tools/types";
+import { ToolFn, ToolSchema, ToolModule } from "../tools/types";
 import { LocalResolver } from "./localResolver";
 import {
   createProvider,
@@ -41,6 +41,17 @@ export interface RixieAgentOptions {
   memoryDbPath?: string;
   autoExtractMemory?: boolean;
   autoRetrieveMemory?: boolean;
+  /** Tool names (from any registered module's schemas) to exclude entirely — the tool never
+   *  appears in what's offered to the provider, and can't be invoked even if the model asks for
+   *  it by name. Mainly for hosts embedding RixieAgent somewhere `osSystemTools`' real
+   *  filesystem/shell/git access is out of scope (e.g. an in-app assistant that should only know
+   *  about its own sandboxed data, not the host machine it happens to be running on). */
+  disabledTools?: string[];
+  /** Additional tool modules merged in alongside the built-in registry — lets a host application
+   *  expose its own app-specific tools (e.g. operations scoped to that host's own sandbox) without
+   *  needing them baked into this package, which has no idea what any particular host even is.
+   *  Applied after disabledTools, so an extra tool's name is never accidentally filtered by it. */
+  extraTools?: ToolModule[];
 }
 
 export class RixieAgent {
@@ -69,9 +80,19 @@ export class RixieAgent {
     this.autoExtractMemory = options.autoExtractMemory ?? true;
     this.autoRetrieveMemory = options.autoRetrieveMemory ?? true;
 
-    const { schemas, dispatch } = buildToolset(this.memory);
+    const { schemas: allSchemas, dispatch: allDispatch } = buildToolset(this.memory);
+    const disabled = new Set(options.disabledTools ?? []);
+    let schemas = disabled.size === 0 ? allSchemas : allSchemas.filter((s) => !disabled.has(s.name));
+    let dispatch =
+      disabled.size === 0
+        ? allDispatch
+        : Object.fromEntries(Object.entries(allDispatch).filter(([name]) => !disabled.has(name)));
+    for (const extra of options.extraTools ?? []) {
+      schemas = [...schemas, ...extra.schemas];
+      dispatch = { ...dispatch, ...extra.dispatch };
+    }
     this.schemas = schemas;
-    this.tools = schemas.map((s) => ({
+    this.tools = this.schemas.map((s) => ({
       name: s.name,
       description: s.description,
       parameters: s.input_schema as Record<string, unknown>,
