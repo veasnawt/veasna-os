@@ -35,6 +35,18 @@ interface ToolCallTrace {
   output: unknown;
 }
 
+/** A file picked via the paperclip button, staged in the composer (with an image preview if
+ *  applicable) so the user can add a caption and review it before it's actually sent to Rixie —
+ *  the upload itself starts immediately in the background so it's usually already done by the
+ *  time they finish typing, but sending waits for it to actually finish. */
+interface PendingAttachment {
+  file: File;
+  previewUrl: string | null;
+  status: "uploading" | "uploaded" | "error";
+  relPath?: string;
+  error?: string;
+}
+
 interface RixieWindowProps {
   zIndex: number;
   taskbarReserve: number;
@@ -103,7 +115,7 @@ export default function RixieWindow({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading">("idle");
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,39 +234,62 @@ export default function RixieWindow({
     }
   }
 
+  function clearAttachment() {
+    setAttachment((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }
+
   async function handleSend(e?: React.FormEvent) {
     e?.preventDefault();
     const text = input.trim();
-    if (!text) return;
+    if (!text && !attachment) return;
+    if (attachment && attachment.status !== "uploaded") return; // still uploading, or failed — button is disabled for these too
+
+    // The caption (if any) is what the user actually wrote; the attachment reference is appended
+    // so Rixie knows exactly where to look, same path desktop_read_file expects.
+    const finalText =
+      attachment && attachment.relPath
+        ? text
+          ? `${text}\n\n[Attached file: "${attachment.relPath}"]`
+          : `I just uploaded a file: "${attachment.relPath}". Take a look and let me know what you find.`
+        : text;
+
     setInput("");
-    await sendMessage(text);
+    clearAttachment();
+    await sendMessage(finalText);
   }
 
-  /** Uploads straight into the sandbox (the same /api/files/upload route File Manager's own
-   *  drag-drop uses) under a dedicated "Rixie Uploads" folder — created automatically on first
-   *  use, keeps attachments out of the user's own Desktop root — then tells Rixie about it so she
-   *  can act on it via her existing desktop_read_file tool. No new backend capability needed. */
-  async function handleFileSelected(file: File) {
-    setUploadStatus("uploading");
-    try {
-      const relPath = `Rixie Uploads/${file.name}`;
-      const res = await fetch(`/api/files/upload?path=${encodeURIComponent("Rixie Uploads")}&name=${encodeURIComponent(file.name)}`, {
-        method: "POST",
-        body: await file.arrayBuffer(),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Upload failed (${res.status})`);
+  /** Starts the upload immediately (so it's usually done by the time the user finishes typing a
+   *  caption) but only stages it in the composer — sending is a separate, explicit step the user
+   *  controls via handleSend, with a chance to preview (image thumbnail), add a caption, or
+   *  remove it first. Uploads straight into the sandbox (the same /api/files/upload route File
+   *  Manager's own drag-drop uses) under a dedicated "Rixie Uploads" folder — created
+   *  automatically on first use — so Rixie can act on it via her existing desktop_read_file tool. */
+  function handleFileSelected(file: File) {
+    clearAttachment();
+    const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+    setAttachment({ file, previewUrl, status: "uploading" });
+
+    (async () => {
+      try {
+        const relPath = `Rixie Uploads/${file.name}`;
+        const res = await fetch(`/api/files/upload?path=${encodeURIComponent("Rixie Uploads")}&name=${encodeURIComponent(file.name)}`, {
+          method: "POST",
+          body: await file.arrayBuffer(),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Upload failed (${res.status})`);
+        }
+        setAttachment((prev) => (prev && prev.file === file ? { ...prev, status: "uploaded", relPath } : prev));
+      } catch (err) {
+        setAttachment((prev) =>
+          prev && prev.file === file ? { ...prev, status: "error", error: err instanceof Error ? err.message : "Upload failed" } : prev
+        );
       }
-      setUploadStatus("idle");
-      await sendMessage(`I just uploaded a file: "${relPath}". Take a look and let me know what you find.`);
-    } catch (err) {
-      setUploadStatus("idle");
-      setMessages((prev) => [
-        ...prev,
-        { id: generateMessageId(), role: "assistant", content: `Couldn't upload "${file.name}" — ${err instanceof Error ? err.message : "unknown error"}.` },
-      ]);
-    }
+    })();
   }
 
   return (
@@ -344,6 +379,32 @@ export default function RixieWindow({
         </div>
 
         <form onSubmit={handleSend} className="shrink-0 border-t border-[var(--os-border)] p-3">
+          {attachment && (
+            <div className="mx-auto mb-2 flex w-full max-w-2xl items-center gap-2 rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] px-2 py-1.5">
+              {attachment.previewUrl ? (
+                <img src={attachment.previewUrl} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
+              ) : (
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[var(--os-border-strong)] text-[var(--os-text-muted)]">
+                  <Paperclip size={13} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[11px] font-medium text-[var(--os-text)]">{attachment.file.name}</div>
+                <div className={`truncate text-[10px] ${attachment.status === "error" ? "text-red-400" : "text-[var(--os-text-muted)]"}`}>
+                  {attachment.status === "uploading" ? "Uploading…" : attachment.status === "error" ? attachment.error || "Upload failed" : "Ready — add a caption or just hit Send"}
+                </div>
+              </div>
+              {attachment.status === "uploading" && <Loader2 size={13} className="shrink-0 animate-spin text-[var(--os-text-muted)]" />}
+              <button
+                type="button"
+                onClick={clearAttachment}
+                title="Remove attachment"
+                className="shrink-0 rounded p-1 text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)]"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
           <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
             <input
               ref={fileInputRef}
@@ -358,11 +419,11 @@ export default function RixieWindow({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadStatus === "uploading" || loading}
+              disabled={loading}
               title="Attach a file"
               className="flex shrink-0 items-center justify-center rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] p-2 text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)] disabled:opacity-40"
             >
-              {uploadStatus === "uploading" ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+              <Paperclip size={14} />
             </button>
             <textarea
               ref={textareaRef}
@@ -385,7 +446,7 @@ export default function RixieWindow({
             />
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && !attachment) || loading || (attachment != null && attachment.status !== "uploaded")}
               className="shrink-0 rounded-lg bg-[var(--os-accent-soft)] px-4 py-2 text-xs font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
             >
               Send
