@@ -33,6 +33,13 @@ export interface ChatResult {
   confidence?: number;
 }
 
+// Module-level, not per-instance: a host typically constructs a fresh RixieAgent on every request
+// (studios/universe's /api/agent route does exactly this), so anything incognito needs to survive
+// across those short-lived instances the same way a real session survives via the SQLite file on
+// disk — just kept in process memory instead, for the life of the server process, and never
+// written anywhere. Restarting the server (or the process simply exiting) forgets it completely.
+const incognitoHistories = new Map<string, ProviderMessage[]>();
+
 export interface RixieAgentOptions {
   provider?: LLMProvider;
   model?: string;
@@ -105,8 +112,15 @@ export class RixieAgent {
     userMessage: string,
     maxToolIterations = 8,
     studio = "global",
-    sessionId = "default_session"
+    sessionId = "default_session",
+    incognito = false
   ): Promise<ChatResult> {
+    // Deliberately a fully separate method rather than `if (incognito)` branches sprinkled through
+    // the method below — a real privacy guarantee is easier to trust (and to verify by inspection)
+    // when the incognito path literally cannot reach `this.sessionStore` or `extractMemories` at
+    // all, rather than relying on every future edit to this method remembering to check a flag.
+    if (incognito) return this.chatIncognito(userMessage, maxToolIterations, studio, sessionId);
+
     // 1. Initialize or load persistent session
     const session = this.sessionStore.getOrCreateSession(sessionId, studio, this.provider.name, this.model);
 
@@ -221,6 +235,107 @@ export class RixieAgent {
       source: "external_llm",
       confidence: toolCallTraces.length > 0 ? 1.0 : 0.7,
     };
+  }
+
+  /** The incognito counterpart to chat() above — same function-calling loop, but history lives
+   *  only in the module-level incognitoHistories map (never this.sessionStore/SQLite), there's no
+   *  session title to generate, and — the actual point of "incognito" — no autoExtractMemory call
+   *  at the end, so nothing about this conversation shapes what Rixie remembers about the user
+   *  afterward. Memory RETRIEVAL (autoRetrieveMemory, reading existing memories for context) still
+   *  runs; incognito means "don't learn anything new from this," not "forget who I already am." */
+  private async chatIncognito(
+    userMessage: string,
+    maxToolIterations: number,
+    studio: string,
+    sessionId: string
+  ): Promise<ChatResult> {
+    const history = incognitoHistories.get(sessionId) ?? [];
+    incognitoHistories.set(sessionId, history);
+
+    const localRes = await this.localResolver.resolve(userMessage, studio);
+    if (localRes.resolvedLocally) {
+      history.push({ role: "user", content: userMessage });
+      history.push({ role: "assistant", content: localRes.reply });
+      return {
+        reply: localRes.reply,
+        toolCalls: localRes.toolCalls,
+        sessionId,
+        resolvedLocally: true,
+        source: localRes.source,
+        confidence: localRes.confidence,
+      };
+    }
+
+    let augmentedPrompt = this.systemPrompt;
+    if (this.autoRetrieveMemory) {
+      const retrieved = this.memory.search(userMessage, studio, 3);
+      if (retrieved.length > 0) {
+        const memoryContext = retrieved
+          .map((m) => `- [Memory (${m.studio}/${m.kind})]: ${m.content}`)
+          .join("\n");
+        augmentedPrompt += `\n\nContext Retrieved From Rixie Memory Engine:\n${memoryContext}`;
+      }
+    }
+
+    history.push({ role: "user", content: userMessage });
+
+    const toolCallTraces: ToolCallTrace[] = [];
+    let finalReply = "";
+
+    for (let i = 0; i < maxToolIterations; i++) {
+      const response = await this.provider.chat({
+        model: this.model,
+        maxTokens: this.maxTokens,
+        systemPrompt: augmentedPrompt,
+        tools: this.tools,
+        messages: history,
+      });
+
+      if (response.toolCalls.length === 0) {
+        finalReply = response.text;
+        history.push({ role: "assistant", content: finalReply });
+        break;
+      }
+
+      const assistantToolMsg: ProviderMessage = {
+        role: "assistant",
+        content: response.text,
+        toolCalls: response.toolCalls,
+      };
+      history.push(assistantToolMsg);
+
+      for (const call of response.toolCalls) {
+        const result = await this.runTool(call.name, call.input);
+        toolCallTraces.push({ name: call.name, input: call.input, output: result });
+        history.push({
+          role: "tool",
+          toolCallId: call.id,
+          toolName: call.name,
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        });
+      }
+    }
+
+    if (!finalReply) {
+      finalReply = "[Stopped after max tool iterations — the request may be too complex for one turn.]";
+    }
+
+    return {
+      reply: finalReply,
+      toolCalls: toolCallTraces,
+      sessionId,
+      resolvedLocally: false,
+      source: "external_llm",
+      confidence: toolCallTraces.length > 0 ? 1.0 : 0.7,
+    };
+  }
+
+  /** Drops an incognito conversation's in-memory history outright — called when the client leaves
+   *  incognito mode (toggling off, or closing the window) so it doesn't just sit unused in process
+   *  memory until the server itself restarts. Never touches SQLite, since incognito sessions never
+   *  reach it in the first place. */
+  clearIncognitoSession(sessionId: string): void {
+    incognitoHistories.delete(sessionId);
   }
 
   private async runTool(name: string, input: unknown): Promise<unknown> {

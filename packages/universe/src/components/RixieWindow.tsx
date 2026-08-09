@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Ai } from "@veasnawt/vicons";
-import { Plus, History, Trash2, X, Copy, Paperclip, Loader2 } from "lucide-react";
+import { Plus, History, Trash2, X, Copy, Paperclip, Loader2, EyeOff } from "lucide-react";
 import FloatingWindow from "./FloatingWindow";
 import MarkdownMessage from "./MarkdownMessage";
 
@@ -144,6 +144,11 @@ export default function RixieWindow({
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
+  // True no-persistence, not save-then-delete: while active, /api/agent routes the whole turn
+  // through RixieAgent's separate chatIncognito() path (@veasna/ai's agent.ts), which never writes
+  // to SQLite and never runs memory extraction — this flag is just what tells the API to take that
+  // path, not a client-side simulation of privacy.
+  const [incognito, setIncognito] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,12 +189,27 @@ export default function RixieWindow({
     setInput("");
   }
 
+  // Toggling ON starts a fresh, separately-tracked incognito session (never touches SQLite from
+  // this point on); toggling OFF starts an equally fresh REGULAR one — there's no "convert this
+  // private chat into a saved one," same as closing a browser's private window doesn't offer to
+  // keep the tabs. Preserved across "New chat" (staying incognito, generating a new incognito
+  // session id each time) so starting a fresh topic mid-incognito doesn't silently leave privacy
+  // mode.
+  function toggleIncognito() {
+    setIncognito((prev) => !prev);
+    setSessionId(generateSessionId());
+    setMessages([]);
+    setInput("");
+    clearAttachment();
+  }
+
   async function handleSelectSession(id: string) {
     if (id === sessionId) {
       setSidebarOpen(false);
       return;
     }
     setSidebarOpen(false);
+    setIncognito(false); // Selecting a real saved session always means leaving incognito mode.
     setSessionId(id);
     setLoadingHistory(true);
     try {
@@ -247,14 +267,14 @@ export default function RixieWindow({
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, studio: "universe", sessionId, context: getContext() }),
+        body: JSON.stringify({ message: text, studio: "universe", sessionId, context: getContext(), incognito }),
       });
       const data = await res.json();
       setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: data.reply || data.error || "No response." }]);
       if (Array.isArray(data.toolCalls)) applyToolCallActions(data.toolCalls);
-      // Picks up the auto-generated title for a brand-new session, or a bumped updatedAt for an
-      // existing one — cheap enough to just always refresh rather than tracking staleness.
-      refreshSessions();
+      // Incognito never creates/updates a session row server-side — refreshing would just be a
+      // wasted round trip that can never find anything new.
+      if (!incognito) refreshSessions();
     } catch {
       setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: "Couldn't reach Rixie — check your connection." }]);
     } finally {
@@ -342,13 +362,26 @@ export default function RixieWindow({
     >
       <div className="relative flex h-full flex-col overflow-hidden">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--os-border)] px-2 py-1.5">
-          <button
-            onClick={openSidebar}
-            title="Chat history"
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)]"
-          >
-            <History size={13} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={openSidebar}
+              title="Chat history"
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)]"
+            >
+              <History size={13} />
+            </button>
+            <button
+              onClick={toggleIncognito}
+              title={incognito ? "Exit incognito — this chat isn't saved or remembered" : "Go incognito — nothing in this chat will be saved or remembered"}
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                incognito
+                  ? "bg-[var(--os-accent-soft)] text-[var(--os-accent-text)]"
+                  : "text-[var(--os-text-muted)] hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)]"
+              }`}
+            >
+              <EyeOff size={13} />
+            </button>
+          </div>
           <button
             onClick={handleNewChat}
             title="New chat"
@@ -358,6 +391,12 @@ export default function RixieWindow({
             New chat
           </button>
         </div>
+        {incognito && (
+          <div className="flex shrink-0 items-center justify-center gap-1.5 border-b border-[var(--os-border)] bg-[var(--os-accent-soft)]/40 px-2 py-1 text-[10px] font-medium text-[var(--os-accent-text)]">
+            <EyeOff size={11} />
+            Incognito — this chat won&apos;t be saved or remembered
+          </div>
+        )}
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3">
           <div className="mx-auto flex w-full max-w-2xl flex-col space-y-3">
@@ -467,8 +506,8 @@ export default function RixieWindow({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={loading}
-              title="Attach a file"
+              disabled={loading || incognito}
+              title={incognito ? "Attachments are disabled in incognito — uploading still writes a real file to disk" : "Attach a file"}
               className="flex shrink-0 items-center justify-center rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] p-2 text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)] disabled:opacity-40"
             >
               <Paperclip size={14} />

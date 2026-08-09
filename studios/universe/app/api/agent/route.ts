@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
 // POST /api/agent — Execute turn and persist to SQLite SessionStore
 export async function POST(req: NextRequest) {
   try {
-    const { message, provider, model, sessionId = "default_session", studio = "universe", context } =
+    const { message, provider, model, sessionId = "default_session", studio = "universe", context, incognito = false } =
       (await req.json()) as {
         message?: string;
         provider?: string;
@@ -147,6 +147,7 @@ export async function POST(req: NextRequest) {
         sessionId?: string;
         studio?: string;
         context?: OsContext;
+        incognito?: boolean;
       };
 
     if (!message || typeof message !== "string") {
@@ -163,7 +164,7 @@ export async function POST(req: NextRequest) {
     const fullMessage = contextSuffix ? `${message}\n\n${contextSuffix.trim()}` : message;
     let result;
     try {
-      result = await agent.chat(fullMessage, 8, studio, sessionId);
+      result = await agent.chat(fullMessage, 8, studio, sessionId, incognito);
     } catch (err) {
       // Confirmed real: a persisted session can end up with a tool_result block whose
       // tool_use_id doesn't match any tool_use in the immediately preceding message — a bug in
@@ -175,19 +176,24 @@ export async function POST(req: NextRequest) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes("tool_use_id") || !msg.includes("tool_result")) throw err;
       console.error(`[/api/agent] Corrupted session "${sessionId}" — clearing and retrying once.`, err);
-      agent.clearSessionHistory(sessionId);
-      result = await agent.chat(fullMessage, 8, studio, sessionId);
+      if (incognito) agent.clearIncognitoSession(sessionId);
+      else agent.clearSessionHistory(sessionId);
+      result = await agent.chat(fullMessage, 8, studio, sessionId, incognito);
     }
-    // agent.chat() already auto-titled a brand-new session via generateTopicTitle(fullMessage) —
-    // but fullMessage includes the trailing OS-context suffix, which can bleed into the title for
-    // a short question (the generator just takes the leading ~6 words with no context-boundary
-    // awareness). Recompute from the clean user-typed message instead. Only touches the session's
-    // FIRST exchange — counting USER messages, not total messages: a tool-using turn adds an extra
-    // intermediate "assistant" row (the tool-call step) before the final reply, so total message
-    // count is unreliable for "is this turn one" the moment any tool gets called.
-    const userMessageCount = agent.getSessionHistory(sessionId).filter((m) => m.role === "user").length;
-    if (userMessageCount <= 1) {
-      getSessionStore().updateSessionTitle(sessionId, generateTopicTitle(message));
+    // Incognito sessions never reach SQLite (see @veasna/ai's chatIncognito) — no title to
+    // generate, and getSessionHistory would just read back an empty history for them anyway.
+    if (!incognito) {
+      // agent.chat() already auto-titled a brand-new session via generateTopicTitle(fullMessage) —
+      // but fullMessage includes the trailing OS-context suffix, which can bleed into the title for
+      // a short question (the generator just takes the leading ~6 words with no context-boundary
+      // awareness). Recompute from the clean user-typed message instead. Only touches the session's
+      // FIRST exchange — counting USER messages, not total messages: a tool-using turn adds an extra
+      // intermediate "assistant" row (the tool-call step) before the final reply, so total message
+      // count is unreliable for "is this turn one" the moment any tool gets called.
+      const userMessageCount = agent.getSessionHistory(sessionId).filter((m) => m.role === "user").length;
+      if (userMessageCount <= 1) {
+        getSessionStore().updateSessionTitle(sessionId, generateTopicTitle(message));
+      }
     }
     return NextResponse.json(result);
   } catch (err) {
