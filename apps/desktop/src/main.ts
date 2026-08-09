@@ -30,6 +30,10 @@ async function startBp(): Promise<void> {
   const bp = await spawnNextServer({
     resourceName: "bp",
     logLabel: "[bp]",
+    // Same port bp's own `pnpm dev` uses — see pickFreePort.ts's comment for why a STABLE port
+    // matters (browser localStorage is scoped to it) even though bp itself doesn't currently rely
+    // on localStorage the way Universe does; kept consistent across both studios regardless.
+    preferredPort: 3001,
     // RIXIE_MEMORY_DB redirected to the same real, visible, writable workspace folder Universe
     // uses — NOT the dev machine's own absolute path from studios/bp/.env.local. Any real API key
     // comes from an optional user-created Documents/Veasna OS/bp.env (written by the Settings UI's
@@ -61,6 +65,13 @@ async function spawnPackagedServers(): Promise<string> {
   const universe = await spawnNextServer({
     resourceName: "universe",
     logLabel: "[universe]",
+    // MUST be stable across launches, not a random OS-assigned port: the renderer's origin
+    // (http://127.0.0.1:PORT) is what every `localStorage`-backed setting is scoped to —
+    // installed apps, wallpaper, theme, pinned taskbar apps, icon layout, shell mode, all of it.
+    // A different port every launch silently wiped every one of them on restart (confirmed: the
+    // exact bug reported as "installed apps disappear when I close and reopen"). 3000 matches
+    // Universe's own `pnpm dev` port for the same reason bp below uses 3001.
+    preferredPort: 3000,
     extraEnv: { VEASNA_WORKSPACE_ROOT: workspaceRoot() },
   });
   stopFns.push(universe.stop);
@@ -73,7 +84,7 @@ async function spawnPackagedServers(): Promise<string> {
   }
 
   try {
-    const gamedev = await serveStaticDir(path.join(process.resourcesPath, "gamedev"), "[gamedev]");
+    const gamedev = await serveStaticDir(path.join(process.resourcesPath, "gamedev"), "[gamedev]", 5173);
     stopFns.push(gamedev.stop);
     studioUrls.gamedev = gamedev.url;
   } catch (err) {

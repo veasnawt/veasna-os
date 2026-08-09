@@ -28,6 +28,10 @@ export interface SpawnNextServerOptions {
   resourceName: string;
   /** Prefixes this server's stdout/stderr lines in the main process console, e.g. "[universe]". */
   logLabel: string;
+  /** Tried first before falling back to an OS-assigned free port — see pickFreePort.ts's comment
+   *  for why a STABLE port matters here: it's the browser origin every `localStorage`-backed
+   *  setting is scoped to, so a random port every launch silently wiped all of it on restart. */
+  preferredPort: number;
   /** Extra env vars to set on the forked process, beyond PORT/HOSTNAME (which this function always
    *  sets itself). Used for e.g. VEASNA_WORKSPACE_ROOT (universe) or RIXIE_MEMORY_DB/API keys (bp)
    *  — deliberately passed in by the caller rather than hardcoded here, so this module stays
@@ -39,13 +43,13 @@ export interface SpawnNextServerOptions {
  *  (no system Node required on the end user's machine), bound to a free loopback port. Returns the
  *  server's URL once it's actually responding, plus a `stop()` to kill it (call on app quit — an
  *  un-stopped fork outlives the Electron app otherwise). */
-export async function spawnNextServer({ resourceName, logLabel, extraEnv }: SpawnNextServerOptions): Promise<{ url: string; stop: () => void }> {
+export async function spawnNextServer({ resourceName, logLabel, preferredPort, extraEnv }: SpawnNextServerOptions): Promise<{ url: string; stop: () => void }> {
   const serverJsPath = resolveServerJsPath(process.resourcesPath, resourceName);
   if (!fs.existsSync(serverJsPath)) {
     throw new Error(`Bundled "${resourceName}" server not found at "${serverJsPath}" — did the build:desktop pipeline run?`);
   }
 
-  const port = await pickFreePort();
+  const port = await pickFreePort(preferredPort);
   const child: UtilityProcess = utilityProcess.fork(serverJsPath, [], {
     cwd: path.dirname(serverJsPath),
     stdio: "pipe",

@@ -40,20 +40,62 @@ const repoRoot = path.resolve(desktopRoot, "..", "..");
 // COMPILED bundle's own require() calls to decide what's reachable. Falls back to the real
 // monorepo root's own node_modules/.pnpm store in that case — the package is definitely installed
 // there (it's a real, resolved dependency), just never made it into bp's own traced copy.
+// RECURSIVE: hoisting just ONE level of siblings (what this used to do) isn't enough — confirmed
+// by a real crash in the packaged app: better-sqlite3's sibling `bindings` has its OWN dependency
+// `file-uri-to-path`, which lives in `bindings`' own .pnpm/bindings@.../node_modules/ folder, not
+// as a direct sibling of better-sqlite3. Node's require() from inside the copied `bindings` folder
+// walks up looking for node_modules/file-uri-to-path and never finds it, since only better-sqlite3's
+// OWN direct siblings got copied — `bindings`' own siblings never did. Fix: for every sibling
+// copied in, also recursively hoist ITS siblings into ITS OWN nested node_modules, and so on down
+// the whole transitive tree.
+//
+// Important distinction a first attempt at this got wrong (confirmed by reproducing the exact
+// regression it caused): a "sibling" entry isn't always its own independently pnpm-resolvable
+// package. `next`'s siblings include `@swc` and `@next`, which are just plain VENDORED folders
+// bundled directly inside next's own .pnpm/next@.../node_modules/ — not separate pnpm dependencies
+// with their own .pnpm store entries at all. Looking `@swc` up in the pnpm store by name (as a
+// first version of this recursion did) finds nothing and skips copying it entirely, silently
+// dropping `@swc/helpers` and reintroducing the exact `Cannot find module
+// '@swc/helpers/_/_interop_require_default'` crash this session already fixed once. The fix:
+// ALWAYS physically copy a sibling from wherever it actually lives (its parent's own resolved
+// siblings folder, passed down explicitly) — the pnpm-store name lookup is ONLY used afterward, to
+// find further transitive siblings to recurse into, and is allowed to find nothing.
+//
+// `visited` is keyed by package name only (not name+version) — a deliberate simplification: these
+// dependency trees are small and have no real diamond (same-name-different-version) deps in
+// practice, so this is a reasonable tradeoff against fully reimplementing pnpm's own resolver.
 function hoistPnpmPackage(outDir, pkgName, pnpmRoot = path.join(outDir, "node_modules", ".pnpm")) {
-  const versionDir = readdirSync(pnpmRoot).find((d) => d.startsWith(`${pkgName}@`));
+  const storeKey = pkgName.startsWith("@") ? pkgName.replace("/", "+") : pkgName;
+  const versionDir = readdirSync(pnpmRoot).find((d) => d.startsWith(`${storeKey}@`));
   if (!versionDir) {
     throw new Error(`Could not find ${pkgName} under ${pnpmRoot} to hoist — inspect the copied output directly.`);
   }
   const siblingsDir = path.join(pnpmRoot, versionDir, "node_modules");
-  const pkgSrcDir = path.join(siblingsDir, pkgName);
-  const destDir = path.join(outDir, "node_modules", pkgName);
-  cpSync(pkgSrcDir, destDir, { recursive: true, dereference: true });
+  hoistPnpmPackageRecursive(path.join(outDir, "node_modules"), pkgName, siblingsDir, pnpmRoot, new Set());
+}
+
+/** `copyFromDir` is where THIS specific package's content actually lives right now (its parent's
+ *  own resolved siblings folder) — always copied from there, unconditionally. `pnpmRoot` is only
+ *  used afterward to look for FURTHER siblings this package itself might need, and finding none
+ *  there is a completely normal, expected outcome (see the vendored-folder note above). */
+function hoistPnpmPackageRecursive(intoNodeModulesDir, pkgName, copyFromDir, pnpmRoot, visited) {
+  if (visited.has(pkgName)) return;
+  visited.add(pkgName);
+  const srcDir = path.join(copyFromDir, pkgName);
+  if (!existsSync(srcDir)) return;
+  const destDir = path.join(intoNodeModulesDir, pkgName);
+  cpSync(srcDir, destDir, { recursive: true, dereference: true });
+
+  const storeKey = pkgName.startsWith("@") ? pkgName.replace("/", "+") : pkgName;
+  const versionDir = existsSync(pnpmRoot) ? readdirSync(pnpmRoot).find((d) => d.startsWith(`${storeKey}@`)) : undefined;
+  if (!versionDir) return;
+  const ownSiblingsDir = path.join(pnpmRoot, versionDir, "node_modules");
+  if (!existsSync(ownSiblingsDir)) return;
   const destNodeModules = path.join(destDir, "node_modules");
-  mkdirSync(destNodeModules, { recursive: true });
-  for (const sibling of readdirSync(siblingsDir)) {
+  for (const sibling of readdirSync(ownSiblingsDir)) {
     if (sibling === pkgName) continue;
-    cpSync(path.join(siblingsDir, sibling), path.join(destNodeModules, sibling), { recursive: true, dereference: true });
+    mkdirSync(destNodeModules, { recursive: true });
+    hoistPnpmPackageRecursive(destNodeModules, sibling, ownSiblingsDir, pnpmRoot, visited);
   }
 }
 

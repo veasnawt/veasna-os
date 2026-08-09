@@ -26,7 +26,7 @@ const MIME_TYPES: Record<string, string> = {
  *  is already fully static. A lightweight in-process http.Server rather than another
  *  utilityProcess.fork'd child: there's no separate module resolution/env isolation to gain here
  *  the way there is for the Next.js servers, so the extra process would just be overhead. */
-export async function serveStaticDir(rootDir: string, logLabel: string): Promise<{ url: string; stop: () => void }> {
+export async function serveStaticDir(rootDir: string, logLabel: string, preferredPort: number): Promise<{ url: string; stop: () => void }> {
   if (!fs.existsSync(path.join(rootDir, "index.html"))) {
     throw new Error(`No static build found at "${rootDir}" (missing index.html) — did the build:desktop pipeline run?`);
   }
@@ -61,7 +61,7 @@ export async function serveStaticDir(rootDir: string, logLabel: string): Promise
   server.on("clientError", () => {}); // Malformed request from the loopback client — ignore, not our problem.
   process.stdout.write(`${logLabel} static server starting...\n`);
 
-  const port = await pickFreePort();
+  const port = await pickFreePort(preferredPort);
   await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
 
   return { url: `http://127.0.0.1:${port}`, stop: () => server.close() };
