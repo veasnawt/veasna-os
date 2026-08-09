@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-export type RixieProvider = "anthropic" | "openai" | "gemini";
+export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq";
 
 // Matches studios/universe/app/api/agent/route.ts's own documented variable names, and
 // apps/desktop/src/server/rixieEnvFile.ts's copy of the same map (that one can't import this file
@@ -10,6 +10,7 @@ const PROVIDER_KEY_VAR: Record<RixieProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
 };
 
 /** Documents/Veasna OS/rixie.env in the packaged desktop app (VEASNA_WORKSPACE_ROOT set by

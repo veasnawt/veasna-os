@@ -11,11 +11,12 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   anthropic: "Anthropic (Claude)",
   openai: "OpenAI",
   gemini: "Google Gemini",
+  groq: "Groq",
 };
 
 type KeyStatus = { activeProvider: RixieProvider; configured: Record<RixieProvider, boolean> };
 
-const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false };
+const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false, groq: false };
 
 /** The web-mode counterpart to the Electron bridge — same shape, backed by
  *  /api/settings/rixie-key instead of an IPC call. That route writes to a gitignored .env.rixie

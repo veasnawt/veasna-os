@@ -8,6 +8,7 @@ export const PROVIDER = process.env.RIXIE_PROVIDER ?? "";
 export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
+export const GROQ_API_KEY = process.env.GROQ_API_KEY ?? "";
 export const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
 
 export const MODEL =
@@ -19,6 +20,8 @@ export const MODEL =
     ? "gemini-2.0-flash"
     : PROVIDER === "ollama"
     ? "llama3.1"
+    : PROVIDER === "groq"
+    ? "llama-3.3-70b-versatile"
     : "claude-sonnet-5");
 
 export const MAX_TOKENS = parseInt(

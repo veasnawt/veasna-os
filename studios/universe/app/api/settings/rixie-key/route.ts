@@ -4,7 +4,7 @@ import { getApiKeyStatus, setApiKey, setActiveProvider, RixieProvider } from "..
 
 export const runtime = "nodejs";
 
-const VALID_PROVIDERS: RixieProvider[] = ["anthropic", "openai", "gemini"];
+const VALID_PROVIDERS: RixieProvider[] = ["anthropic", "openai", "gemini", "groq"];
 
 /** The web-mode counterpart to apps/desktop's "settings:get-api-key-status"/"settings:set-api-key"/
  *  "settings:set-active-provider" IPC handlers — SettingsPanel.tsx's Rixie AI section uses the

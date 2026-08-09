@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
-export type RixieProvider = "anthropic" | "openai" | "gemini";
+export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq";
 
 // Matches studios/universe/app/api/agent/route.ts's own documented variable names exactly
 // (originally studios/bp/.env.example's, from before Rixie's chat moved into Universe).
@@ -10,6 +10,7 @@ const PROVIDER_KEY_VAR: Record<RixieProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
 };
 
 function rixieEnvPath(): string {

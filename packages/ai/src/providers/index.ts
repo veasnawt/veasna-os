@@ -15,6 +15,7 @@ export interface ProviderConfigOptions {
   anthropicApiKey?: string;
   openAIApiKey?: string;
   geminiApiKey?: string;
+  groqApiKey?: string;
   openAIBaseURL?: string;
 }
 
@@ -28,6 +29,7 @@ export function createProvider(config: ProviderConfigOptions = {}): LLMProvider 
   const anthropicKey = config.anthropicApiKey || process.env.ANTHROPIC_API_KEY || "";
   const openAIKey = config.openAIApiKey || process.env.OPENAI_API_KEY || "";
   const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY || "";
+  const groqKey = config.groqApiKey || process.env.GROQ_API_KEY || "";
   const baseURL = config.openAIBaseURL || process.env.OPENAI_BASE_URL;
 
   // Explicit provider selection
@@ -49,6 +51,12 @@ export function createProvider(config: ProviderConfigOptions = {}): LLMProvider 
       baseURL || "https://openrouter.ai/api/v1",
       "openrouter"
     );
+  }
+  // Groq exposes an OpenAI-compatible endpoint (https://api.groq.com/openai/v1) — same pattern as
+  // openrouter above, just a different host/key and near-instant free-tier inference over
+  // full-size open models (Llama etc.), not a small local one.
+  if (providerType === "groq") {
+    return new OpenAIProvider(groqKey, baseURL || "https://api.groq.com/openai/v1", "groq");
   }
 
   // Auto-detection based on configured keys

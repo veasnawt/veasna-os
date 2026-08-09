@@ -10,6 +10,7 @@ export type ProviderType =
   | "gemini"
   | "ollama"
   | "openrouter"
+  | "groq"
   | "custom";
 
 export interface ToolCall {

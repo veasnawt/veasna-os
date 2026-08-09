@@ -99,7 +99,7 @@ export function subscribeStudioUrlsChanged(callback: () => void): () => void {
   return bridge.onUrlsChanged(callback);
 }
 
-export type RixieProvider = "anthropic" | "openai" | "gemini";
+export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq";
 
 export interface SettingsBridge {
   /** Never returns any key value itself — only whether one is currently saved, PER PROVIDER (not

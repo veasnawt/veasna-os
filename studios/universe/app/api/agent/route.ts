@@ -17,7 +17,7 @@ function humanizeProviderError(err: unknown): string {
   if (/credit balance is too low/i.test(raw)) {
     return "I can't respond right now — the AI provider account is out of credits. Add credits (or switch providers) in Settings → Rixie AI, then try again.";
   }
-  if (/invalid x-api-key|authentication_error|incorrect api key/i.test(raw)) {
+  if (/invalid x-api-key|authentication_error|incorrect api key|invalid_api_key|invalid api key/i.test(raw)) {
     return "I can't respond right now — the AI provider rejected the API key. Check it in Settings → Rixie AI.";
   }
   // Checked BEFORE the generic 429 case below: Gemini's free tier returns this same 429/
@@ -98,6 +98,7 @@ function getAgent(providerType?: string, modelName?: string): RixieAgent {
     anthropicApiKey: overrides.ANTHROPIC_API_KEY,
     openAIApiKey: overrides.OPENAI_API_KEY,
     geminiApiKey: overrides.GEMINI_API_KEY,
+    groqApiKey: overrides.GROQ_API_KEY,
   });
   return new RixieAgent({
     provider,
