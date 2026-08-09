@@ -5,7 +5,7 @@ import { TaskbarAlignment } from "../types";
 import Toggle from "./Toggle";
 import AboutOSIcon from "./AboutOSIcon";
 import OSUpdateIcon from "./OSUpdateIcon";
-import { getSettingsBridge, RixieProvider } from "../utils/runtime";
+import { getSettingsBridge, SettingsBridge, RixieProvider } from "../utils/runtime";
 
 const PROVIDER_LABELS: Record<RixieProvider, string> = {
   anthropic: "Anthropic (Claude)",
@@ -13,40 +13,63 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   gemini: "Google Gemini",
 };
 
+/** The web-mode counterpart to the Electron bridge — same two-method shape, backed by
+ *  /api/settings/rixie-key instead of an IPC call. That route writes to a gitignored .env.rixie
+ *  file inside the checkout (studios/universe/app/api/_lib/rixieEnvFile.ts), read fresh by
+ *  /api/agent on every request, so this behaves identically to the packaged app: no restart
+ *  needed, key value never sent back to the client once saved. */
+const httpKeyBridge: SettingsBridge = {
+  async getApiKeyStatus() {
+    const res = await fetch("/api/settings/rixie-key");
+    if (!res.ok) return { provider: "anthropic", hasKey: false };
+    return res.json();
+  },
+  async setApiKey(provider, apiKey) {
+    const res = await fetch("/api/settings/rixie-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, apiKey }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Failed to save (${res.status})`);
+    }
+  },
+};
+
 /** Lets the user enter Rixie's chat credentials from inside the app itself, instead of
- *  hand-editing a file — writes to Documents/Veasna OS/rixie.env via the main process (never
- *  through the sandboxed .desktop files API, since that's a different, unrelated real folder).
- *  Takes effect on Rixie's very next message with no restart needed — Universe's own /api/agent
- *  route re-reads this file fresh on every request. Only rendered when `getSettingsBridge()` is
- *  available — i.e. only inside the packaged desktop app; in dev/web mode there's nothing here to
- *  configure this way at all (edit .env.local directly, same as always). */
+ *  hand-editing a file — via the Electron bridge (Documents/Veasna OS/rixie.env) in the packaged
+ *  desktop app, or httpKeyBridge above (a dev-local .env.rixie file) everywhere else. Either way,
+ *  it takes effect on Rixie's very next message with no restart needed — Universe's own
+ *  /api/agent route re-reads the relevant file fresh on every request. */
 function RixieApiKeySection() {
-  const [bridge] = useState(getSettingsBridge);
+  const [bridge] = useState<SettingsBridge>(() => getSettingsBridge() ?? httpKeyBridge);
   const [status, setStatus] = useState<{ provider: RixieProvider; hasKey: boolean } | null>(null);
   const [provider, setProvider] = useState<RixieProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!bridge) return;
     bridge.getApiKeyStatus().then((s) => {
       setStatus(s);
       setProvider(s.provider);
     });
   }, [bridge]);
 
-  if (!bridge) return null;
-
   async function handleSave() {
-    if (!bridge || !apiKey.trim()) return;
+    if (!apiKey.trim()) return;
     setSaving(true);
     setSaved(false);
+    setError(null);
     try {
       await bridge.setApiKey(provider, apiKey.trim());
       setStatus({ provider, hasKey: true });
       setApiKey("");
       setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -83,6 +106,7 @@ function RixieApiKeySection() {
             onChange={(e) => {
               setApiKey(e.target.value);
               setSaved(false);
+              setError(null);
             }}
             placeholder="Paste your API key"
             spellCheck={false}
@@ -100,6 +124,7 @@ function RixieApiKeySection() {
             {saving ? "Saving…" : "Save"}
           </button>
           {saved && <span className="text-[11px] text-emerald-400">Saved — Rixie will use it on your next message.</span>}
+          {error && <span className="text-[11px] text-red-400">{error}</span>}
         </div>
       </div>
     </div>

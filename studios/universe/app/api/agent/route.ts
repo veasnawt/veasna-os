@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { RixieAgent, createProvider, generateTopicTitle } from "@veasna/ai";
 import { getSessionStore } from "../_lib/sessionStore";
 import { buildVeasnaOsTools } from "./_lib/veasnaOsTools";
+import { loadRixieEnv } from "../_lib/rixieEnvFile";
 
 export const runtime = "nodejs";
 
@@ -21,6 +20,14 @@ function humanizeProviderError(err: unknown): string {
   if (/invalid x-api-key|authentication_error|incorrect api key/i.test(raw)) {
     return "I can't respond right now — the AI provider rejected the API key. Check it in Settings → Rixie AI.";
   }
+  // Checked BEFORE the generic 429 case below: Gemini's free tier returns this same 429/
+  // RESOURCE_EXHAUSTED shape for two genuinely different situations — a real transient rate limit
+  // (limit > 0, just temporarily used up) vs. this project having ZERO free-tier quota at all for
+  // this model (confirmed via a real "limit: 0" response) — the latter will never clear just by
+  // waiting, so telling the user to "try again shortly" would be actively misleading.
+  if (/RESOURCE_EXHAUSTED/i.test(raw) && /\blimit:\s*0\b/i.test(raw)) {
+    return "I can't respond right now — this API key's project has zero free-tier quota for this model (not a temporary rate limit, waiting won't help). Check the project's quota/billing at ai.google.dev, try a different Gemini model, or switch providers in Settings → Rixie AI.";
+  }
   if (/rate_limit_error|429/i.test(raw)) {
     return "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
   }
@@ -30,30 +37,11 @@ function humanizeProviderError(err: unknown): string {
   return raw;
 }
 
-/** In the packaged desktop app, an optional `Documents/Veasna OS/rixie.env` (written by
- *  Settings → Rixie AI) can override the provider/API key that would otherwise come from
- *  process.env — read fresh on every request rather than once at server-start, so saving a new
- *  key in Settings takes effect on the very next message with no server restart needed (unlike
- *  the equivalent BP Studio feature this replaced, which had to kill and re-fork the whole
- *  server). Absent entirely in dev/web mode (no VEASNA_WORKSPACE_ROOT there) — those users
- *  configure `.env.local` directly, same as always. */
-function loadEnvOverrides(): Record<string, string> {
-  const workspaceRoot = process.env.VEASNA_WORKSPACE_ROOT;
-  if (!workspaceRoot) return {};
-  const envPath = path.join(workspaceRoot, "rixie.env");
-  if (!fs.existsSync(envPath)) return {};
-  const result: Record<string, string> = {};
-  for (const line of fs.readFileSync(envPath, "utf-8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
-    if (key) result[key] = value;
-  }
-  return result;
-}
+// loadRixieEnv() (studios/universe/app/api/_lib/rixieEnvFile.ts) handles both the packaged desktop
+// app (Documents/Veasna OS/rixie.env) and dev/web mode (a gitignored .env.rixie file inside this
+// checkout) — same "read fresh on every request, no restart needed" behavior either way. Settings
+// → Rixie AI (SettingsPanel.tsx) writes to it via the Electron bridge when packaged, or via
+// /api/settings/rixie-key when not.
 
 // Overrides @veasna/ai's own default SYSTEM_PROMPT (config.ts), which describes a generic
 // dev-assistant persona — "managing execution pipelines," multi-provider "model switching" — that
@@ -103,7 +91,7 @@ const DISABLED_TOOLS = [
 ];
 
 function getAgent(providerType?: string, modelName?: string): RixieAgent {
-  const overrides = loadEnvOverrides();
+  const overrides = loadRixieEnv();
   const resolvedProvider = providerType || overrides.RIXIE_PROVIDER || undefined;
   const provider = createProvider({
     provider: resolvedProvider,
