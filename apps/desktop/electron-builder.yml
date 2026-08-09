@@ -41,6 +41,12 @@ publish:
   provider: github
   owner: veasnawt
   repo: veasna-os
+  # electron-builder's own default is `draft: true` — confirmed the hard way: the very first
+  # --publish run created a real release with the installer + latest.yml correctly uploaded, but
+  # it stayed invisible to both the public GitHub API and electron-updater's own check (which also
+  # ignores drafts) until manually published from the GitHub UI. false here means every future
+  # `--publish always` run goes live immediately with no separate manual step.
+  draft: false
 win:
   target: nsis
 nsis:
