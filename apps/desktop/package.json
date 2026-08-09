@@ -7,7 +7,7 @@
     "dev": "concurrently -k -n build,electron -c cyan,magenta \"node esbuild.config.mjs --watch\" \"wait-on dist/main.cjs dist/preload.cjs && electron .\"",
     "build": "node esbuild.config.mjs",
     "package": "node scripts/build-resources.mjs && node esbuild.config.mjs && electron-builder --config electron-builder.yml",
-    "publish": "node scripts/build-resources.mjs && node esbuild.config.mjs && electron-builder --config electron-builder.yml --publish always"
+    "release": "node scripts/build-resources.mjs && node esbuild.config.mjs && electron-builder --config electron-builder.yml --publish always"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
