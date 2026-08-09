@@ -65,6 +65,12 @@ interface RixieWindowProps {
   onOpenPath: (path: string, kind: "folder" | "file", name: string) => void;
   onOpenStudio: (studioId: string) => void;
   onSetTheme: (theme: "dark" | "light" | "glass") => void;
+  /** Optional — lets a host (VeasnaShell's hidden RixieCompanion) mirror what's happening in this
+   *  chat without needing this window to be open at all. Fired on every state transition: idle at
+   *  rest, thinking while a request is in flight, talking (with the actual reply text) right after
+   *  one lands, then back to idle a few seconds later. Never required — chat works identically
+   *  with no listener attached. */
+  onActivityChange?: (state: { status: "idle" | "thinking" | "talking"; text?: string }) => void;
 }
 
 function generateSessionId(): string {
@@ -134,6 +140,7 @@ export default function RixieWindow({
   onOpenPath,
   onOpenStudio,
   onSetTheme,
+  onActivityChange,
 }: RixieWindowProps) {
   const [sessionId, setSessionId] = useState(generateSessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -152,6 +159,9 @@ export default function RixieWindow({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Cleared/reset on every new turn so an old turn's "revert to idle" timeout can never fire after
+  // a NEWER turn has already moved the companion on to its own thinking/talking state.
+  const activityIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -262,7 +272,10 @@ export default function RixieWindow({
     if (!text || loading) return;
     setMessages((prev) => [...prev, { id: generateMessageId(), role: "user", content: text }]);
     setLoading(true);
+    if (activityIdleTimeoutRef.current) clearTimeout(activityIdleTimeoutRef.current);
+    onActivityChange?.({ status: "thinking" });
 
+    let replyText = "";
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
@@ -270,15 +283,19 @@ export default function RixieWindow({
         body: JSON.stringify({ message: text, studio: "universe", sessionId, context: getContext(), incognito }),
       });
       const data = await res.json();
-      setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: data.reply || data.error || "No response." }]);
+      replyText = data.reply || data.error || "No response.";
+      setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: replyText }]);
       if (Array.isArray(data.toolCalls)) applyToolCallActions(data.toolCalls);
       // Incognito never creates/updates a session row server-side — refreshing would just be a
       // wasted round trip that can never find anything new.
       if (!incognito) refreshSessions();
     } catch {
-      setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: "Couldn't reach Rixie — check your connection." }]);
+      replyText = "Couldn't reach Rixie — check your connection.";
+      setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: replyText }]);
     } finally {
       setLoading(false);
+      onActivityChange?.({ status: "talking", text: replyText });
+      activityIdleTimeoutRef.current = setTimeout(() => onActivityChange?.({ status: "idle" }), 6000);
     }
   }
 

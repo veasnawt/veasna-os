@@ -10,6 +10,7 @@ import TaskManagerWindow from "./components/TaskManagerWindow";
 import AboutOSWindow from "./components/AboutOSWindow";
 import OSUpdateWindow from "./components/OSUpdateWindow";
 import RixieWindow, { OsContext } from "./components/RixieWindow";
+import RixieCompanion, { RixieCompanionState } from "./components/RixieCompanion";
 import { CELESTIAL_BODIES } from "./constants";
 import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment, WindowRect } from "./types";
 import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils/wallpaperGenerator";
@@ -30,6 +31,7 @@ const PINNED_STORAGE_KEY = "veasna-os:pinned-taskbar";
 const TASKBAR_AUTO_HIDE_KEY = "veasna-os:taskbar-auto-hide";
 const TASKBAR_ALIGNMENT_KEY = "veasna-os:taskbar-alignment";
 const TASKBAR_SHOW_CLOCK_KEY = "veasna-os:taskbar-show-clock";
+const COMPANION_VISIBLE_KEY = "veasna-os:rixie-companion-visible";
 
 function defaultRect(body: CelestialBody, cascadeIndex: number): WindowRect {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
@@ -75,6 +77,11 @@ export default function VeasnaShell() {
   const [rixieOpen, setRixieOpen] = useState(false);
   const [rixieMinimized, setRixieMinimized] = useState(false);
   const [rixieZ, setRixieZ] = useState(0);
+  // A hidden, just-for-you feature — no menu item or setting reveals it, only the secret
+  // Ctrl+Shift+R shortcut below. Persisted so it stays revealed across reloads once toggled on,
+  // same as any other real preference, until explicitly toggled off again.
+  const [companionVisible, setCompanionVisible] = useState(false);
+  const [rixieActivity, setRixieActivity] = useState<RixieCompanionState>({ status: "idle" });
   // A folder/file result picked from search while in 3D mode needs List mode mounted first (that's
   // where `TraditionalShell`/`FileManager` live) — this holds the pending open until the mode-switch
   // effect below sees `traditionalShellRef` actually attached to the freshly-mounted instance.
@@ -142,6 +149,7 @@ export default function VeasnaShell() {
     }
     const savedShowClock = localStorage.getItem(TASKBAR_SHOW_CLOCK_KEY);
     if (savedShowClock === "false") setTaskbarShowClock(false);
+    if (localStorage.getItem(COMPANION_VISIBLE_KEY) === "true") setCompanionVisible(true);
   }, []);
 
   useEffect(() => {
@@ -164,6 +172,17 @@ export default function VeasnaShell() {
       if (mod && e.code === "Space") {
         e.preventDefault();
         setSearchOpen(true);
+        return;
+      }
+      // Hidden RixieCompanion toggle — deliberately not documented or exposed in any menu/setting,
+      // see companionVisible's declaration above.
+      if (mod && e.shiftKey && (e.key === "r" || e.key === "R")) {
+        e.preventDefault();
+        setCompanionVisible((prev) => {
+          const next = !prev;
+          localStorage.setItem(COMPANION_VISIBLE_KEY, String(next));
+          return next;
+        });
       }
     }
     document.addEventListener("keydown", handleKeyDown);
@@ -492,8 +511,11 @@ export default function VeasnaShell() {
           onOpenPath={openDesktopPathFromSearch}
           onOpenStudio={openStudioById}
           onSetTheme={handleThemeChange}
+          onActivityChange={setRixieActivity}
         />
       )}
+
+      {companionVisible && <RixieCompanion state={rixieActivity} onClick={openRixie} />}
 
       {taskManagerOpen && (
         <TaskManagerWindow
