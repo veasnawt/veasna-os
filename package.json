@@ -13,7 +13,8 @@
     "dev:gamedev": "pnpm --filter loom-engine dev",
     "dev:all": "concurrently -k -n universe,bp,gamedev -c blue,green,yellow \"pnpm dev\" \"pnpm dev:bp\" \"pnpm dev:gamedev\"",
     "dev:desktop": "concurrently -k -n next,electron -c blue,magenta \"pnpm dev\" \"wait-on http://127.0.0.1:3000 && pnpm --filter @veasna/desktop dev\"",
-    "build:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop package"
+    "build:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop package",
+    "publish:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop publish"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
