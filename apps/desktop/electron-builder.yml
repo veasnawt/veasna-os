@@ -28,10 +28,11 @@ extraResources:
 # real path on disk.
 asarUnpack:
   - "**/*.node"
-# build/icon.png — a transparent-background crop of just the "V" glyph (no wordmark text, which
-# turns to illegible mush at real icon sizes like 16x16/32x32) from assets/images/logo-dark.png. A
-# single PNG is enough for electron-builder to auto-generate the per-platform .ico/.icns it needs;
-# no per-OS icon path required unless a hand-crafted one is added later.
+# build/icon.png — copied from assets/images/icon.png (the "V" glyph only, no wordmark text, which
+# turns to illegible mush at real icon sizes like 16x16/32x32). This is what electron-builder bakes
+# into the packaged .exe's icon resource — the same icon Explorer/Start Menu search shows. A single
+# PNG is enough for electron-builder to auto-generate the per-platform .ico/.icns it needs; no
+# per-OS icon path required unless a hand-crafted one is added later.
 #
 # Where `electron-updater` (src/updater.ts) checks for new versions — GitHub Releases on this
 # repo's own remote. Setting this alone publishes nothing; an actual release still has to be
