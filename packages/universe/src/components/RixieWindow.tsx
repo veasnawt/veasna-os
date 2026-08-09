@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Ai } from "@veasnawt/vicons";
-import { Plus, History, Trash2, X, Copy } from "lucide-react";
+import { Plus, History, Trash2, X, Copy, Paperclip, Loader2 } from "lucide-react";
 import FloatingWindow from "./FloatingWindow";
 import MarkdownMessage from "./MarkdownMessage";
 
@@ -46,11 +46,12 @@ interface RixieWindowProps {
    *  ref, not just a prop) so a message typed a while ago still reports CURRENT context, not
    *  whatever was open when the window first mounted. */
   getContext: () => OsContext;
-  /** Backend tools like desktop_open_item/desktop_set_theme only validate and report intent — the
-   *  real OS shell runs entirely client-side, so /api/agent has no way to actually open a window or
-   *  flip the theme itself. These fire when Rixie's response includes a successful call to one,
-   *  performing the real action the same way the user's own UI would. */
+  /** Backend tools like desktop_open_item/desktop_open_studio/desktop_set_theme only validate and
+   *  report intent — the real OS shell runs entirely client-side, so /api/agent has no way to
+   *  actually open a window or flip the theme itself. These fire when Rixie's response includes a
+   *  successful call to one, performing the real action the same way the user's own UI would. */
   onOpenPath: (path: string, kind: "folder" | "file", name: string) => void;
+  onOpenStudio: (studioId: string) => void;
   onSetTheme: (theme: "dark" | "light" | "glass") => void;
 }
 
@@ -91,6 +92,7 @@ export default function RixieWindow({
   onMinimize,
   getContext,
   onOpenPath,
+  onOpenStudio,
   onSetTheme,
 }: RixieWindowProps) {
   const [sessionId, setSessionId] = useState(generateSessionId);
@@ -101,8 +103,10 @@ export default function RixieWindow({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading">("idle");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -173,29 +177,29 @@ export default function RixieWindow({
     if (id === sessionId) handleNewChat();
   }
 
-  /** desktop_open_item/desktop_set_theme only validate server-side and report what THEY intend —
-   *  performing the actual client-side effect is this window's job, done here rather than trusting
-   *  Rixie's own prose (only a genuinely successful tool call, not just what she claims in text,
-   *  ever triggers a real action). */
+  /** desktop_open_item/desktop_open_studio/desktop_set_theme only validate server-side and report
+   *  what THEY intend — performing the actual client-side effect is this window's job, done here
+   *  rather than trusting Rixie's own prose (only a genuinely successful tool call, not just what
+   *  she claims in text, ever triggers a real action). */
   function applyToolCallActions(toolCalls: ToolCallTrace[]) {
     for (const call of toolCalls) {
-      const output = call.output as { status?: string; path?: string; kind?: "folder" | "file"; theme?: string } | undefined;
+      const output = call.output as
+        | { status?: string; path?: string; kind?: "folder" | "file"; studio?: string; theme?: string }
+        | undefined;
       if (output?.status !== "success") continue;
       if (call.name === "desktop_open_item" && output.path !== undefined && output.kind) {
         const name = output.path.split("/").pop() || output.path || "Desktop";
         onOpenPath(output.path, output.kind, name);
+      } else if (call.name === "desktop_open_studio" && output.studio) {
+        onOpenStudio(output.studio);
       } else if (call.name === "desktop_set_theme" && (output.theme === "dark" || output.theme === "light" || output.theme === "glass")) {
         onSetTheme(output.theme);
       }
     }
   }
 
-  async function handleSend(e?: React.FormEvent) {
-    e?.preventDefault();
-    const text = input.trim();
+  async function sendMessage(text: string) {
     if (!text || loading) return;
-
-    setInput("");
     setMessages((prev) => [...prev, { id: generateMessageId(), role: "user", content: text }]);
     setLoading(true);
 
@@ -215,6 +219,41 @@ export default function RixieWindow({
       setMessages((prev) => [...prev, { id: generateMessageId(), role: "assistant", content: "Couldn't reach Rixie — check your connection." }]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSend(e?: React.FormEvent) {
+    e?.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    await sendMessage(text);
+  }
+
+  /** Uploads straight into the sandbox (the same /api/files/upload route File Manager's own
+   *  drag-drop uses) under a dedicated "Rixie Uploads" folder — created automatically on first
+   *  use, keeps attachments out of the user's own Desktop root — then tells Rixie about it so she
+   *  can act on it via her existing desktop_read_file tool. No new backend capability needed. */
+  async function handleFileSelected(file: File) {
+    setUploadStatus("uploading");
+    try {
+      const relPath = `Rixie Uploads/${file.name}`;
+      const res = await fetch(`/api/files/upload?path=${encodeURIComponent("Rixie Uploads")}&name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        body: await file.arrayBuffer(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Upload failed (${res.status})`);
+      }
+      setUploadStatus("idle");
+      await sendMessage(`I just uploaded a file: "${relPath}". Take a look and let me know what you find.`);
+    } catch (err) {
+      setUploadStatus("idle");
+      setMessages((prev) => [
+        ...prev,
+        { id: generateMessageId(), role: "assistant", content: `Couldn't upload "${file.name}" — ${err instanceof Error ? err.message : "unknown error"}.` },
+      ]);
     }
   }
 
@@ -306,6 +345,25 @@ export default function RixieWindow({
 
         <form onSubmit={handleSend} className="shrink-0 border-t border-[var(--os-border)] p-3">
           <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = ""; // Allows re-selecting the same file consecutively.
+                if (file) handleFileSelected(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadStatus === "uploading" || loading}
+              title="Attach a file"
+              className="flex shrink-0 items-center justify-center rounded-lg border border-[var(--os-border)] bg-[var(--os-surface)] p-2 text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)] disabled:opacity-40"
+            >
+              {uploadStatus === "uploading" ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+            </button>
             <textarea
               ref={textareaRef}
               rows={1}

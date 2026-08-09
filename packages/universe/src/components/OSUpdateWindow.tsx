@@ -4,7 +4,7 @@ import FloatingWindow from "./FloatingWindow";
 import OSUpdateIcon from "./OSUpdateIcon";
 import { getUpdaterBridge, UpdateStatus } from "../utils/runtime";
 
-const FALLBACK_VERSION = "0.2.4";
+const FALLBACK_VERSION = "0.2.5";
 
 interface OSUpdateWindowProps {
   zIndex: number;

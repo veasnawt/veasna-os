@@ -423,6 +423,14 @@ export default function VeasnaShell() {
     setRixieZ(nextZ());
   }
 
+  /** Rixie's desktop_open_studio tool only validates a studio id server-side — this performs the
+   *  real open, reusing the exact same openApp() a user's own icon/taskbar click goes through
+   *  (including its "rixie" special-case redirecting to openRixie() instead of a generic Window). */
+  function openStudioById(id: string) {
+    const body = CELESTIAL_BODIES.find((b) => b.id === id);
+    if (body) openApp(body);
+  }
+
   /** What's actually happening in the shell right now, in the terms Rixie's system prompt
    *  understands — read fresh at send-time (see RixieWindow's `getContext` prop) rather than
    *  snapshotted once, so a long-idle chat window still reports what's CURRENTLY open. Only real,
@@ -482,6 +490,7 @@ export default function VeasnaShell() {
           onFocus={() => setRixieZ(nextZ())}
           getContext={getRixieContext}
           onOpenPath={openDesktopPathFromSearch}
+          onOpenStudio={openStudioById}
           onSetTheme={handleThemeChange}
         />
       )}

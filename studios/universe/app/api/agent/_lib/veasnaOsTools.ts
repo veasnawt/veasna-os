@@ -1,8 +1,25 @@
 import type { ToolModule } from "@veasna/ai";
 import { ApiError } from "../../_lib/sandboxedFs";
 import { listEntries, readFileContent, writeFileContent, mkdir, createFile, renameEntry, deleteEntries, statEntry } from "../../_lib/fileOps";
+import { runSandboxedCommand } from "../../_lib/sandboxedExec";
 
 const THEME_OPTIONS = ["dark", "light", "glass"] as const;
+
+// Mirrors constants.ts's CELESTIAL_BODIES ids — duplicated rather than imported since this file is
+// server-side (Next.js API route) and CELESTIAL_BODIES lives in the client-side packages/universe
+// bundle; it's a short, stable, hand-maintained list, not worth a shared-module detour for.
+const STUDIO_IDS: Record<string, string> = {
+  rixie: "Rixie Core",
+  bp: "BP Studio",
+  art: "Art Studio",
+  music: "Music Studio",
+  gamedev: "Game Dev Studio",
+  memory: "SQLite Memory Vault",
+  language: "Language Studio",
+  settings: "Settings",
+  terminal: "Terminal",
+  browser: "Browser",
+};
 
 function errMessage(err: unknown): string {
   return err instanceof ApiError || err instanceof Error ? err.message : String(err);
@@ -100,6 +117,22 @@ export function buildVeasnaOsTools(): ToolModule {
         },
       },
       {
+        name: "desktop_open_studio",
+        description:
+          "Open one of Veasna OS's studio windows — the same as the user double-clicking its icon or picking it from the taskbar. Valid ids: " +
+          Object.entries(STUDIO_IDS)
+            .map(([id, name]) => `${id} (${name})`)
+            .join(", ") +
+          ".",
+        input_schema: {
+          type: "object",
+          properties: {
+            studio: { type: "string", description: "One of the studio ids listed above." },
+          },
+          required: ["studio"],
+        },
+      },
+      {
         name: "desktop_set_theme",
         description: "Change Veasna OS's visual theme, the same as the user picking one in Settings → Personalize.",
         input_schema: {
@@ -108,6 +141,23 @@ export function buildVeasnaOsTools(): ToolModule {
             theme: { type: "string", description: "One of: dark, light, glass." },
           },
           required: ["theme"],
+        },
+      },
+      {
+        name: "desktop_run_command",
+        description:
+          "Run a real shell command (cmd.exe on Windows). Use this for things the file tools can't do directly (running a script, checking a tool's version, piping/processing text). Sandboxed to a dedicated workspace folder — never the real machine.",
+        input_schema: {
+          type: "object",
+          properties: {
+            command: { type: "string", description: "The command to run." },
+            cwd: {
+              type: "string",
+              description:
+                "Working directory. Empty/omitted = your dedicated command workspace (a scratch folder alongside the Desktop workspace, for scripts/temp files — a fresh one, not the Desktop itself). Pass '.desktop' (optionally with a sub-path, e.g. '.desktop/some-folder') to run inside the actual Desktop workspace instead.",
+            },
+          },
+          required: ["command"],
         },
       },
     ],
@@ -178,6 +228,15 @@ export function buildVeasnaOsTools(): ToolModule {
           return { error: errMessage(err) };
         }
       },
+      desktop_open_studio: async (input: unknown) => {
+        const { studio } = input as { studio: string };
+        if (!(studio in STUDIO_IDS)) {
+          return { error: `Invalid studio "${studio}" — must be one of: ${Object.keys(STUDIO_IDS).join(", ")}` };
+        }
+        // Same reasoning as desktop_open_item/desktop_set_theme — the window manager is entirely
+        // client-side. The frontend opens the real window after seeing this tool call succeed.
+        return { status: "success", studio };
+      },
       desktop_set_theme: async (input: unknown) => {
         const { theme } = input as { theme: string };
         if (!(THEME_OPTIONS as readonly string[]).includes(theme)) {
@@ -187,6 +246,10 @@ export function buildVeasnaOsTools(): ToolModule {
         // localStorage, nowhere this server can reach. The frontend applies it after seeing this
         // tool call succeed.
         return { status: "success", theme };
+      },
+      desktop_run_command: async (input: unknown) => {
+        const { command, cwd = "" } = input as { command: string; cwd?: string };
+        return runSandboxedCommand(command, cwd);
       },
     },
   };
