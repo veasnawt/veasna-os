@@ -12,15 +12,36 @@ export const runtime = "nodejs";
  *  user verbatim inside a chat bubble. Recognizes the handful of failure shapes actually worth a
  *  distinct message; anything unrecognized still falls back to the raw text rather than hiding a
  *  genuinely new error behind a vague catch-all. */
-/** Pulls a concrete retry delay out of the raw error text when the provider actually gave one —
- *  Groq/OpenAI's plain-text "Please try again in 3.005s." and Gemini's JSON "retryDelay": "42s"
- *  are the two shapes confirmed live this session. Rounded up to a whole second: the sub-second
- *  precision providers report is real but not meaningfully actionable to a person reading a chat
- *  bubble. Returns null (never a made-up number) when neither shape matches, so the caller can
- *  fall back to a delay-free message instead of inventing one. */
+/** Pulls a concrete retry delay out of the raw error text when the provider actually gave one.
+ *  Three shapes confirmed live this session: Groq/OpenAI's simple "Please try again in 3.005s.",
+ *  Groq's COMPOUND form on its daily (not per-minute) token cap — "Please try again in
+ *  1h12m30.24s." — which the simple regex alone silently failed to match at all (it requires the
+ *  captured group to be pure digits immediately followed by "s", so "1h12m30.24s" never matched
+ *  and this fell through to the generic no-delay message even though the provider gave an exact
+ *  one), and Gemini's JSON "retryDelay": "42s". Returns null (never a made-up number) when none
+ *  match, so the caller can fall back to a delay-free message instead of inventing one. */
 function extractRetryDelaySeconds(raw: string): number | null {
-  const match = raw.match(/try again in ([\d.]+)s/i) ?? raw.match(/"retryDelay"\s*:\s*"([\d.]+)s"/i);
-  return match ? Math.max(1, Math.ceil(parseFloat(match[1]))) : null;
+  const compound = raw.match(/try again in ((?:\d+h)?(?:\d+m)?[\d.]+s)\b/i);
+  if (compound) {
+    const dur = compound[1];
+    const hours = parseInt(dur.match(/(\d+)h/)?.[1] ?? "0", 10);
+    const minutes = parseInt(dur.match(/(\d+)m/)?.[1] ?? "0", 10);
+    const seconds = parseFloat(dur.match(/([\d.]+)s/)?.[1] ?? "0");
+    return Math.max(1, Math.ceil(hours * 3600 + minutes * 60 + seconds));
+  }
+  const json = raw.match(/"retryDelay"\s*:\s*"([\d.]+)s"/i);
+  return json ? Math.max(1, Math.ceil(parseFloat(json[1]))) : null;
+}
+
+/** "about 9 seconds" / "about 41 minutes" / "about 1h 12m" — a raw second count is fine for a
+ *  short wait but unreadable once a daily-limit delay pushes past an hour. */
+function formatDelay(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds} second${totalSeconds === 1 ? "" : "s"}`;
+  const minutes = Math.round(totalSeconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours} hour${hours === 1 ? "" : "s"}`;
 }
 
 function humanizeProviderError(err: unknown): string {
@@ -50,9 +71,17 @@ function humanizeProviderError(err: unknown): string {
       : "I can't respond right now — the model saved for this provider doesn't exist. Fix or clear the Model field for it in Settings → Rixie AI.";
   }
   if (/rate_limit_error|429/i.test(raw)) {
-    const delay = extractRetryDelaySeconds(raw);
-    return delay
-      ? `I'm being rate-limited by the AI provider right now — it should clear in about ${delay} second${delay === 1 ? "" : "s"}. Try again shortly.`
+    const delaySeconds = extractRetryDelaySeconds(raw);
+    // A DAILY cap (Groq: "tokens per day (TPD)") behaves completely differently from a per-minute
+    // one — confirmed live at ~99.5% of a 100,000/day free-tier budget, with real wait times over
+    // an hour. "Try again shortly" would be actively misleading for that; a per-minute cap
+    // genuinely does clear in seconds and deserves the lighter phrasing.
+    const isDailyCap = /tokens per day|\bTPD\b/i.test(raw);
+    if (delaySeconds && isDailyCap) {
+      return `I've hit this provider's daily free-tier limit — it won't clear for about ${formatDelay(delaySeconds)}. Try a different provider or model in Settings → Rixie AI, or just wait it out.`;
+    }
+    return delaySeconds
+      ? `I'm being rate-limited by the AI provider right now — it should clear in about ${formatDelay(delaySeconds)}. Try again shortly.`
       : "I'm being rate-limited by the AI provider right now — give it a moment and try again.";
   }
   if (/overloaded_error|529/i.test(raw)) {
