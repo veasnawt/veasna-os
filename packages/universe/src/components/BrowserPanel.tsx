@@ -51,15 +51,17 @@ function toEmbeddableUrl(rawUrl: string): string {
 
 /** Turns address-bar text into a real URL — a bare domain gets `https://` prepended, anything else
  *  (no dot, or contains spaces) is treated as a search query rather than a broken navigation attempt.
- *  Search goes to Marginalia, not Google/Bing/DuckDuckGo/Yahoo/Yandex/etc — confirmed empirically
- *  (loaded each candidate in a real iframe and checked what rendered) that every mainstream engine
- *  refuses to be framed and shows a blank/broken page here; Marginalia is the one independent engine
- *  found that actually allows it. Its index is smaller/more niche than Google's, so results will be
- *  thinner — that's the real tradeoff of embedding search inside an iframe at all, not a bug.
- *  General site-blocks-embedding cases (Google's own pages, YouTube's non-video pages, most of the
- *  rest of the web) have no fix from this side — the remote server's own anti-clickjacking headers
- *  are enforced by the browser itself, before any of this app's code ever runs. The "↗ open in a
- *  real tab" button is the actual answer for those, not something client-side code can route around. */
+ *  In the desktop app, search goes to Google — a real <webview> isn't bound by the *hosting page's*
+ *  frame-ancestors restriction the way an iframe is, so Google actually loads there. In the plain
+ *  web version it goes to Marginalia instead: confirmed empirically (loaded each candidate in a
+ *  real iframe and checked what rendered) that every mainstream engine (Google/Bing/DuckDuckGo/
+ *  Yahoo/Yandex/etc) refuses to be framed and shows a blank/broken page there; Marginalia is the
+ *  one independent engine found that actually allows it. Its index is smaller/more niche than
+ *  Google's, so results will be thinner — that's the real tradeoff of embedding search inside an
+ *  iframe at all, not a bug. General site-blocks-embedding cases (Google's own non-search pages,
+ *  YouTube's non-video pages, most of the rest of the web) still have no fix in the web version —
+ *  the remote server's own anti-clickjacking headers are enforced by the browser itself, before any
+ *  of this app's code ever runs. The "↗ open in a real tab" button is the actual answer for those. */
 function resolveAddress(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return trimmed;
@@ -67,7 +69,9 @@ function resolveAddress(input: string): string {
   const firstSegment = trimmed.split(/[\s/]/)[0];
   const looksLikeDomain = !trimmed.includes(" ") && /\.[a-z]{2,}$/i.test(firstSegment);
   if (looksLikeDomain) return toEmbeddableUrl(`https://${trimmed}`);
-  return `https://search.marginalia.nu/search?query=${encodeURIComponent(trimmed)}`;
+  return isElectronDesktop()
+    ? `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
+    : `https://search.marginalia.nu/search?query=${encodeURIComponent(trimmed)}`;
 }
 
 /** Short label for a tab strip pill — just the hostname (minus "www."), since fetching a real page
