@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import CosmosCanvas from "./CosmosCanvas";
 import TraditionalShell, { STUDIO_ICONS, TraditionalShellHandle } from "./components/TraditionalShell";
 import Window from "./components/Window";
+import { BrowserTab } from "./components/BrowserPanel";
 import Taskbar from "./components/Taskbar";
 import SearchOverlay from "./components/SearchOverlay";
 import TaskManagerWindow from "./components/TaskManagerWindow";
@@ -16,14 +17,39 @@ import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlig
 import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils/wallpaperGenerator";
 import { DEFAULT_THEME, THEME_PRESETS, ThemeMode } from "./utils/theme";
 import { ViewerSummary } from "./utils/desktopItems";
+import { isElectronDesktop } from "./utils/runtime";
 
 const TERMINAL_META_MARKER = "@@VEASNA_TERMINAL_META@@";
 // Most major search engines (Google, Bing, DuckDuckGo) send X-Frame-Options/CSP headers that refuse
-// iframe embedding entirely — confirmed empirically, not assumed — so the very first thing a user saw
-// on opening Browser was a blank/broken-page icon. Wikipedia allows framing and is actually useful
-// content, so it's the default instead; the address bar still treats a search-looking query as a
-// Google search (see `resolveAddress` in BrowserPanel.tsx), that just isn't a good *landing* page.
-const DEFAULT_BROWSER_URL = "https://en.wikipedia.org";
+// iframe embedding entirely — confirmed empirically, not assumed — so Google as a default would be
+// a blank/broken-page icon in the plain web version. It works fine as the default in the desktop
+// app though, where the Browser studio renders through a real Electron <webview> (a genuine
+// separate Chromium guest process) instead of an <iframe> — not bound by the *hosting page's*
+// frame-ancestors restriction the way an iframe is. Wikipedia (which allows framing) stays the
+// fallback default for the web version; the address bar still treats a search-looking query as a
+// Google search either way (see `resolveAddress` in BrowserPanel.tsx).
+function defaultBrowserUrl(): string {
+  return isElectronDesktop() ? "https://www.google.com" : "https://en.wikipedia.org";
+}
+
+// A fresh "+" tab (or the fallback after closing the last one) starts blank, NOT pre-loaded with
+// the homepage — the Home button (browserGoHome, below) is what actually navigates to
+// defaultBrowserUrl(). Matches a real browser's distinction between "new tab" and "home": opening
+// a tab isn't the same action as asking to go home, and a new tab silently jumping to
+// Google/Wikipedia read as unwanted/surprising. The Browser studio's VERY FIRST tab is the one
+// exception — that one IS meant to land somewhere useful (see initialBrowserTab below), same as a
+// real browser opening to its homepage/restored session rather than a blank New Tab Page.
+const BLANK_TAB_URL = "about:blank";
+
+function newBrowserTab(): BrowserTab {
+  const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+  return { id, history: [BLANK_TAB_URL], historyIndex: 0, reloadTick: 0 };
+}
+
+function initialBrowserTab(): BrowserTab {
+  const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+  return { id, history: [defaultBrowserUrl()], historyIndex: 0, reloadTick: 0 };
+}
 const STORAGE_KEY = "veasna-os:shell-mode";
 const WALLPAPER_STORAGE_KEY = "veasna-os:wallpaper";
 const THEME_STORAGE_KEY = "veasna-os:theme";
@@ -95,14 +121,40 @@ export default function VeasnaShell() {
     terminalSessionIdRef.current = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
   }
   // Same lift-above-Window reasoning as the terminal state above — losing your place/history on every
-  // minimize would make the browser far less useful than a real one.
-  const [browserHistory, setBrowserHistory] = useState<string[]>([DEFAULT_BROWSER_URL]);
-  const [browserHistoryIndex, setBrowserHistoryIndex] = useState(0);
-  const [browserReloadTick, setBrowserReloadTick] = useState(0);
+  // minimize would make the browser far less useful than a real one. Multiple tabs, each with its
+  // own independent history stack, rather than one shared history — matching a real browser.
+  const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>(() => [initialBrowserTab()]);
+  const [activeBrowserTabId, setActiveBrowserTabId] = useState<string>(() => browserTabs[0].id);
   const zRef = useRef(10);
   const openedCountRef = useRef(0);
   const taskbarWrapperRef = useRef<HTMLDivElement>(null);
   const traditionalShellRef = useRef<TraditionalShellHandle>(null);
+
+  // Electron's <webview> internals report an in-flight navigation getting aborted (e.g. a fast
+  // redirect chain superseding itself, or the element unmounting mid-load) via a direct
+  // console.error("Unexpected error while loading URL ...") call from its own preload script —
+  // confirmed by checking the actual message source, not assumed: an `unhandledrejection` listener
+  // does nothing for it, since it's a synchronous console.error, not a rejected promise. Next's dev
+  // overlay hooks console.error directly, which is why this was surfacing as a full "Console
+  // Error" overlay. Not a real failure — happens on completely normal multi-redirect flows (e.g.
+  // Google sign-in) and on React 18 StrictMode's intentional dev-mode double-mount. Matched on the
+  // IPC channel name alone rather than also requiring "ERR_ABORTED" in the message text — the
+  // error code sometimes comes through as an empty string instead ("Error:  (-3) loading ..."),
+  // and GUEST_VIEW_MANAGER_CALL is exclusively used for <webview> navigation error reporting, so
+  // there's nothing else this channel name could legitimately match. Original console.error is
+  // restored on unmount rather than left patched forever.
+  useEffect(() => {
+    if (!isElectronDesktop()) return;
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      const text = args.map((a) => (a instanceof Error ? a.message : String(a))).join(" ");
+      if (text.includes("GUEST_VIEW_MANAGER_CALL")) return;
+      originalError(...args);
+    };
+    return () => {
+      console.error = originalError;
+    };
+  }, []);
 
   useEffect(() => {
     if (!startMenuOpen) return;
@@ -343,30 +395,77 @@ export default function VeasnaShell() {
     }
   }
 
-  function browserNavigate(url: string) {
-    const truncated = browserHistory.slice(0, browserHistoryIndex + 1);
-    const next = [...truncated, url];
-    setBrowserHistory(next);
-    setBrowserHistoryIndex(next.length - 1);
+  function updateBrowserTab(tabId: string, updater: (tab: BrowserTab) => BrowserTab) {
+    setBrowserTabs((prev) => prev.map((t) => (t.id === tabId ? updater(t) : t)));
   }
-  function browserGoBack() {
-    setBrowserHistoryIndex((i) => Math.max(0, i - 1));
+  function browserNavigate(tabId: string, url: string) {
+    updateBrowserTab(tabId, (t) => {
+      const truncated = t.history.slice(0, t.historyIndex + 1);
+      const history = [...truncated, url];
+      return { ...t, history, historyIndex: history.length - 1 };
+    });
   }
-  function browserGoForward() {
-    setBrowserHistoryIndex((i) => Math.min(browserHistory.length - 1, i + 1));
+  function browserGoBack(tabId: string) {
+    updateBrowserTab(tabId, (t) => ({ ...t, historyIndex: Math.max(0, t.historyIndex - 1) }));
   }
-  function browserReload() {
-    setBrowserReloadTick((t) => t + 1);
+  function browserGoForward(tabId: string) {
+    updateBrowserTab(tabId, (t) => ({ ...t, historyIndex: Math.min(t.history.length - 1, t.historyIndex + 1) }));
   }
-  function browserGoHome() {
-    browserNavigate(DEFAULT_BROWSER_URL);
+  function browserReload(tabId: string) {
+    updateBrowserTab(tabId, (t) => ({ ...t, reloadTick: t.reloadTick + 1 }));
+  }
+  function browserGoHome(tabId: string) {
+    browserNavigate(tabId, defaultBrowserUrl());
+  }
+  function browserNewTab() {
+    const tab = newBrowserTab();
+    setBrowserTabs((prev) => [...prev, tab]);
+    setActiveBrowserTabId(tab.id);
+  }
+  function browserCloseTab(tabId: string) {
+    setBrowserTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === tabId);
+      if (idx === -1) return prev;
+      const remaining = prev.filter((t) => t.id !== tabId);
+      if (remaining.length === 0) {
+        const fresh = newBrowserTab();
+        setActiveBrowserTabId(fresh.id);
+        return [fresh];
+      }
+      if (tabId === activeBrowserTabId) {
+        setActiveBrowserTabId(remaining[Math.max(0, idx - 1)].id);
+      }
+      return remaining;
+    });
+  }
+  function browserDuplicateTab(tabId: string) {
+    const source = browserTabs.find((t) => t.id === tabId);
+    if (!source) return;
+    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+    const duplicate: BrowserTab = { id, history: [...source.history], historyIndex: source.historyIndex, reloadTick: 0 };
+    setBrowserTabs((prev) => [...prev, duplicate]);
+    setActiveBrowserTabId(id);
   }
 
-  /** "Open in Browser" for an .html/.htm file (Desktop or File Manager) — navigates the SAME shared
-   *  Browser studio real sites use, then opens/focuses it, matching what double-clicking an HTML file
-   *  does on a real OS (renders it, doesn't open a text editor). */
+  /** "Install as App" from the Browser studio's toolbar — delegates to TraditionalShell (owner of
+   *  the desktop's installedApps/order state) via its imperative handle, since <Window> (where
+   *  BrowserPanel actually lives) is a sibling of TraditionalShell, not a child of it. Only a no-op
+   *  while in 3D cosmos mode, where TraditionalShell isn't mounted to receive it — desktop icons
+   *  are a list-view concept, so there's nowhere for the new icon to appear there anyway. */
+  function installWebAppFromBrowser(name: string, url: string) {
+    traditionalShellRef.current?.installWebApp(name, url);
+  }
+
+  /** "Open in Browser" for an .html/.htm file (Desktop or File Manager) — opens a NEW tab in the
+   *  SAME shared Browser studio real sites use, rather than navigating over whatever's already in
+   *  the active tab (that would silently blow away a real page the user might still be on). Then
+   *  opens/focuses the Browser window, matching what double-clicking an HTML file does on a real
+   *  OS (renders it, doesn't open a text editor). */
   function openInBrowser(url: string) {
-    browserNavigate(url);
+    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+    const tab: BrowserTab = { id, history: [url], historyIndex: 0, reloadTick: 0 };
+    setBrowserTabs((prev) => [...prev, tab]);
+    setActiveBrowserTabId(id);
     const browserBody = CELESTIAL_BODIES.find((b) => b.id === "browser");
     if (browserBody) openApp(browserBody);
   }
@@ -462,12 +561,16 @@ export default function VeasnaShell() {
       null
     );
     const openFolder = viewers.find((v) => v.kind === "folder" && !v.minimized);
+    const openFile = viewers.find((v) => v.kind === "file" && !v.minimized);
+    const openApps = viewers.filter((v) => v.kind === "webapp" && !v.minimized).map((v) => v.name);
     return {
       mode,
       openStudios: visibleWindows.map((w) => w.body.name),
       activeStudio: activeWindow?.body.name ?? null,
       terminalCwd: openWindows.some((w) => w.body.id === "terminal") ? terminalCwd : null,
       browsingPath: openFolder ? openFolder.id : null,
+      openFile: openFile ? openFile.name : null,
+      openApps,
       companionActive: companionVisible,
     };
   }
@@ -589,15 +692,18 @@ export default function VeasnaShell() {
               onTerminalLinesChange={setTerminalLines}
               terminalCwd={terminalCwd}
               onTerminalCwdChange={setTerminalCwd}
-              browserUrl={browserHistory[browserHistoryIndex]}
-              browserCanGoBack={browserHistoryIndex > 0}
-              browserCanGoForward={browserHistoryIndex < browserHistory.length - 1}
-              browserReloadTick={browserReloadTick}
+              browserTabs={browserTabs}
+              activeBrowserTabId={activeBrowserTabId}
               onBrowserNavigate={browserNavigate}
               onBrowserBack={browserGoBack}
               onBrowserForward={browserGoForward}
               onBrowserReload={browserReload}
               onBrowserHome={browserGoHome}
+              onBrowserNewTab={browserNewTab}
+              onBrowserCloseTab={browserCloseTab}
+              onBrowserSwitchTab={setActiveBrowserTabId}
+              onBrowserDuplicateTab={browserDuplicateTab}
+              onInstallApp={installWebAppFromBrowser}
             />
           )
       )}

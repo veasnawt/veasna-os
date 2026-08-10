@@ -5,15 +5,20 @@ import { isValidAppUrl } from "../utils/installedApps";
 interface InstallAppDialogProps {
   onInstall: (name: string, url: string) => void;
   onClose: () => void;
+  /** Prefills the form — used when installing straight from the Browser's current tab, where the
+   *  name/URL are already known, rather than starting from a blank "type a URL" form. */
+  initialName?: string;
+  initialUrl?: string;
 }
 
-export default function InstallAppDialog({ onInstall, onClose }: InstallAppDialogProps) {
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
+export default function InstallAppDialog({ onInstall, onClose, initialName = "", initialUrl = "" }: InstallAppDialogProps) {
+  const [name, setName] = useState(initialName);
+  const [url, setUrl] = useState(initialUrl);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     nameInputRef.current?.focus();
+    nameInputRef.current?.select();
   }, []);
 
   useEffect(() => {

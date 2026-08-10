@@ -8,8 +8,21 @@ import WindowChrome from "./WindowChrome";
 import StudioDetailCard from "./StudioDetailCard";
 import SettingsPanel from "./SettingsPanel";
 import TerminalPanel from "./TerminalPanel";
-import BrowserPanel from "./BrowserPanel";
+import BrowserPanel, { BrowserTab, tabLabel } from "./BrowserPanel";
+import BrowserTabContextMenu from "./BrowserTabContextMenu";
 import StudioFrame from "./StudioFrame";
+import { faviconUrl } from "../utils/installedApps";
+
+/** `about:blank` (a fresh tab) has no real hostname to fetch a favicon for — anything else should,
+ *  but tab URLs still get a defensive try/catch since `faviconUrl` throws on a malformed URL. */
+function tabFaviconUrl(url: string): string | null {
+  if (url === "about:blank") return null;
+  try {
+    return faviconUrl(url);
+  } catch {
+    return null;
+  }
+}
 
 interface WindowProps {
   win: OpenWindow;
@@ -40,15 +53,18 @@ interface WindowProps {
   onTerminalLinesChange: (lines: string[]) => void;
   terminalCwd: string;
   onTerminalCwdChange: (cwd: string) => void;
-  browserUrl: string;
-  browserCanGoBack: boolean;
-  browserCanGoForward: boolean;
-  browserReloadTick: number;
-  onBrowserNavigate: (url: string) => void;
-  onBrowserBack: () => void;
-  onBrowserForward: () => void;
-  onBrowserReload: () => void;
-  onBrowserHome: () => void;
+  browserTabs: BrowserTab[];
+  activeBrowserTabId: string;
+  onBrowserNavigate: (tabId: string, url: string) => void;
+  onBrowserBack: (tabId: string) => void;
+  onBrowserForward: (tabId: string) => void;
+  onBrowserReload: (tabId: string) => void;
+  onBrowserHome: (tabId: string) => void;
+  onBrowserNewTab: () => void;
+  onBrowserCloseTab: (tabId: string) => void;
+  onBrowserSwitchTab: (tabId: string) => void;
+  onBrowserDuplicateTab: (tabId: string) => void;
+  onInstallApp: (name: string, url: string) => void;
 }
 
 const MIN_WIDTH = 320;
@@ -67,6 +83,120 @@ const RESIZE_HANDLES: { dir: ResizeDir; className: string; cursor: string }[] = 
   { dir: "sw", className: "bottom-0 left-0 h-3 w-3", cursor: "cursor-nesw-resize" },
   { dir: "se", className: "bottom-0 right-0 h-3 w-3", cursor: "cursor-nwse-resize" },
 ];
+
+/** The Browser studio's tab strip, rendered directly in its title bar (Chrome-style) via
+ *  WindowChrome's `titleBarLeft` slot — not a separate row inside BrowserPanel's own content area.
+ *  Every interactive element stops propagation on `onMouseDown`, same as the title bar's own
+ *  minimize/maximize/close buttons, so clicking a tab switches it instead of also starting a
+ *  window drag (the title bar's background still drags normally in the gaps between tabs). */
+function BrowserTitleTabs({
+  tabs,
+  activeTabId,
+  onSwitchTab,
+  onCloseTab,
+  onNewTab,
+  onReload,
+  onDuplicateTab,
+}: {
+  tabs: BrowserTab[];
+  activeTabId: string;
+  onSwitchTab: (tabId: string) => void;
+  onCloseTab: (tabId: string) => void;
+  onNewTab: () => void;
+  onReload: (tabId: string) => void;
+  onDuplicateTab: (tabId: string) => void;
+}) {
+  const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+
+  function closeOtherTabs(tabId: string) {
+    tabs.filter((t) => t.id !== tabId).forEach((t) => onCloseTab(t.id));
+  }
+  function closeTabsToRight(tabId: string) {
+    const idx = tabs.findIndex((t) => t.id === tabId);
+    if (idx === -1) return;
+    tabs.slice(idx + 1).forEach((t) => onCloseTab(t.id));
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 items-stretch gap-0.5 self-stretch overflow-x-auto pl-1">
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => onSwitchTab(tab.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSwitchTab(tab.id);
+            setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
+          }}
+          title={tab.history[tab.historyIndex]}
+          className={`group flex min-w-[84px] max-w-[150px] shrink-0 cursor-pointer items-center gap-1.5 self-center rounded-md px-2 py-1 text-[11px] ${
+            tab.id === activeTabId
+              ? "bg-[var(--os-border-strong)] text-[var(--os-text)]"
+              : "text-[var(--os-text-muted)] hover:bg-[var(--os-border-strong)]/50 hover:text-[var(--os-text)]"
+          }`}
+        >
+          {tabFaviconUrl(tab.history[tab.historyIndex]) && (
+            // eslint-disable-next-line @next/next/no-img-element -- a favicon proxy URL, not an
+            // optimizable local/remote asset Next's <Image> is meant for.
+            <img
+              src={tabFaviconUrl(tab.history[tab.historyIndex])!}
+              alt=""
+              className="h-3.5 w-3.5 shrink-0 rounded-sm"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">{tabLabel(tab.history[tab.historyIndex])}</span>
+          {tabs.length > 1 && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseTab(tab.id);
+              }}
+              title="Close tab"
+              className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-[var(--os-text-muted)] opacity-0 transition hover:bg-black/20 hover:text-[var(--os-text)] group-hover:opacity-100"
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={onNewTab}
+        title="New tab"
+        className="flex h-6 w-6 shrink-0 self-center items-center justify-center rounded text-[var(--os-text-muted)] transition hover:bg-[var(--os-border-strong)] hover:text-[var(--os-text)]"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {menu && (
+        <BrowserTabContextMenu
+          x={menu.x}
+          y={menu.y}
+          canClose={tabs.length > 1}
+          hasOtherTabs={tabs.length > 1}
+          hasTabsToRight={tabs.findIndex((t) => t.id === menu.tabId) < tabs.length - 1}
+          onNewTab={onNewTab}
+          onDuplicate={() => onDuplicateTab(menu.tabId)}
+          onReload={() => onReload(menu.tabId)}
+          onCloseTab={() => onCloseTab(menu.tabId)}
+          onCloseOtherTabs={() => closeOtherTabs(menu.tabId)}
+          onCloseTabsToRight={() => closeTabsToRight(menu.tabId)}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
 
 // Aero-Snap-style layouts: drag the title bar to a screen edge for a half,
 // to a corner for a quarter, or to the very top (away from the corners) to maximize.
@@ -141,15 +271,18 @@ export default function Window({
   onTerminalLinesChange,
   terminalCwd,
   onTerminalCwdChange,
-  browserUrl,
-  browserCanGoBack,
-  browserCanGoForward,
-  browserReloadTick,
+  browserTabs,
+  activeBrowserTabId,
   onBrowserNavigate,
   onBrowserBack,
   onBrowserForward,
   onBrowserReload,
   onBrowserHome,
+  onBrowserNewTab,
+  onBrowserCloseTab,
+  onBrowserSwitchTab,
+  onBrowserDuplicateTab,
+  onInstallApp,
 }: WindowProps) {
   const dragOrigin = useRef<{ startX: number; startY: number; rect: WindowRect } | null>(null);
   const resizeOrigin = useRef<{ startX: number; startY: number; rect: WindowRect } | null>(null);
@@ -342,6 +475,19 @@ export default function Window({
           onFocus={onFocus}
           onTitleBarMouseDown={handleTitleBarMouseDown}
           className="h-full w-full"
+          titleBarLeft={
+            win.body.id === "browser" ? (
+              <BrowserTitleTabs
+                tabs={browserTabs}
+                activeTabId={activeBrowserTabId}
+                onSwitchTab={onBrowserSwitchTab}
+                onCloseTab={onBrowserCloseTab}
+                onNewTab={onBrowserNewTab}
+                onReload={onBrowserReload}
+                onDuplicateTab={onBrowserDuplicateTab}
+              />
+            ) : undefined
+          }
         >
           {win.body.launchUrl ? (
             <StudioFrame body={win.body} />
@@ -370,15 +516,14 @@ export default function Window({
             />
           ) : win.body.id === "browser" ? (
             <BrowserPanel
-              url={browserUrl}
-              canGoBack={browserCanGoBack}
-              canGoForward={browserCanGoForward}
-              reloadTick={browserReloadTick}
+              tabs={browserTabs}
+              activeTabId={activeBrowserTabId}
               onNavigate={onBrowserNavigate}
               onBack={onBrowserBack}
               onForward={onBrowserForward}
               onReload={onBrowserReload}
               onHome={onBrowserHome}
+              onInstallApp={onInstallApp}
             />
           ) : (
             <StudioDetailCard body={win.body} variant="embedded" showHeader={false} />

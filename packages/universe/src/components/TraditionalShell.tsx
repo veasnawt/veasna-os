@@ -189,6 +189,9 @@ export interface TraditionalShellHandle {
    *  these are the only way it can actually act on one). */
   closeViewer: (id: string) => void;
   focusViewer: (id: string) => void;
+  /** Installs a website as a desktop web-app icon — same effect as InstallAppDialog's own submit,
+   *  callable from outside this component (the Browser studio's toolbar). */
+  installWebApp: (name: string, url: string) => void;
 }
 
 const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProps>(function TraditionalShell(
@@ -930,6 +933,15 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       });
       setActiveWindowId(id);
       bringViewerToFront(id);
+    },
+    // Same install path as InstallAppDialog's own onInstall below — used by the Browser studio's
+    // "Install as App" button, which lives outside this component entirely (a sibling <Window> in
+    // VeasnaShell), so it has no direct access to this desktop's installedApps/order state.
+    installWebApp(name: string, url: string) {
+      const app = installApp(name, url);
+      setInstalledApps((prev) => [...prev, app]);
+      appendToOrder(app.id);
+      pushUndo({ type: "installApp", app });
     },
   }));
 

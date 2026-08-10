@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { createMainWindow } from "./windows/createMainWindow";
@@ -21,6 +21,37 @@ ipcMain.handle("studios:get-urls", () => studioUrls);
 function workspaceRoot(): string {
   return path.join(app.getPath("documents"), "Veasna OS");
 }
+
+// The Browser studio's <webview> (packages/universe's BrowserPanel.tsx) has no context menu at
+// all by default — Electron doesn't give a <webview> guest one for free the way a real browser tab
+// gets from Chrome itself. Right-click "Inspect Element" specifically needs main-process
+// involvement: `contents.inspectElement(x, y)` only exists on the guest's own WebContents, which
+// is only reachable here (a renderer-side `context-menu` DOM listener on the <webview> element
+// can't reach it). Registered for every <webview> guest that ever gets created, not just Browser's
+// — InstalledAppWindow.tsx (packages/universe) also renders one, and there's no cheap way to tell
+// them apart here, but the same right-click menu makes sense for both.
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.on("context-menu", (_e, params) => {
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (params.linkURL) {
+      template.push({ label: "Copy Link Address", click: () => contents.executeJavaScript(`navigator.clipboard.writeText(${JSON.stringify(params.linkURL)})`).catch(() => {}) });
+      template.push({ type: "separator" });
+    }
+    if (params.selectionText) {
+      template.push({ label: "Copy", click: () => contents.copy() });
+    }
+    if (params.isEditable) {
+      template.push({ label: "Cut", click: () => contents.cut(), enabled: params.editFlags.canCut });
+      template.push({ label: "Copy", click: () => contents.copy(), enabled: params.editFlags.canCopy });
+      template.push({ label: "Paste", click: () => contents.paste(), enabled: params.editFlags.canPaste });
+    }
+    if (template.length > 0) template.push({ type: "separator" });
+    template.push({ label: "Reload", click: () => contents.reload() });
+    template.push({ label: "Inspect Element", click: () => contents.inspectElement(params.x, params.y) });
+    Menu.buildFromTemplate(template).popup();
+  });
+});
 
 ipcMain.handle("settings:get-api-key-status", () => getApiKeyStatus());
 

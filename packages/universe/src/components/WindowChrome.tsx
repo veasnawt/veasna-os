@@ -49,6 +49,14 @@ interface WindowChromeProps {
   onTitleBarMouseDown?: (e: React.MouseEvent) => void;
   className?: string;
   children: React.ReactNode;
+  /** Replaces the default icon+title block entirely — used by the Browser studio to render its
+   *  tab strip directly in the title bar (Chrome-style) instead of a separate row below it. Unlike
+   *  the default block (purely decorative, `pointer-events-none` so clicks fall through to start a
+   *  window drag), this one needs real pointer events for tab clicks/close buttons — each
+   *  interactive element within it is responsible for its own `onMouseDown` stopPropagation, same
+   *  as the minimize/maximize/close buttons already do, so clicking a tab doesn't also drag the
+   *  window. */
+  titleBarLeft?: React.ReactNode;
 }
 
 export default function WindowChrome({
@@ -63,6 +71,7 @@ export default function WindowChrome({
   onTitleBarMouseDown,
   className = "w-full max-w-xl",
   children,
+  titleBarLeft,
 }: WindowChromeProps) {
   return (
     <div
@@ -74,13 +83,15 @@ export default function WindowChrome({
         onDoubleClick={onMaximizeToggle}
         className="flex shrink-0 select-none items-center justify-between border-b border-[var(--os-border)] bg-[var(--os-header)] px-3 py-2"
       >
-        <div className="pointer-events-none flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center" style={{ color }}>
-            <Icon size={14} />
-          </span>
-          <span className="text-xs font-semibold text-[var(--os-text)]">{title}</span>
-        </div>
-        <div className="flex items-center gap-1">
+        {titleBarLeft ?? (
+          <div className="pointer-events-none flex items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center" style={{ color }}>
+              <Icon size={14} />
+            </span>
+            <span className="text-xs font-semibold text-[var(--os-text)]">{title}</span>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center gap-1">
           {onMinimize && (
             <button
               onMouseDown={(e) => e.stopPropagation()}

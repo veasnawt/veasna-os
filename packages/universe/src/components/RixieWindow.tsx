@@ -10,6 +10,12 @@ export interface OsContext {
   activeStudio?: string | null;
   terminalCwd?: string | null;
   browsingPath?: string | null;
+  /** Name of the currently-open file preview/viewer window (kind: "file" in TraditionalShell's
+   *  ViewerSummary — a document, image, etc. opened for viewing, distinct from a folder window). */
+  openFile?: string | null;
+  /** Names of currently-open installed web apps (kind: "webapp" in ViewerSummary — desktop icons
+   *  like a pinned site, distinct from the built-in CelestialBody studios in `openStudios`). */
+  openApps?: string[];
   /** Whether RixieCompanion (the hidden desktop character, VeasnaShell's Ctrl+Shift+R toggle) is
    *  currently visible — lets route.ts's system prompt tell her she has a literal visible/physical
    *  presence right now, not just this chat window. */

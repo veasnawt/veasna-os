@@ -23,6 +23,14 @@ export default function TerminalPanel({ sessionId, lines, onLinesChange, cwd, on
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [lines]);
 
+  // The input is `disabled` while a command runs (see below) — a browser input that's disabled
+  // while it holds focus immediately loses it, and nothing brings it back on its own once the
+  // command finishes. Re-focus explicitly the moment `running` flips back to false, so pressing
+  // Enter doesn't leave the terminal's cursor dead until the user clicks back into it.
+  useEffect(() => {
+    if (!running) inputRef.current?.focus();
+  }, [running]);
+
   useEffect(() => {
     inputRef.current?.focus();
     if (cwd) return;

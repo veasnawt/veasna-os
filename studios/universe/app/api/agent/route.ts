@@ -193,6 +193,8 @@ interface OsContext {
   activeStudio?: string | null;
   terminalCwd?: string | null;
   browsingPath?: string | null;
+  openFile?: string | null;
+  openApps?: string[];
   companionActive?: boolean;
 }
 
@@ -204,6 +206,8 @@ function describeContext(context?: OsContext): string {
   if (context.activeStudio) lines.push(`Active window: ${context.activeStudio}`);
   if (context.terminalCwd != null) lines.push(`Terminal is at: ${context.terminalCwd || "Desktop"}`);
   if (context.browsingPath != null) lines.push(`Browsing folder: ${context.browsingPath || "Desktop"}`);
+  if (context.openFile) lines.push(`Viewing file: ${context.openFile}`);
+  if (context.openApps && context.openApps.length > 0) lines.push(`Open apps: ${context.openApps.join(", ")}`);
   if (lines.length === 0) return "";
   return `[Current OS context — ${lines.join(" | ")}]\n\n`;
 }

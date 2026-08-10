@@ -11,8 +11,17 @@ export function isElectronDesktop(): boolean {
 
 // Electron's <webview> tag is a custom element with no built-in JSX typings in a plain web
 // project — declared once here (shared by every component that renders one) rather than
-// duplicated per-component.
-export type WebviewElement = HTMLElement & { src: string; reload: () => void };
+// duplicated per-component. openDevTools/closeDevTools/isDevToolsOpened are real methods Electron
+// attaches to the element at runtime (same WebContents-backed API a BrowserWindow has) — there's
+// no equivalent for the <iframe> path, since a cross-origin iframe's content is fully opaque to
+// the embedding page by design, not something any client-side API can inspect.
+export type WebviewElement = HTMLElement & {
+  src: string;
+  reload: () => void;
+  openDevTools: () => void;
+  closeDevTools: () => void;
+  isDevToolsOpened: () => boolean;
+};
 
 declare global {
   namespace JSX {
