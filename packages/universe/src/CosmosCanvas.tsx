@@ -56,7 +56,14 @@ export default function CosmosCanvas({ onOpenApp }: CosmosCanvasProps = {}) {
       ambientAudio.awaken(4);
     }, 1800);
 
-    return () => clearTimeout(timer);
+    // Only clearing the timer here left the drone playing indefinitely in the background after
+    // switching to Desktop/List mode (this component unmounts, but nothing ever told the engine to
+    // stop) — sleep() is always safe to call even if the drone was never actually awakened (the
+    // timer cleared before it fired), it just no-ops in that case.
+    return () => {
+      clearTimeout(timer);
+      ambientAudio.sleep(1);
+    };
   }, []);
 
   const handleTriggerAwaken = () => {

@@ -134,7 +134,13 @@ const DesktopIcon = forwardRef<HTMLButtonElement, DesktopIconProps>(function Des
       }}
       onContextMenu={onContextMenu}
       style={style}
-      className={`flex w-24 flex-col items-center gap-1.5 rounded p-2 text-center transition ${
+      // `h-24` fixes every icon to the same height (matching GRID_ROW_H in TraditionalShell) —
+      // without it, a two-line label (e.g. "SQLite Memory Vault") makes just that one icon taller
+      // than its 1-line-label neighbors. In a flex-wrap grid that's fatal to alignment: each
+      // row/column sizes itself off its own tallest item with no shared grid to snap back to, so
+      // subsequent rows/columns silently drift out of alignment with the ones before them. A fixed
+      // height keeps every icon glyph at the same top-anchored offset regardless of label length.
+      className={`flex h-24 w-24 flex-col items-center gap-1.5 rounded p-2 text-center transition ${
         !renaming ? "cursor-grab active:cursor-grabbing" : ""
       } ${isCut || isDragging ? "opacity-40" : ""} ${
         dropHighlight

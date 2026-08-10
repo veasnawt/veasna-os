@@ -30,10 +30,11 @@ export type StudioId =
   | "terminal"
   | "browser";
 
-/** Things that can be pinned to the taskbar — every studio, plus the List-mode-only File Manager
- *  (which isn't a StudioId: it has no 3D cosmos representation and doesn't go through the studio
- *  OpenWindow system, so it's kept out of CelestialBody/StudioId entirely). */
-export type PinnableId = StudioId | "filemanager";
+/** Things that can be pinned to the taskbar — any desktop entry id (see TraditionalShell.tsx's
+ *  `Entry.kind`: studio, filemanager, webapp, folder, file, taskmanager, aboutos, osupdate all
+ *  qualify). Plain `string` rather than an enum of ids, since folder/file/webapp ids are dynamic
+ *  (real filesystem paths / installed-app ids), not a fixed set like StudioId. */
+export type PinnableId = string;
 
 export interface MoonData {
   name: string;

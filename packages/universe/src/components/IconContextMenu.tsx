@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface IconContextMenuProps {
   x: number;
@@ -20,6 +21,13 @@ interface IconContextMenuProps {
   /** Only passed when exactly one item (file, folder, or installed web app) is selected — opens the
    *  Properties window for it. */
   onProperties?: () => void;
+  /** Only passed alongside `onUninstall` (an installed web app) — removes just its desktop icon,
+   *  not the app itself (see PinContextMenu.tsx for the studio/filemanager equivalent). */
+  onHide?: () => void;
+  /** Only passed when exactly one item is selected — pinning a multi-selection at once doesn't
+   *  have an obvious meaning in this UI, unlike Cut/Copy/Delete which apply per-item naturally. */
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 const MENU_WIDTH = 170;
@@ -41,6 +49,9 @@ export default function IconContextMenu({
   onEdit,
   onUninstall,
   onProperties,
+  onHide,
+  pinned,
+  onTogglePin,
 }: IconContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -63,8 +74,11 @@ export default function IconContextMenu({
   const left = Math.min(x, window.innerWidth - MENU_WIDTH - 8);
   const top = Math.min(y, window.innerHeight - 180);
 
+  // Portaled to <body> — same stacking-context fix as DesktopContextMenu.tsx, needed for the same
+  // reason (lives inside TraditionalShell, which caps any z-index set from inside it below open
+  // <Window>s rendered as VeasnaShell's siblings).
   if (onUninstall) {
-    return (
+    return createPortal(
       <div
         ref={menuRef}
         onClick={(e) => e.stopPropagation()}
@@ -72,6 +86,22 @@ export default function IconContextMenu({
         style={{ left, top, width: MENU_WIDTH, zIndex: 9500 }}
         className="fixed rounded-xl border border-[var(--os-border)] bg-[var(--os-surface-strong)] p-1.5 shadow-2xl backdrop-blur-[var(--os-blur)] backdrop-saturate-[var(--os-saturate)]"
       >
+        {onTogglePin && (
+          <button
+            onClick={onTogglePin}
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+          >
+            {pinned ? "Unpin from taskbar" : "Pin to taskbar"}
+          </button>
+        )}
+        {onHide && (
+          <button
+            onClick={onHide}
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+          >
+            Hide from Desktop
+          </button>
+        )}
         <button
           onClick={onUninstall}
           className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-rose-400 transition hover:bg-[var(--os-border-strong)]"
@@ -89,11 +119,12 @@ export default function IconContextMenu({
             </button>
           </>
         )}
-      </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       onClick={(e) => e.stopPropagation()}
@@ -101,6 +132,25 @@ export default function IconContextMenu({
       style={{ left, top, width: MENU_WIDTH, zIndex: 9500 }}
       className="fixed rounded-xl border border-[var(--os-border)] bg-[var(--os-surface-strong)] p-1.5 shadow-2xl backdrop-blur-[var(--os-blur)] backdrop-saturate-[var(--os-saturate)]"
     >
+      {count === 1 && onTogglePin && (
+        <>
+          <button
+            onClick={onTogglePin}
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+          >
+            {pinned ? "Unpin from taskbar" : "Pin to taskbar"}
+          </button>
+          {onHide && (
+            <button
+              onClick={onHide}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
+            >
+              Hide from Desktop
+            </button>
+          )}
+          <MenuDivider />
+        </>
+      )}
       <button
         onClick={onCut}
         className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-[var(--os-text)] transition hover:bg-[var(--os-border-strong)]"
@@ -155,6 +205,7 @@ export default function IconContextMenu({
           </button>
         </>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

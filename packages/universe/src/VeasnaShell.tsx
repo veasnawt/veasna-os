@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import CosmosCanvas from "./CosmosCanvas";
-import TraditionalShell, { STUDIO_ICONS, TraditionalShellHandle } from "./components/TraditionalShell";
+import TraditionalShell, { STUDIO_ICONS, TraditionalShellHandle, DesktopEntrySummary } from "./components/TraditionalShell";
 import Window from "./components/Window";
 import { BrowserTab } from "./components/BrowserPanel";
 import Taskbar from "./components/Taskbar";
@@ -18,6 +18,8 @@ import { DEFAULT_WALLPAPER, WALLPAPER_PRESETS, isCustomWallpaper } from "./utils
 import { DEFAULT_THEME, THEME_PRESETS, ThemeMode } from "./utils/theme";
 import { ViewerSummary } from "./utils/desktopItems";
 import { isElectronDesktop } from "./utils/runtime";
+import { loadBrowserSession, saveBrowserSession } from "./utils/browserSession";
+import { ambientAudio } from "./utils/ambientAudio";
 
 const TERMINAL_META_MARKER = "@@VEASNA_TERMINAL_META@@";
 // Most major search engines (Google, Bing, DuckDuckGo) send X-Frame-Options/CSP headers that refuse
@@ -58,6 +60,9 @@ const TASKBAR_AUTO_HIDE_KEY = "veasna-os:taskbar-auto-hide";
 const TASKBAR_ALIGNMENT_KEY = "veasna-os:taskbar-alignment";
 const TASKBAR_SHOW_CLOCK_KEY = "veasna-os:taskbar-show-clock";
 const COMPANION_VISIBLE_KEY = "veasna-os:rixie-companion-visible";
+const VOLUME_KEY = "veasna-os:volume";
+const MUTED_KEY = "veasna-os:muted";
+const BRIGHTNESS_KEY = "veasna-os:brightness";
 
 function defaultRect(body: CelestialBody, cascadeIndex: number): WindowRect {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
@@ -85,10 +90,17 @@ export default function VeasnaShell() {
   const [wallpaper, setWallpaper] = useState<string>(DEFAULT_WALLPAPER);
   const [theme, setTheme] = useState<ThemeMode>(DEFAULT_THEME);
   const [viewers, setViewers] = useState<ViewerSummary[]>([]);
+  const [desktopEntries, setDesktopEntries] = useState<DesktopEntrySummary[]>([]);
   const [pinnedIds, setPinnedIds] = useState<PinnableId[]>([]);
   const [taskbarAutoHide, setTaskbarAutoHide] = useState(false);
   const [taskbarAlignment, setTaskbarAlignment] = useState<TaskbarAlignment>("left");
   const [taskbarShowClock, setTaskbarShowClock] = useState(true);
+  // Real controls, not cosmetic: volume actually scales the Cosmos ambient drone's gain (the one
+  // real audio source in the OS — see ambientAudio.ts), and brightness actually applies a
+  // brightness() filter to the whole screen (see the document.body effect below).
+  const [volume, setVolume] = useState(70);
+  const [muted, setMuted] = useState(false);
+  const [brightness, setBrightness] = useState(100);
   const [taskbarRevealed, setTaskbarRevealed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [taskManagerOpen, setTaskManagerOpen] = useState(false);
@@ -112,6 +124,8 @@ export default function VeasnaShell() {
   // where `TraditionalShell`/`FileManager` live) — this holds the pending open until the mode-switch
   // effect below sees `traditionalShellRef` actually attached to the freshly-mounted instance.
   const pendingDesktopOpenRef = useRef<{ path: string; kind: "folder" | "file"; name: string } | null>(null);
+  // Same idea, for a pinned/searched web app opened while still in 3D mode.
+  const pendingWebAppOpenRef = useRef<string | null>(null);
   // Lifted above Window (which unmounts its children on minimize) so a running/completed
   // terminal session survives minimize/restore instead of losing its output and cwd.
   const [terminalLines, setTerminalLines] = useState<string[]>([]);
@@ -123,8 +137,19 @@ export default function VeasnaShell() {
   // Same lift-above-Window reasoning as the terminal state above — losing your place/history on every
   // minimize would make the browser far less useful than a real one. Multiple tabs, each with its
   // own independent history stack, rather than one shared history — matching a real browser.
-  const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>(() => [initialBrowserTab()]);
-  const [activeBrowserTabId, setActiveBrowserTabId] = useState<string>(() => browserTabs[0].id);
+  // Restored from localStorage when a previous session left one behind (see browserSession.ts) —
+  // a real browser reopens to wherever you left off, not a blank slate every single time.
+  const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>(() => loadBrowserSession()?.tabs ?? [initialBrowserTab()]);
+  const [activeBrowserTabId, setActiveBrowserTabId] = useState<string>(() => loadBrowserSession()?.activeTabId ?? browserTabs[0].id);
+
+  // Saves on every tab/history/active-tab change rather than threading an explicit save call
+  // through each of the many functions that can change them (navigate/back/forward/reload/new
+  // tab/close tab/duplicate/open-in-browser) — one effect covers all of them by construction,
+  // instead of relying on remembering to add a save call to every future one too.
+  useEffect(() => {
+    saveBrowserSession({ tabs: browserTabs, activeTabId: activeBrowserTabId });
+  }, [browserTabs, activeBrowserTabId]);
+
   const zRef = useRef(10);
   const openedCountRef = useRef(0);
   const taskbarWrapperRef = useRef<HTMLDivElement>(null);
@@ -186,10 +211,15 @@ export default function VeasnaShell() {
     const savedPinned = localStorage.getItem(PINNED_STORAGE_KEY);
     if (savedPinned) {
       try {
-        const parsed: string[] = JSON.parse(savedPinned);
-        setPinnedIds(
-          parsed.filter((id): id is PinnableId => id === "filemanager" || CELESTIAL_BODIES.some((b) => b.id === id))
-        );
+        const parsed: unknown = JSON.parse(savedPinned);
+        // No longer validated against a fixed set (PinnableId is now any desktop entry id —
+        // studio/filemanager/webapp/folder/file/taskmanager/aboutos/osupdate) — a stale id whose
+        // target no longer exists (an uninstalled app, a deleted file) already resolves to nothing
+        // and gets silently omitted at render time (see Taskbar.tsx's pinnedEntries), so there's
+        // nothing meaningful to validate here beyond "is this actually an array of strings".
+        if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+          setPinnedIds(parsed as PinnableId[]);
+        }
       } catch {
         // ignore corrupt storage
       }
@@ -202,11 +232,39 @@ export default function VeasnaShell() {
     const savedShowClock = localStorage.getItem(TASKBAR_SHOW_CLOCK_KEY);
     if (savedShowClock === "false") setTaskbarShowClock(false);
     if (localStorage.getItem(COMPANION_VISIBLE_KEY) === "true") setCompanionVisible(true);
+    const savedVolume = Number(localStorage.getItem(VOLUME_KEY));
+    if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 100) setVolume(savedVolume);
+    if (localStorage.getItem(MUTED_KEY) === "true") setMuted(true);
+    const savedBrightness = Number(localStorage.getItem(BRIGHTNESS_KEY));
+    if (Number.isFinite(savedBrightness) && savedBrightness >= 30 && savedBrightness <= 150) setBrightness(savedBrightness);
   }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-os-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    ambientAudio.setVolume(volume / 100);
+    localStorage.setItem(VOLUME_KEY, String(volume));
+  }, [volume]);
+
+  useEffect(() => {
+    ambientAudio.setMuted(muted);
+    localStorage.setItem(MUTED_KEY, String(muted));
+  }, [muted]);
+
+  // Applied to document.body directly, not a wrapping div around this component's own JSX — most
+  // actual window content here (Window.tsx, FloatingWindow.tsx, every dialog) is portaled straight
+  // to document.body, which escapes any CSS filter set on an ancestor higher up in the React tree
+  // but not the rendered DOM (a portal is a real child of body, not of this component's own root).
+  // A filter directly on body is the one place that actually reaches all of it at once.
+  useEffect(() => {
+    document.body.style.filter = brightness === 100 ? "" : `brightness(${brightness}%)`;
+    localStorage.setItem(BRIGHTNESS_KEY, String(brightness));
+    return () => {
+      document.body.style.filter = "";
+    };
+  }, [brightness]);
 
   // Global search shortcut — Ctrl+K / Cmd+K, plus Ctrl+Space / Cmd+Space as a second binding (chosen
   // as the closest capturable stand-in for "the Windows key" — a bare Meta/Super keypress can't
@@ -249,6 +307,11 @@ export default function VeasnaShell() {
       pendingDesktopOpenRef.current = null;
       traditionalShellRef.current.openDesktopPath(pending.path, pending.kind, pending.name);
     }
+    if (mode === "list" && pendingWebAppOpenRef.current && traditionalShellRef.current) {
+      const id = pendingWebAppOpenRef.current;
+      pendingWebAppOpenRef.current = null;
+      traditionalShellRef.current.openWebApp(id);
+    }
   }, [mode]);
 
   function handleModeChange(next: ShellMode) {
@@ -262,6 +325,17 @@ export default function VeasnaShell() {
       return;
     }
     pendingDesktopOpenRef.current = { path, kind, name };
+    handleModeChange("list");
+  }
+
+  // Same mode-aware pattern as openDesktopPathFromSearch — used by both search and pinned webapp
+  // taskbar buttons, since either can be triggered while still in 3D mode.
+  function openWebApp(id: string) {
+    if (mode === "list" && traditionalShellRef.current) {
+      traditionalShellRef.current.openWebApp(id);
+      return;
+    }
+    pendingWebAppOpenRef.current = id;
     handleModeChange("list");
   }
 
@@ -592,6 +666,7 @@ export default function VeasnaShell() {
           onOpenApp={openApp}
           wallpaper={wallpaper}
           onViewersChange={setViewers}
+          onDesktopEntriesChange={setDesktopEntries}
           pinnedIds={pinnedIds}
           onTogglePin={handleTogglePin}
           taskbarReserve={taskbarReserve}
@@ -731,8 +806,17 @@ export default function VeasnaShell() {
           onToggleMinimize={toggleMinimize}
           viewers={viewers}
           onToggleViewerMinimize={(id) => traditionalShellRef.current?.toggleViewerMinimize(id)}
+          desktopEntries={desktopEntries}
           pinnedIds={pinnedIds}
           onTogglePin={handleTogglePin}
+          onOpenWebApp={openWebApp}
+          onOpenDesktopPath={(id, kind, name) => traditionalShellRef.current?.openDesktopPath(id, kind, name)}
+          taskManagerOpen={taskManagerOpen}
+          aboutOSOpen={aboutOsOpen}
+          osUpdateOpen={osUpdateOpen}
+          onOpenTaskManager={openTaskManager}
+          onOpenAboutOS={openAboutOS}
+          onOpenOSUpdate={openOSUpdate}
           alignment={taskbarAlignment}
           showClock={taskbarShowClock}
           startMenuOpen={startMenuOpen}
@@ -750,6 +834,12 @@ export default function VeasnaShell() {
           onOpenRixie={openRixie}
           mode={mode}
           onModeChange={handleModeChange}
+          volume={volume}
+          muted={muted}
+          onVolumeChange={setVolume}
+          onToggleMute={() => setMuted((m) => !m)}
+          brightness={brightness}
+          onBrightnessChange={setBrightness}
         />
       </div>
 
@@ -757,9 +847,14 @@ export default function VeasnaShell() {
         <SearchOverlay
           bodies={CELESTIAL_BODIES}
           icons={STUDIO_ICONS}
+          desktopEntries={desktopEntries}
           onOpenApp={openApp}
           onOpenFileManager={openFileManager}
           onOpenDesktopPath={openDesktopPathFromSearch}
+          onOpenWebApp={openWebApp}
+          onOpenTaskManager={openTaskManager}
+          onOpenAboutOS={openAboutOS}
+          onOpenOSUpdate={openOSUpdate}
           onClose={() => setSearchOpen(false)}
         />
       )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface TaskbarContextMenuProps {
   x: number;
@@ -31,7 +32,10 @@ export default function TaskbarContextMenu({ x, y, onOpenSettings, onClose }: Ta
   const left = Math.min(x, window.innerWidth - MENU_WIDTH - 8);
   const top = Math.min(y, window.innerHeight - 60);
 
-  return (
+  // Portaled to <body> — Taskbar's own root is a positioned (`relative z-40`) element, which
+  // establishes a stacking context that caps this menu's z-index below open <Window>s once enough
+  // of them have been focused to climb past z-40 (same underlying issue as DesktopContextMenu.tsx).
+  return createPortal(
     <div
       ref={menuRef}
       onClick={(e) => e.stopPropagation()}
@@ -45,6 +49,7 @@ export default function TaskbarContextMenu({ x, y, onOpenSettings, onClose }: Ta
       >
         Taskbar settings
       </button>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -35,6 +35,7 @@ import FileEditorWindow from "./FileEditorWindow";
 import FilePreviewWindow from "./FilePreviewWindow";
 import FileManager from "./FileManager";
 import InstallAppDialog from "./InstallAppDialog";
+import HiddenAppsDialog from "./HiddenAppsDialog";
 import InstallSoftwareDialog from "./InstallSoftwareDialog";
 import InstalledAppWindow from "./InstalledAppWindow";
 import type { FloatingRect } from "./FloatingWindow";
@@ -54,9 +55,27 @@ export const STUDIO_ICONS: Record<StudioId, React.ComponentType<{ size?: number 
 };
 
 const AUTO_ARRANGE_KEY = "veasna-os:auto-arrange";
+const ARRANGE_CORNER_KEY = "veasna-os:arrange-corner";
+const ARRANGE_LAYOUT_KEY = "veasna-os:arrange-layout";
+const ARRANGE_FIT_KEY = "veasna-os:arrange-fit";
+const SHOW_DESKTOP_ICONS_KEY = "veasna-os:show-desktop-icons";
 const ALIGN_TO_GRID_KEY = "veasna-os:align-to-grid";
 const ICON_POSITIONS_KEY = "veasna-os:icon-positions";
 const ICON_ORDER_KEY = "veasna-os:icon-order";
+// Studios/File Manager/installed web apps only — hiding a real file or folder already has an
+// established meaning (Delete) and hiding a system fixture (Task Manager/About OS/OS Update)
+// isn't something a real OS lets you do either, so "hide" is scoped to just the "app" entries.
+const HIDDEN_APPS_KEY = "veasna-os:hidden-apps";
+
+function loadHiddenApps(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_APPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
 
 // Standalone File Manager icon (opens a FileManager window rooted at the Desktop). Not a StudioId/
 // CelestialBody — it's List-mode-only (no 3D presence), so it's a permanent synthetic desktop entry
@@ -123,6 +142,147 @@ type Entry = {
   thumbnailUrl?: string;
 };
 
+/** Only meaningful while `autoArrange` is on — manual (drag-placed) positions ignore it entirely.
+ *  Pure flexbox direction/wrap combinations, same technique the existing top-left layout already
+ *  used (`flex-wrap content-start`), just varying which edge is the flow's start/wrap origin
+ *  instead of computing per-icon coordinates by hand. */
+export type ArrangeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "center";
+
+export const ARRANGE_CORNERS: ArrangeCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right", "center"];
+
+export const ARRANGE_CORNER_LABELS: Record<ArrangeCorner, string> = {
+  "top-left": "Top left",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-right": "Bottom right",
+  center: "Center",
+};
+
+/** "row" (the original/default) fills left-to-right and wraps into new rows below/above — the
+ *  natural reading-order flow. "column" fills top-to-bottom and wraps into new columns to the
+ *  right/left instead, matching how a real Windows desktop lays icons out. Independent of
+ *  `ArrangeCorner`, which only picks which edge the flow starts from. */
+export type ArrangeLayout = "row" | "column";
+
+export const ARRANGE_LAYOUTS: ArrangeLayout[] = ["row", "column"];
+
+export const ARRANGE_LAYOUT_LABELS: Record<ArrangeLayout, string> = {
+  row: "Rows",
+  column: "Columns",
+};
+
+/** "grid" bounds the block to a balanced `side × side` square (`side = ceil(sqrt(count))`) sized
+ *  purely off icon count — the fix for both the old "one giant nearly-full-width row plus a
+ *  near-empty trailing row" look and (for "column") the min-height/flex-wrap bug documented below.
+ *  "stretch" is the alternative some people just prefer: fill the FULL available width (row) or
+ *  height (column) before wrapping, like the very first flexbox version of this feature did — still
+ *  built on the same CSS grid underneath (via `repeat(auto-fill, …)` instead of a fixed `repeat(side,
+ *  …)` count), so it doesn't reintroduce that bug. */
+export type ArrangeFit = "grid" | "stretch";
+
+export const ARRANGE_FITS: ArrangeFit[] = ["grid", "stretch"];
+
+export const ARRANGE_FIT_LABELS: Record<ArrangeFit, string> = {
+  grid: "Balanced grid",
+  stretch: "Stretch to fill",
+};
+
+/** Describes an arrangement as two pieces: `outerClassName` positions a single block (the actual
+ *  icon grid) at the right edge/corner of the full desktop area via plain flexbox alignment on the
+ *  (already full-size) container; `blockClassName`/`blockStyle` size that block itself as a real CSS
+ *  grid — either a fixed `side × side` cell count (`fit: "grid"`) or `repeat(auto-fill, …)` against
+ *  an explicit 100% width/height (`fit: "stretch"`), see `ArrangeFit` above. `mirrorTransform`, when
+ *  set, must be applied to BOTH the block and (identically) each individual icon — see below.
+ *
+ *  This replaced an earlier flexbox-only version (`flex-wrap` + `flex-row-reverse`/`flex-wrap-reverse`
+ *  combinations) for two compounding reasons:
+ *   1. `flex-wrap` sizes a row/column off the ENTIRE available container size — on a wide desktop
+ *      that meant one giant, nearly-full-width row followed by a mostly-empty trailing row, instead
+ *      of a balanced block (the same "thin strip" problem "center" hit first, just for every corner).
+ *      `fit: "grid"` is the fix; `fit: "stretch"` deliberately keeps the old full-width behavior for
+ *      anyone who prefers it, without reintroducing bug #2 below.
+ *   2. For `layout: "column"`, a `flex-direction: column` + `flex-wrap` container relies on its OWN
+ *      height being definite to know when to wrap — but this container is itself sized via `flex: 1`
+ *      off ITS parent, and a flex item's default `min-height: auto` resolves against its unwrapped
+ *      content size in exactly this configuration. That inflated "auto" height then wins over
+ *      `flex-1`, so the container never actually stops at the available height and a "column" was
+ *      really one unbroken list running behind the taskbar (confirmed via computed styles: 1676px
+ *      resolved height in a 700px-tall viewport). A grid track list — whether a fixed `repeat(side,
+ *      …)` count or `repeat(auto-fill, …)` against an explicit `height: 100%` — has a size that's
+ *      never dependent on its own content, so there's no flex-basis/min-height ambiguity to fall into
+ *      either way.
+ *
+ *  Reproducing the four true corners' original fill order (item 0 sits AT that corner, subsequent
+ *  icons grow away from it) without flexbox's `-reverse` modifiers: the first attempt used
+ *  `direction: rtl` on the block for the horizontal flip, on the theory that it would flip grid
+ *  auto-placement's inline-start the same way it flips text — confirmed BY MEASURING RENDERED
+ *  positions that Chromium's grid auto-placement does not actually respect `direction` here (item 0
+ *  still landed at the physical left edge regardless). The fix that's actually verified to work:
+ *  render icons in plain, unreversed order via `grid-auto-flow`'s own top-left-first default, then
+ *  mirror the WHOLE BLOCK with `transform: scale(x, y)` (`x`/`y` each ±1) — a plain visual flip that
+ *  has nothing to do with grid internals, so there's no auto-placement ambiguity to depend on. Mirror
+ *  the natural top-left corner onto whichever corner this arrangement actually anchors to: `x: -1`
+ *  for a right corner, `y: -1` for a bottom corner (both for bottom-right, i.e. a 180° rotation).
+ *  Each individual icon then needs the SAME transform applied to itself, which — since `scale(-1)`
+ *  is its own inverse — cancels the block's mirroring back out for that icon's own content (glyph,
+ *  label) while leaving its mirrored POSITION within the block alone. */
+function arrangeContainerLayout(
+  corner: ArrangeCorner,
+  layout: ArrangeLayout,
+  fit: ArrangeFit,
+  count: number
+): {
+  outerClassName: string;
+  blockClassName: string;
+  blockStyle: React.CSSProperties;
+  mirrorTransform?: string;
+} {
+  const side = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const stretch = fit === "stretch";
+  const axisStyle: React.CSSProperties =
+    layout === "column"
+      ? {
+          gridAutoFlow: "column",
+          gridTemplateRows: stretch ? `repeat(auto-fill, ${GRID_ROW_H}px)` : `repeat(${side}, ${GRID_ROW_H}px)`,
+          ...(stretch ? { height: "100%" } : null),
+        }
+      : {
+          gridTemplateColumns: stretch ? `repeat(auto-fill, ${GRID_COL_W}px)` : `repeat(${side}, ${GRID_COL_W}px)`,
+          ...(stretch ? { width: "100%" } : null),
+        };
+
+  if (corner === "center") {
+    return {
+      outerClassName: "flex items-center justify-center",
+      blockClassName: `grid gap-1 ${stretch ? (layout === "column" ? "content-center" : "justify-center") : ""}`,
+      blockStyle: axisStyle,
+    };
+  }
+
+  const isBottom = corner === "bottom-left" || corner === "bottom-right";
+  const isRight = corner === "top-right" || corner === "bottom-right";
+  const mirrorTransform = isRight || isBottom ? `scale(${isRight ? -1 : 1}, ${isBottom ? -1 : 1})` : undefined;
+  return {
+    outerClassName: `flex ${isRight ? "justify-end" : "justify-start"} ${isBottom ? "items-end" : "items-start"}`,
+    blockClassName: "grid gap-1",
+    blockStyle: { ...axisStyle, transform: mirrorTransform },
+    mirrorTransform,
+  };
+}
+
+/** The subset of `Entry` that's actually useful outside this component — mirrored up to
+ *  VeasnaShell (see `onDesktopEntriesChange`) so ANYTHING on the desktop can be pinned to the
+ *  taskbar, not just studios/filemanager. Icon isn't included: VeasnaShell/Taskbar already have
+ *  their own icon-resolution for every one of these kinds (STUDIO_ICONS, Folder, Globe,
+ *  getFileIcon, the system-icon components), so passing a second copy of the same React component
+ *  reference across the boundary would just be redundant. */
+export interface DesktopEntrySummary {
+  id: string;
+  name: string;
+  color: string;
+  kind: Entry["kind"];
+}
+
 type ViewerMeta = {
   kind: "folder" | "file" | "webapp";
   name: string;
@@ -157,6 +317,11 @@ interface TraditionalShellProps {
   wallpaper: string;
   /** Mirrors open folder/file windows up to VeasnaShell so the taskbar can show/restore them. */
   onViewersChange: (viewers: ViewerSummary[]) => void;
+  /** Mirrors the FULL desktop entry list (not just open ones) up to VeasnaShell — lets the taskbar
+   *  resolve a pinned button's name/color/kind for something that isn't currently open (a pinned
+   *  file/folder/webapp doesn't stay "open" the way a pinned studio's identity is always known via
+   *  the static CELESTIAL_BODIES list). */
+  onDesktopEntriesChange: (entries: DesktopEntrySummary[]) => void;
   pinnedIds: PinnableId[];
   onTogglePin: (id: PinnableId) => void;
   /** Pixels of viewport bottom folder/file windows should stay clear of (0 when the taskbar isn't currently occupying space, e.g. auto-hidden). */
@@ -192,6 +357,12 @@ export interface TraditionalShellHandle {
   /** Installs a website as a desktop web-app icon — same effect as InstallAppDialog's own submit,
    *  callable from outside this component (the Browser studio's toolbar). */
   installWebApp: (name: string, url: string) => void;
+  /** Opens an installed web app by id — the taskbar pin equivalent of clicking its desktop icon.
+   *  Used by VeasnaShell to make ANY desktop entry pinnable (see PinnableId/DesktopEntrySummary):
+   *  studios/taskmanager/aboutos/osupdate open via VeasnaShell's own existing functions, and
+   *  folder/file already have openDesktopPath above — webapp was the one kind with no way in from
+   *  outside this component at all. */
+  openWebApp: (id: string) => void;
 }
 
 const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProps>(function TraditionalShell(
@@ -199,6 +370,7 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     onOpenApp,
     wallpaper,
     onViewersChange,
+    onDesktopEntriesChange,
     pinnedIds,
     onTogglePin,
     taskbarReserve,
@@ -213,7 +385,23 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
 ) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [autoArrange, setAutoArrange] = useState(true);
+  const [arrangeCorner, setArrangeCorner] = useState<ArrangeCorner>(() => {
+    const saved = localStorage.getItem(ARRANGE_CORNER_KEY);
+    return saved && ARRANGE_CORNERS.includes(saved as ArrangeCorner) ? (saved as ArrangeCorner) : "top-left";
+  });
+  const [arrangeLayout, setArrangeLayout] = useState<ArrangeLayout>(() => {
+    const saved = localStorage.getItem(ARRANGE_LAYOUT_KEY);
+    return saved && ARRANGE_LAYOUTS.includes(saved as ArrangeLayout) ? (saved as ArrangeLayout) : "row";
+  });
+  const [arrangeFit, setArrangeFit] = useState<ArrangeFit>(() => {
+    const saved = localStorage.getItem(ARRANGE_FIT_KEY);
+    return saved && ARRANGE_FITS.includes(saved as ArrangeFit) ? (saved as ArrangeFit) : "grid";
+  });
   const [alignToGrid, setAlignToGrid] = useState(false);
+  // The classic "Show desktop icons" master switch — distinct from per-app hiding (hiddenIds
+  // below): this hides the WHOLE grid at once without touching which individual apps are hidden,
+  // so toggling it back on restores exactly what was visible before.
+  const [showDesktopIcons, setShowDesktopIcons] = useState(() => localStorage.getItem(SHOW_DESKTOP_ICONS_KEY) !== "false");
   const [positions, setPositions] = useState<Record<string, IconPosition>>({});
   const [order, setOrder] = useState<string[]>(() => [
     ...CELESTIAL_BODIES.map((b) => b.id),
@@ -231,6 +419,27 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [iconContextMenu, setIconContextMenu] = useState<{ x: number; y: number; itemId: string } | null>(null);
   const [pinMenu, setPinMenu] = useState<{ x: number; y: number; id: PinnableId } | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => loadHiddenApps());
+  const [showHiddenApps, setShowHiddenApps] = useState(false);
+
+  function hideEntry(id: string) {
+    setHiddenIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      localStorage.setItem(HIDDEN_APPS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
+  function unhideEntry(id: string) {
+    setHiddenIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      localStorage.setItem(HIDDEN_APPS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
   const [propertiesTarget, setPropertiesTarget] = useState<PropertiesSubject | null>(null);
   const [propertiesMinimized, setPropertiesMinimized] = useState(false);
   const [propertiesZ, setPropertiesZ] = useState(0);
@@ -474,6 +683,42 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       setAutoArrange(false);
       localStorage.setItem(AUTO_ARRANGE_KEY, "false");
     } else {
+      setAutoArrange(true);
+      localStorage.setItem(AUTO_ARRANGE_KEY, "true");
+    }
+  }
+
+  function handleToggleShowDesktopIcons() {
+    const next = !showDesktopIcons;
+    setShowDesktopIcons(next);
+    localStorage.setItem(SHOW_DESKTOP_ICONS_KEY, String(next));
+  }
+
+  // Picking a corner only has a visible effect while auto-arrange is on (manual/drag-placed
+  // positions ignore it entirely) — turning auto-arrange on here too avoids the confusing "I picked
+  // top-right and nothing happened" case for someone currently in manual placement mode.
+  function handleArrangeCornerChange(corner: ArrangeCorner) {
+    setArrangeCorner(corner);
+    localStorage.setItem(ARRANGE_CORNER_KEY, corner);
+    if (!autoArrange) {
+      setAutoArrange(true);
+      localStorage.setItem(AUTO_ARRANGE_KEY, "true");
+    }
+  }
+
+  function handleArrangeLayoutChange(layout: ArrangeLayout) {
+    setArrangeLayout(layout);
+    localStorage.setItem(ARRANGE_LAYOUT_KEY, layout);
+    if (!autoArrange) {
+      setAutoArrange(true);
+      localStorage.setItem(AUTO_ARRANGE_KEY, "true");
+    }
+  }
+
+  function handleArrangeFitChange(fit: ArrangeFit) {
+    setArrangeFit(fit);
+    localStorage.setItem(ARRANGE_FIT_KEY, fit);
+    if (!autoArrange) {
       setAutoArrange(true);
       localStorage.setItem(AUTO_ARRANGE_KEY, "true");
     }
@@ -943,6 +1188,10 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       appendToOrder(app.id);
       pushUndo({ type: "installApp", app });
     },
+    openWebApp(id: string) {
+      const app = installedAppsById.get(id);
+      if (app) openViewer(app.id, { kind: "webapp", name: app.name, url: app.url, color: app.color });
+    },
   }));
 
   const viewers: ViewerSummary[] = useMemo(
@@ -972,54 +1221,70 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
   // (e.g. desynced localStorage from an earlier bug/session) — a duplicate id would otherwise
   // render two icons that are impossible to tell apart and share one `selectedIds` entry, making
   // "select one" visually select both and delete/rename only ever affect one of them.
-  const seenEntryIds = new Set<string>();
-  const entries: Entry[] = order
-    .filter((id) => {
-      if (seenEntryIds.has(id)) return false;
-      seenEntryIds.add(id);
-      return true;
-    })
-    .map((id): Entry | null => {
-      const body = CELESTIAL_BODIES.find((b) => b.id === id);
-      if (body) {
-        return { id: body.id, name: body.name, color: body.color, icon: STUDIO_ICONS[body.id], kind: "studio", body };
-      }
-      if (id === FILE_MANAGER_ID) {
-        return { id: FILE_MANAGER_ID, name: FILE_MANAGER_NAME, color: FOLDER_COLOR, icon: Folder, kind: "filemanager" };
-      }
-      if (id === TASK_MANAGER_ID) {
-        return {
-          id: TASK_MANAGER_ID,
-          name: TASK_MANAGER_NAME,
-          color: "#f87171",
-          icon: TaskManagerIcon,
-          kind: "taskmanager",
-        };
-      }
-      if (id === ABOUT_OS_ID) {
-        return { id: ABOUT_OS_ID, name: ABOUT_OS_NAME, color: "#38bdf8", icon: AboutOSIcon, kind: "aboutos" };
-      }
-      if (id === OS_UPDATE_ID) {
-        return { id: OS_UPDATE_ID, name: OS_UPDATE_NAME, color: "#34d399", icon: OSUpdateIcon, kind: "osupdate" };
-      }
-      const app = installedAppsById.get(id);
-      if (app) {
-        return { id: app.id, name: app.name, color: app.color, icon: Globe, kind: "webapp", thumbnailUrl: faviconUrl(app.url) };
-      }
-      const item = desktopItemsByPath.get(id);
-      if (item) {
-        return {
-          id: item.path,
-          name: item.name,
-          color: item.kind === "folder" ? FOLDER_COLOR : getFileColor(item.name),
-          icon: item.kind === "folder" ? Folder : getFileIcon(item.name),
-          kind: item.kind,
-          thumbnailUrl: item.kind === "file" && getFileKind(item.name) === "image" ? rawFileUrl(item.path) : undefined,
-        };
-      }
-      return null;
-    })
-    .filter((e): e is Entry => e !== null);
+  // Memoized (unlike most other derived values in this component) specifically so
+  // onDesktopEntriesChange's effect below doesn't fire on every single render — every OTHER
+  // consumer of `entries` reads it fresh during the same render anyway, so this is purely about
+  // that one effect's dependency identity, not about avoiding recomputation for its own sake.
+  const entries: Entry[] = useMemo(() => {
+    const seenEntryIds = new Set<string>();
+    return order
+      .filter((id) => {
+        if (seenEntryIds.has(id)) return false;
+        seenEntryIds.add(id);
+        return true;
+      })
+      .map((id): Entry | null => {
+        const body = CELESTIAL_BODIES.find((b) => b.id === id);
+        if (body) {
+          return { id: body.id, name: body.name, color: body.color, icon: STUDIO_ICONS[body.id], kind: "studio", body };
+        }
+        if (id === FILE_MANAGER_ID) {
+          return { id: FILE_MANAGER_ID, name: FILE_MANAGER_NAME, color: FOLDER_COLOR, icon: Folder, kind: "filemanager" };
+        }
+        if (id === TASK_MANAGER_ID) {
+          return {
+            id: TASK_MANAGER_ID,
+            name: TASK_MANAGER_NAME,
+            color: "#f87171",
+            icon: TaskManagerIcon,
+            kind: "taskmanager",
+          };
+        }
+        if (id === ABOUT_OS_ID) {
+          return { id: ABOUT_OS_ID, name: ABOUT_OS_NAME, color: "#38bdf8", icon: AboutOSIcon, kind: "aboutos" };
+        }
+        if (id === OS_UPDATE_ID) {
+          return { id: OS_UPDATE_ID, name: OS_UPDATE_NAME, color: "#34d399", icon: OSUpdateIcon, kind: "osupdate" };
+        }
+        const app = installedAppsById.get(id);
+        if (app) {
+          return { id: app.id, name: app.name, color: app.color, icon: Globe, kind: "webapp", thumbnailUrl: faviconUrl(app.url) };
+        }
+        const item = desktopItemsByPath.get(id);
+        if (item) {
+          return {
+            id: item.path,
+            name: item.name,
+            color: item.kind === "folder" ? FOLDER_COLOR : getFileColor(item.name),
+            icon: item.kind === "folder" ? Folder : getFileIcon(item.name),
+            kind: item.kind,
+            thumbnailUrl: item.kind === "file" && getFileKind(item.name) === "image" ? rawFileUrl(item.path) : undefined,
+          };
+        }
+        return null;
+      })
+      .filter((e): e is Entry => e !== null);
+  }, [order, installedAppsById, desktopItemsByPath]);
+
+  // "Hide from Desktop" applies to any of the 8 entry kinds — `entries` itself stays the full
+  // unfiltered list (used for drag/lookup logic elsewhere), this is just what actually gets
+  // rendered in the icon grid.
+  const visibleEntries = entries.filter((e) => !hiddenIds.has(e.id));
+  const hiddenEntries = entries.filter((e) => hiddenIds.has(e.id));
+
+  useEffect(() => {
+    onDesktopEntriesChange(entries.map((e) => ({ id: e.id, name: e.name, color: e.color, kind: e.kind })));
+  }, [entries, onDesktopEntriesChange]);
 
   // ---- Delete / Cut / Copy / Paste keys (desktop only — a FileManager window handles its own) ----
   useEffect(() => {
@@ -1258,6 +1523,74 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
     handleExternalFilesDropped(e.dataTransfer, "").catch((err) => setBanner(errMessage(err)));
   }
 
+  const arrangement = arrangeContainerLayout(arrangeCorner, arrangeLayout, arrangeFit, visibleEntries.length);
+
+  function renderDesktopIcon(entry: Entry, index: number) {
+    return (
+      <DesktopIcon
+        ref={(el) => {
+          iconRefs.current[entry.id] = el;
+        }}
+        id={entry.id}
+        name={entry.name}
+        color={entry.color}
+        icon={entry.icon}
+        thumbnailUrl={entry.thumbnailUrl}
+        selected={selectedIds.has(entry.id)}
+        onSelect={(e) => handleIconSelect(entry.id, index, e)}
+        onOpen={() => {
+          if (entry.kind === "studio" && entry.body) {
+            onOpenApp(entry.body);
+          } else if (entry.kind === "filemanager") {
+            openViewer("", { kind: "folder", name: "Desktop" });
+          } else if (entry.kind === "webapp") {
+            const app = installedAppsById.get(entry.id);
+            if (app) openViewer(app.id, { kind: "webapp", name: app.name, url: app.url, color: app.color });
+          } else if (entry.kind === "taskmanager") {
+            onOpenTaskManager();
+          } else if (entry.kind === "aboutos") {
+            onOpenAboutOS();
+          } else if (entry.kind === "osupdate") {
+            onOpenOSUpdate();
+          } else if (entry.kind === "file" && getFileKind(entry.name) === "html") {
+            onOpenInBrowser(rawFileUrl(entry.id));
+          } else {
+            openViewer(entry.id, { kind: entry.kind as "folder" | "file", name: entry.name });
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedIds((prev) => (prev.has(entry.id) ? prev : new Set([entry.id])));
+          if (
+            entry.kind === "studio" ||
+            entry.kind === "filemanager" ||
+            entry.kind === "taskmanager" ||
+            entry.kind === "aboutos" ||
+            entry.kind === "osupdate"
+          ) {
+            // Nothing to Cut/Copy/Rename/Delete/Download for these — just Pin/Unpin (and
+            // Hide, for the ones hideEntry's scope covers) via the shared PinContextMenu.
+            setPinMenu({ x: e.clientX, y: e.clientY, id: entry.id as PinnableId });
+          } else {
+            setIconContextMenu({ x: e.clientX, y: e.clientY, itemId: entry.id });
+          }
+        }}
+        position={autoArrange ? null : positions[entry.id] ?? defaultGridPosition(index)}
+        isDragging={dragState?.ids.includes(entry.id) ?? false}
+        dropHighlight={dragState?.overFolderId === entry.id}
+        isCut={clipboard?.mode === "cut" && clipboard.paths.includes(entry.id)}
+        onDragStart={() => handleIconDragStart(entry.id)}
+        onDragMove={handleIconDragMove}
+        onDragEnd={handleIconDragEnd}
+        renaming={renamingId === entry.id}
+        onRenameSubmit={(name) => handleRenameSubmit(entry.id, name).catch((err) => setBanner(errMessage(err)))}
+        onRenameCancel={() => setRenamingId(null)}
+        onRequestRename={entry.kind === "file" || entry.kind === "folder" ? () => setRenamingId(entry.id) : undefined}
+      />
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 flex flex-col overflow-hidden bg-[#050810] text-slate-100 select-none bg-cover bg-center"
@@ -1282,71 +1615,46 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
       <div
         ref={containerRef}
         onMouseDown={handleDesktopMouseDown}
-        className={`relative flex-1 p-4 ${autoArrange ? "flex flex-wrap content-start gap-1" : ""}`}
+        // This container is `flex-1` inside a `fixed inset-0` root (see this component's own root
+        // div above) — it fills the FULL viewport height with no awareness of the taskbar's own
+        // reserved space, since the taskbar is a separate sibling overlay in VeasnaShell, not a
+        // proper flex sibling here. That's invisible for top-anchored/centered layouts (icons never
+        // reach that far down), but a bottom-anchored arrangement (see ARRANGE_CORNER_CLASSES)
+        // pushes icons straight to the true viewport bottom — directly under where the taskbar
+        // visually sits, hiding them behind it. The extra bottom padding stops icons short of that.
+        //
+        // `min-h-0` overrides the flex item's default `min-height: auto` — without it, a
+        // `flex-direction: column` + `flex-wrap` layout (the "Columns" arrangement) never actually
+        // wraps: the browser computes this item's auto min-height off its CONTENT'S unwrapped size
+        // (since column-wrap's min-content height is defined as if wrap were off), which for a tall
+        // icon list is taller than the viewport — that inflated min-height then wins over `flex-1`,
+        // so the container grows to fit every icon in one unbroken column instead of stopping at the
+        // available height and wrapping into a second one. Confirmed via computed styles: without
+        // this, the container's resolved height was 1676px in a 700px-tall viewport. Row layout
+        // never hit this because its wrap axis (horizontal) isn't the one `flex-1` stretches.
+        style={{ paddingBottom: taskbarReserve }}
+        className={`relative min-h-0 flex-1 p-4 ${autoArrange ? arrangement.outerClassName : ""}`}
       >
-        {entries.map((entry, index) => {
-          return (
-            <DesktopIcon
-              key={entry.id}
-              ref={(el) => {
-                iconRefs.current[entry.id] = el;
-              }}
-              id={entry.id}
-              name={entry.name}
-              color={entry.color}
-              icon={entry.icon}
-              thumbnailUrl={entry.thumbnailUrl}
-              selected={selectedIds.has(entry.id)}
-              onSelect={(e) => handleIconSelect(entry.id, index, e)}
-              onOpen={() => {
-                if (entry.kind === "studio" && entry.body) {
-                  onOpenApp(entry.body);
-                } else if (entry.kind === "filemanager") {
-                  openViewer("", { kind: "folder", name: "Desktop" });
-                } else if (entry.kind === "webapp") {
-                  const app = installedAppsById.get(entry.id);
-                  if (app) openViewer(app.id, { kind: "webapp", name: app.name, url: app.url, color: app.color });
-                } else if (entry.kind === "taskmanager") {
-                  onOpenTaskManager();
-                } else if (entry.kind === "aboutos") {
-                  onOpenAboutOS();
-                } else if (entry.kind === "osupdate") {
-                  onOpenOSUpdate();
-                } else if (entry.kind === "file" && getFileKind(entry.name) === "html") {
-                  onOpenInBrowser(rawFileUrl(entry.id));
-                } else {
-                  openViewer(entry.id, { kind: entry.kind as "folder" | "file", name: entry.name });
-                }
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setSelectedIds((prev) => (prev.has(entry.id) ? prev : new Set([entry.id])));
-                if (entry.kind === "studio" || entry.kind === "filemanager") {
-                  setPinMenu({ x: e.clientX, y: e.clientY, id: entry.id as PinnableId });
-                } else if (entry.kind === "taskmanager" || entry.kind === "aboutos" || entry.kind === "osupdate") {
-                  // Not a real file (nothing to Cut/Copy/Rename/Delete/Download) and not pinnable —
-                  // right-click just selects it, matching how a plain click already does.
-                } else {
-                  setIconContextMenu({ x: e.clientX, y: e.clientY, itemId: entry.id });
-                }
-              }}
-              position={autoArrange ? null : positions[entry.id] ?? defaultGridPosition(index)}
-              isDragging={dragState?.ids.includes(entry.id) ?? false}
-              dropHighlight={dragState?.overFolderId === entry.id}
-              isCut={clipboard?.mode === "cut" && clipboard.paths.includes(entry.id)}
-              onDragStart={() => handleIconDragStart(entry.id)}
-              onDragMove={handleIconDragMove}
-              onDragEnd={handleIconDragEnd}
-              renaming={renamingId === entry.id}
-              onRenameSubmit={(name) => handleRenameSubmit(entry.id, name).catch((err) => setBanner(errMessage(err)))}
-              onRenameCancel={() => setRenamingId(null)}
-              onRequestRename={
-                entry.kind === "file" || entry.kind === "folder" ? () => setRenamingId(entry.id) : undefined
-              }
-            />
-          );
-        })}
+        {showDesktopIcons &&
+          (autoArrange ? (
+            // A real, size-bounded block (see arrangeContainerLayout's own comment) instead of
+            // rendering icons straight into this full-desktop container — that's what lets the
+            // block be capped to a balanced `side × side` size and anchored at a corner via the
+            // outer flex alignment above, rather than one row/column stretching across whatever
+            // space happens to be available.
+            <div className={arrangement.blockClassName} style={arrangement.blockStyle}>
+              {visibleEntries.map((entry, index) => (
+                // Applying the block's own mirror transform AGAIN here cancels it back out (`scale(-1)`
+                // is its own inverse) for this icon's content specifically — otherwise its glyph and
+                // label would render mirrored along with the block's corner-flipping.
+                <div key={entry.id} style={{ transform: arrangement.mirrorTransform }}>
+                  {renderDesktopIcon(entry, index)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            visibleEntries.map((entry, index) => <React.Fragment key={entry.id}>{renderDesktopIcon(entry, index)}</React.Fragment>)
+          ))}
 
         {marqueeRect && (
           <div
@@ -1469,10 +1777,18 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
         <DesktopContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          showDesktopIcons={showDesktopIcons}
+          onToggleShowDesktopIcons={handleToggleShowDesktopIcons}
           autoArrange={autoArrange}
           alignToGrid={alignToGrid}
           onToggleAutoArrange={handleToggleAutoArrange}
           onToggleAlignToGrid={handleToggleAlignToGrid}
+          arrangeCorner={arrangeCorner}
+          onArrangeCornerChange={handleArrangeCornerChange}
+          arrangeLayout={arrangeLayout}
+          onArrangeLayoutChange={handleArrangeLayoutChange}
+          arrangeFit={arrangeFit}
+          onArrangeFitChange={handleArrangeFitChange}
           onSortByName={handleSortByName}
           onRefresh={handleRefresh}
           onPersonalize={handlePersonalize}
@@ -1503,6 +1819,11 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                 }
               : undefined
           }
+          hiddenCount={hiddenEntries.length}
+          onShowHiddenApps={() => {
+            setContextMenu(null);
+            setShowHiddenApps(true);
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -1516,6 +1837,14 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
             pushUndo({ type: "installApp", app });
           }}
           onClose={() => setShowInstallDialog(false)}
+        />
+      )}
+
+      {showHiddenApps && (
+        <HiddenAppsDialog
+          entries={hiddenEntries.map((e) => ({ id: e.id, name: e.name, color: e.color, icon: e.icon }))}
+          onRestore={unhideEntry}
+          onClose={() => setShowHiddenApps(false)}
         />
       )}
 
@@ -1594,6 +1923,15 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
                 }
               : undefined
           }
+          onHide={() => {
+            hideEntry(iconContextMenu.itemId);
+            setIconContextMenu(null);
+          }}
+          pinned={pinnedIds.includes(iconContextMenu.itemId)}
+          onTogglePin={() => {
+            onTogglePin(iconContextMenu.itemId);
+            setIconContextMenu(null);
+          }}
           onProperties={
             (() => {
               const item = desktopItemsByPath.get(iconContextMenu.itemId);
@@ -1624,6 +1962,10 @@ const TraditionalShell = forwardRef<TraditionalShellHandle, TraditionalShellProp
           pinned={pinnedIds.includes(pinMenu.id)}
           onTogglePin={() => {
             onTogglePin(pinMenu.id);
+            setPinMenu(null);
+          }}
+          onHide={() => {
+            hideEntry(pinMenu.id);
             setPinMenu(null);
           }}
           onClose={() => setPinMenu(null)}

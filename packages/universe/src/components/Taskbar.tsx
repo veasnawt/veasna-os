@@ -3,9 +3,14 @@ import { Ai, Folder, Globe } from "@veasnawt/vicons";
 import { CelestialBody, OpenWindow, PinnableId, ShellMode, StudioId, TaskbarAlignment } from "../types";
 import { ViewerSummary, FOLDER_COLOR } from "../utils/desktopItems";
 import { getFileIcon, getFileColor } from "../utils/fileTypes";
+import { DesktopEntrySummary } from "./TraditionalShell";
 import PinContextMenu from "./PinContextMenu";
 import TaskbarContextMenu from "./TaskbarContextMenu";
 import ModeToggle from "./ModeToggle";
+import SystemTrayControls from "./SystemTrayControls";
+import TaskManagerIcon from "./TaskManagerIcon";
+import AboutOSIcon from "./AboutOSIcon";
+import OSUpdateIcon from "./OSUpdateIcon";
 
 interface TaskbarProps {
   bodies: CelestialBody[];
@@ -14,8 +19,23 @@ interface TaskbarProps {
   onToggleMinimize: (id: StudioId) => void;
   viewers: ViewerSummary[];
   onToggleViewerMinimize: (id: string) => void;
+  /** Every desktop entry (all 8 kinds — see TraditionalShell.tsx's Entry), not just currently-open
+   *  ones — resolves a pinned button's name/color/kind even when it isn't running right now (a
+   *  pinned file/folder/webapp doesn't stay "open" the way a pinned studio's identity is always
+   *  known from the static CELESTIAL_BODIES list). */
+  desktopEntries: DesktopEntrySummary[];
   pinnedIds: PinnableId[];
   onTogglePin: (id: PinnableId) => void;
+  /** For pinned folder/file/webapp entries that aren't currently open — reopens them the same way
+   *  their desktop icon would. */
+  onOpenWebApp: (id: string) => void;
+  onOpenDesktopPath: (id: string, kind: "folder" | "file", name: string) => void;
+  taskManagerOpen: boolean;
+  aboutOSOpen: boolean;
+  osUpdateOpen: boolean;
+  onOpenTaskManager: () => void;
+  onOpenAboutOS: () => void;
+  onOpenOSUpdate: () => void;
   alignment: TaskbarAlignment;
   showClock: boolean;
   startMenuOpen: boolean;
@@ -31,6 +51,12 @@ interface TaskbarProps {
   onOpenRixie: () => void;
   mode: ShellMode;
   onModeChange: (mode: ShellMode) => void;
+  volume: number;
+  muted: boolean;
+  onVolumeChange: (volume: number) => void;
+  onToggleMute: () => void;
+  brightness: number;
+  onBrightnessChange: (brightness: number) => void;
 }
 
 const START_MENU_WIDTH = 256;
@@ -52,8 +78,17 @@ export default function Taskbar({
   onToggleMinimize,
   viewers,
   onToggleViewerMinimize,
+  desktopEntries,
   pinnedIds,
   onTogglePin,
+  onOpenWebApp,
+  onOpenDesktopPath,
+  taskManagerOpen,
+  aboutOSOpen,
+  osUpdateOpen,
+  onOpenTaskManager,
+  onOpenAboutOS,
+  onOpenOSUpdate,
   alignment,
   showClock,
   startMenuOpen,
@@ -65,6 +100,12 @@ export default function Taskbar({
   onOpenSearch,
   mode,
   onModeChange,
+  volume,
+  muted,
+  onVolumeChange,
+  onToggleMute,
+  brightness,
+  onBrightnessChange,
 }: TaskbarProps) {
   const [now, setNow] = useState<Date | null>(null);
   const [pinMenu, setPinMenu] = useState<{ x: number; y: number; id: PinnableId } | null>(null);
@@ -82,7 +123,10 @@ export default function Taskbar({
   // The Desktop-rooted File Manager viewer reports itself with id "" — pull it out so it can be
   // represented by the pinned button (if pinned) instead of doubling up with the plain viewers list.
   const desktopFmViewer = viewers.find((v) => v.id === "");
-  const unpinnedViewers = viewers.filter((v) => !(pinnedIds.includes("filemanager") && v.id === ""));
+  // Any pinned viewer (folder/file/webapp, or "" for File Manager) is represented by its pinned
+  // button instead — without this, a pinned webapp/folder/file would show up TWICE while open: once
+  // as its pinned button, once again here.
+  const unpinnedViewers = viewers.filter((v) => !pinnedIds.includes(v.id === "" ? "filemanager" : v.id));
 
   const pinnedEntries: PinnedEntry[] = pinnedIds
     .map((id): PinnedEntry | null => {
@@ -99,19 +143,74 @@ export default function Taskbar({
           onClick: () => (running ? onToggleViewerMinimize("") : onOpenFileManager()),
         };
       }
+      if (id === "taskmanager") {
+        return {
+          id,
+          name: "Task Manager",
+          color: "#f87171",
+          icon: TaskManagerIcon,
+          running: taskManagerOpen,
+          active: taskManagerOpen,
+          onClick: onOpenTaskManager,
+        };
+      }
+      if (id === "aboutos") {
+        return {
+          id,
+          name: "About OS",
+          color: "#38bdf8",
+          icon: AboutOSIcon,
+          running: aboutOSOpen,
+          active: aboutOSOpen,
+          onClick: onOpenAboutOS,
+        };
+      }
+      if (id === "osupdate") {
+        return {
+          id,
+          name: "OS Update",
+          color: "#34d399",
+          icon: OSUpdateIcon,
+          running: osUpdateOpen,
+          active: osUpdateOpen,
+          onClick: onOpenOSUpdate,
+        };
+      }
       const body = bodies.find((b) => b.id === id);
-      if (!body) return null;
-      const win = openWindows.find((w) => w.body.id === body.id);
-      const running = Boolean(win);
-      const active = running && !win!.minimized;
+      if (body) {
+        const win = openWindows.find((w) => w.body.id === body.id);
+        const running = Boolean(win);
+        const active = running && !win!.minimized;
+        return {
+          id,
+          name: body.name,
+          color: body.color,
+          icon: icons[body.id],
+          running,
+          active,
+          onClick: () => (running ? onToggleMinimize(body.id) : onOpenApp(body)),
+        };
+      }
+      // webapp / folder / file — resolved via desktopEntries (mirrors the FULL desktop icon list,
+      // not just open windows) so this still works for a pinned item that isn't currently open.
+      const entry = desktopEntries.find((e) => e.id === id);
+      if (!entry) return null; // pinned item no longer exists (deleted file, uninstalled app, ...)
+      const viewer = viewers.find((v) => v.id === id);
+      const running = Boolean(viewer);
+      const active = running && !viewer!.minimized;
+      const icon = entry.kind === "webapp" ? Globe : entry.kind === "folder" ? Folder : getFileIcon(entry.name);
       return {
         id,
-        name: body.name,
-        color: body.color,
-        icon: icons[body.id],
+        name: entry.name,
+        color: entry.color,
+        icon,
         running,
         active,
-        onClick: () => (running ? onToggleMinimize(body.id) : onOpenApp(body)),
+        onClick: () => {
+          if (running) onToggleViewerMinimize(id);
+          else if (entry.kind === "webapp") onOpenWebApp(id);
+          else onOpenDesktopPath(id, entry.kind as "folder" | "file", entry.name);
+        },
       };
     })
     .filter((e): e is PinnedEntry => e !== null);
@@ -291,6 +390,14 @@ export default function Taskbar({
         <div
           className={`flex items-center gap-2 ${alignment === "center" ? "absolute right-2" : "pr-2"}`}
         >
+          <SystemTrayControls
+            volume={volume}
+            muted={muted}
+            onVolumeChange={onVolumeChange}
+            onToggleMute={onToggleMute}
+            brightness={brightness}
+            onBrightnessChange={onBrightnessChange}
+          />
           {showClock && (
             <div className="text-[11px] font-mono text-[var(--os-text-muted)]">
               {now ? now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}

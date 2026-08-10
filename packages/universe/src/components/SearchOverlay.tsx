@@ -1,30 +1,66 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Folder } from "@veasnawt/vicons";
+import { Folder, Globe } from "@veasnawt/vicons";
 import { CelestialBody, StudioId } from "../types";
 import { RemoteEntry, searchFiles } from "../utils/filesApi";
 import { FOLDER_COLOR } from "../utils/desktopItems";
 import { getFileIcon, getFileColor } from "../utils/fileTypes";
+import { DesktopEntrySummary } from "./TraditionalShell";
+import TaskManagerIcon from "./TaskManagerIcon";
+import AboutOSIcon from "./AboutOSIcon";
+import OSUpdateIcon from "./OSUpdateIcon";
 
 interface SearchOverlayProps {
   bodies: CelestialBody[];
   icons: Record<StudioId, React.ComponentType<{ size?: number }>>;
+  /** Covers the 3 kinds nothing else here already searches: installed web apps, Task Manager,
+   *  About OS, OS Update. Studios come from `bodies` (richer subtitle text than a bare desktop
+   *  entry would give); folders/files come from the remote `searchFiles` API below (which reaches
+   *  the whole sandboxed filesystem, not just top-level desktop entries) — this is only for the
+   *  kinds that had no search path in here at all before. */
+  desktopEntries: DesktopEntrySummary[];
   onOpenApp: (body: CelestialBody) => void;
   onOpenFileManager: () => void;
   onOpenDesktopPath: (path: string, kind: "folder" | "file", name: string) => void;
+  onOpenWebApp: (id: string) => void;
+  onOpenTaskManager: () => void;
+  onOpenAboutOS: () => void;
+  onOpenOSUpdate: () => void;
   onClose: () => void;
 }
 
 type ResultItem =
   | { kind: "studio"; id: string; name: string; subtitle: string; color: string; icon: React.ComponentType<{ size?: number }>; onSelect: () => void }
   | { kind: "filemanager"; id: string; name: string; subtitle: string; color: string; icon: React.ComponentType<{ size?: number }>; onSelect: () => void }
-  | { kind: "folder" | "file"; id: string; name: string; subtitle: string; color: string; icon: React.ComponentType<{ size?: number }>; onSelect: () => void };
+  | { kind: "folder" | "file"; id: string; name: string; subtitle: string; color: string; icon: React.ComponentType<{ size?: number }>; onSelect: () => void }
+  | {
+      kind: "webapp" | "taskmanager" | "aboutos" | "osupdate";
+      id: string;
+      name: string;
+      subtitle: string;
+      color: string;
+      icon: React.ComponentType<{ size?: number }>;
+      onSelect: () => void;
+    };
 
 const DEBOUNCE_MS = 200;
 const MAX_STUDIO_RESULTS = 6;
 const MAX_FILE_RESULTS = 8;
+const MAX_APP_RESULTS = 6;
 
-export default function SearchOverlay({ bodies, icons, onOpenApp, onOpenFileManager, onOpenDesktopPath, onClose }: SearchOverlayProps) {
+export default function SearchOverlay({
+  bodies,
+  icons,
+  desktopEntries,
+  onOpenApp,
+  onOpenFileManager,
+  onOpenDesktopPath,
+  onOpenWebApp,
+  onOpenTaskManager,
+  onOpenAboutOS,
+  onOpenOSUpdate,
+  onClose,
+}: SearchOverlayProps) {
   const [query, setQuery] = useState("");
   const [fileResults, setFileResults] = useState<RemoteEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,8 +142,44 @@ export default function SearchOverlay({ bodies, icons, onOpenApp, onOpenFileMana
       });
     }
 
+    const appEntries = desktopEntries
+      .filter((e) => (e.kind === "webapp" || e.kind === "taskmanager" || e.kind === "aboutos" || e.kind === "osupdate") && e.name.toLowerCase().includes(q))
+      .slice(0, MAX_APP_RESULTS);
+    for (const entry of appEntries) {
+      const kind = entry.kind as "webapp" | "taskmanager" | "aboutos" | "osupdate";
+      items.push({
+        kind,
+        id: entry.id,
+        name: entry.name,
+        subtitle: kind === "webapp" ? "Installed app" : "System",
+        color: entry.color,
+        icon: kind === "webapp" ? Globe : kind === "taskmanager" ? TaskManagerIcon : kind === "aboutos" ? AboutOSIcon : OSUpdateIcon,
+        onSelect:
+          kind === "webapp"
+            ? () => onOpenWebApp(entry.id)
+            : kind === "taskmanager"
+            ? onOpenTaskManager
+            : kind === "aboutos"
+            ? onOpenAboutOS
+            : onOpenOSUpdate,
+      });
+    }
+
     return items;
-  }, [query, bodies, icons, fileResults, onOpenApp, onOpenFileManager, onOpenDesktopPath]);
+  }, [
+    query,
+    bodies,
+    icons,
+    fileResults,
+    desktopEntries,
+    onOpenApp,
+    onOpenFileManager,
+    onOpenDesktopPath,
+    onOpenWebApp,
+    onOpenTaskManager,
+    onOpenAboutOS,
+    onOpenOSUpdate,
+  ]);
 
   useEffect(() => {
     setActiveIndex(0);

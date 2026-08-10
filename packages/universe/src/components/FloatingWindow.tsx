@@ -44,6 +44,7 @@ interface FloatingWindowProps {
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 220;
 const DRAG_THRESHOLD = 4;
+const SNAP_THRESHOLD = 24;
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -57,6 +58,53 @@ const RESIZE_HANDLES: { dir: ResizeDir; className: string; cursor: string }[] = 
   { dir: "sw", className: "bottom-0 left-0 h-3 w-3", cursor: "cursor-nesw-resize" },
   { dir: "se", className: "bottom-0 right-0 h-3 w-3", cursor: "cursor-nwse-resize" },
 ];
+
+// Aero-Snap — ported from Window.tsx (studio windows) so folder/file/webapp viewers and the
+// Task Manager/About OS/OS Update windows (all of which use THIS chrome, see this file's own
+// header comment) get the same drag-to-edge behavior instead of only studios having it.
+type SnapZone = "maximize" | "left-half" | "right-half" | "tl-quarter" | "tr-quarter" | "bl-quarter" | "br-quarter";
+
+function detectSnapZone(clientX: number, clientY: number, reservedBottom: number): SnapZone | null {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight - reservedBottom;
+  const nearLeft = clientX <= SNAP_THRESHOLD;
+  const nearRight = clientX >= vw - SNAP_THRESHOLD;
+  const nearTop = clientY <= SNAP_THRESHOLD;
+  const nearBottom = clientY >= vh - SNAP_THRESHOLD;
+
+  if (nearLeft && nearTop) return "tl-quarter";
+  if (nearRight && nearTop) return "tr-quarter";
+  if (nearLeft && nearBottom) return "bl-quarter";
+  if (nearRight && nearBottom) return "br-quarter";
+  if (nearTop) return "maximize";
+  if (nearLeft) return "left-half";
+  if (nearRight) return "right-half";
+  return null;
+}
+
+function getSnapZoneRect(zone: SnapZone, reservedBottom: number): FloatingRect {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight - reservedBottom;
+  const halfW = vw / 2;
+  const halfH = vh / 2;
+
+  switch (zone) {
+    case "maximize":
+      return { x: 0, y: 0, width: vw, height: vh };
+    case "left-half":
+      return { x: 0, y: 0, width: halfW, height: vh };
+    case "right-half":
+      return { x: halfW, y: 0, width: halfW, height: vh };
+    case "tl-quarter":
+      return { x: 0, y: 0, width: halfW, height: halfH };
+    case "tr-quarter":
+      return { x: halfW, y: 0, width: halfW, height: halfH };
+    case "bl-quarter":
+      return { x: 0, y: halfH, width: halfW, height: halfH };
+    case "br-quarter":
+      return { x: halfW, y: halfH, width: halfW, height: halfH };
+  }
+}
 
 function initialRect(cascadeIndex: number, width: number, height: number): FloatingRect {
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
@@ -91,6 +139,10 @@ export default function FloatingWindow({
   const [rect, setRect] = useState<FloatingRect>(() => initialRect(cascadeIndex, defaultWidth, defaultHeight));
   const [maximized, setMaximized] = useState(false);
   const preMaximizeRectRef = useRef<FloatingRect | null>(null);
+  // Snap-zone preview: updates only on zone *changes* (not every mousemove), so state + re-render
+  // is fine here — unlike rect updates during a drag, which stay ref/prop driven for perf.
+  const [snapZone, setSnapZone] = useState<SnapZone | null>(null);
+  const snapZoneRef = useRef<SnapZone | null>(null);
   // A full-viewport overlay, portaled above everything (iframes included) and toggled via direct DOM
   // mutation (not React state, which is a render tick too late for a fast drag). Without it, the
   // moment a drag/resize crosses onto this window's OWN iframe content (a PDF/HTML preview, or an
@@ -136,9 +188,26 @@ export default function FloatingWindow({
         const x = Math.min(Math.max(startRect.x + dx, 0), Math.max(0, vw - startRect.width));
         const y = Math.min(Math.max(startRect.y + dy, 0), Math.max(0, vh - startRect.height));
         setRect({ ...startRect, x, y });
+
+        const zone = detectSnapZone(ev.clientX, ev.clientY, taskbarReserve);
+        if (zone !== snapZoneRef.current) {
+          snapZoneRef.current = zone;
+          setSnapZone(zone);
+        }
       }
     }
     function handleUp() {
+      if (dragging && snapZoneRef.current) {
+        if (snapZoneRef.current === "maximize") {
+          preMaximizeRectRef.current = startRect;
+          setRect({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight - taskbarReserve });
+          setMaximized(true);
+        } else {
+          setRect(getSnapZoneRect(snapZoneRef.current, taskbarReserve));
+        }
+        snapZoneRef.current = null;
+        setSnapZone(null);
+      }
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
       document.body.style.userSelect = "";
@@ -205,6 +274,8 @@ export default function FloatingWindow({
     }
   }
 
+  const previewRect = snapZone ? getSnapZoneRect(snapZone, taskbarReserve) : null;
+
   // Portaled to <body> — TraditionalShell's own root is `position: fixed`, which per the CSS
   // spec always creates a new stacking context, trapping this window's z-index inside it no
   // matter how high the number is. Rendering in place, this could never out-stack a sibling
@@ -259,6 +330,19 @@ export default function FloatingWindow({
         </div>
       </div>
       <div ref={overlayRef} className="fixed inset-0 hidden cursor-move" style={{ zIndex: 99999 }} />
+
+      {previewRect && (
+        <div
+          className="fixed rounded-lg border-2 border-sky-400/70 bg-sky-400/20"
+          style={{
+            left: previewRect.x,
+            top: previewRect.y,
+            width: previewRect.width,
+            height: previewRect.height,
+            zIndex: 99998,
+          }}
+        />
+      )}
     </>,
     document.body
   );
