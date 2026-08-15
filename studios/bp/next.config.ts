@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // @veasna/ai (and its better-sqlite3 native-module workarounds) used to be needed here for
   // Rixie's chat (app/api/agent) — that moved into studios/universe's own server, so bp no
-  // longer depends on it at all.
+  // longer depends on it at all. @veasna/vstudio moved out too, once VStudio became its own
+  // standalone app (studios/vstudio) that this app embeds via iframe instead of hosting.
   transpilePackages: ["@veasna/universe", "@veasnawt/vicons"],
 };
 

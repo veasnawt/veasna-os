@@ -105,10 +105,13 @@ ipcMain.handle("apps:winget-install", (_event, wingetId: string) => {
 });
 
 /** Spawns Universe (the actual OS shell — must work, and now also hosts Rixie's chat) plus,
- *  best-effort, BP Studio and Game Dev Studio (bundled but non-critical: if either fails to
- *  start, Window.tsx's StudioFrame falls back to a "coming soon" card for it rather than the
- *  whole app refusing to launch). Returns Universe's own URL, which is what the main window
- *  actually loads. */
+ *  best-effort, VStudio, BP Studio, and Game Dev Studio (bundled but non-critical: if any fails to
+ *  start, Window.tsx's StudioFrame falls back to a "coming soon" card for it rather than the whole
+ *  app refusing to launch). VStudio is both its own launchable studio (its `CelestialBody` entry in
+ *  constants.ts has a `launchUrl`, resolved the same way bp's/gamedev's is) AND, separately, what
+ *  bp's own Create page embeds via `<iframe>` — a failed VStudio spawn shouldn't take bp down with
+ *  it, hence the try/catch here running independently of bp's own. Returns Universe's own URL, which
+ *  is what the main window actually loads. */
 async function spawnPackagedServers(): Promise<string> {
   const universe = await spawnNextServer({
     resourceName: "universe",
@@ -133,6 +136,28 @@ async function spawnPackagedServers(): Promise<string> {
   });
   stopFns.push(universe.stop);
 
+  // VStudio spawned BEFORE bp: bp's own server needs VStudio's real (dynamically-assigned) URL at
+  // its own spawn time, to hand to its Create page for the <iframe> it embeds VStudio through (see
+  // studios/bp/app/api/vstudio-url/route.ts). bp's own client-side renderer can't resolve this the
+  // way Universe resolves bp's own URL (via window.veasnaStudios) — that bridge isn't reachable from
+  // inside bp's <webview> — so it's threaded through as an env var instead, same as RIXIE_MEMORY_DB.
+  let vstudioUrl: string | undefined;
+  try {
+    const vstudio = await spawnNextServer({
+      resourceName: "vstudio",
+      logLabel: "[vstudio]",
+      // Same port VStudio's own `pnpm dev` uses — see pickFreePort.ts's comment for why a stable
+      // port matters (browser localStorage is scoped to it).
+      preferredPort: 3002,
+      extraEnv: { VEASNA_WORKSPACE_ROOT: workspaceRoot() },
+    });
+    stopFns.push(vstudio.stop);
+    studioUrls.vstudio = vstudio.url;
+    vstudioUrl = vstudio.url;
+  } catch (err) {
+    console.error("VStudio failed to start:", err);
+  }
+
   try {
     const bp = await spawnNextServer({
       resourceName: "bp",
@@ -140,6 +165,7 @@ async function spawnPackagedServers(): Promise<string> {
       // Same port bp's own `pnpm dev` uses — see pickFreePort.ts's comment for why a stable port
       // matters (browser localStorage is scoped to it).
       preferredPort: 3001,
+      ...(vstudioUrl ? { extraEnv: { VSTUDIO_URL: vstudioUrl } } : {}),
     });
     stopFns.push(bp.stop);
     studioUrls.bp = bp.url;

@@ -7,6 +7,9 @@ allowBuilds:
   better-sqlite3: true
   electron: true
   esbuild: true
+  # ffmpeg-static's postinstall is what actually downloads the ffmpeg binary for this platform —
+  # without it the package installs as an empty shell and VStudio's export step has nothing to run.
+  ffmpeg-static: true
   sharp: true
   unrs-resolver: true
 

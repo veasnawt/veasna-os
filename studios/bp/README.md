@@ -47,7 +47,9 @@ Research, outline, and write the narration.
 
 ## 🎬 Create
 
-Produce the final video using assets, voice, editing, music, and AI tools.
+Produce the final video. This stage embeds [VStudio](../vstudio) — a full timeline editor with its
+own standalone app (`studios/vstudio`) — via `<iframe>`, rather than BP owning the editor itself. Same
+project data either way; BP never touches it directly, only through VStudio's own API.
 
 ## 🚀 Publish
 
@@ -68,15 +70,18 @@ Current
 - ✅ Project dashboard
 - ✅ Workflow navigation
 
+Also done, via VStudio (see [vstudio's own README](../vstudio/README.md) for the full list)
+
+- ✅ Timeline editor — multi-track video/audio, transitions, effects, transform
+- ✅ Voice generation — live microphone recording straight onto the timeline
+- ✅ Export manager — in/out range export to MP4, via bundled FFmpeg
+
 Planned
 
 - AI brainstorming
 - Rich text editor
 - Script assistant
 - Asset manager
-- Voice generation
-- Timeline editor
-- Export manager
 - Multi-platform publishing
 - Cloud sync
 - Collaboration

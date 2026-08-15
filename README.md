@@ -42,6 +42,7 @@ Both modes share the same window system, so switching between them never loses w
 | --- | --- | --- |
 | 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
 | 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
+| 🎞️ VStudio | A focused video editor — BP Studio's own **Create** stage, and a standalone studio in its own right | Active |
 | 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
 | 🎵 Music | — | Coming soon |
 | 🎨 Art | — | Coming soon |
@@ -51,7 +52,7 @@ Both modes share the same window system, so switching between them never loses w
 
 ## Desktop App
 
-Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, and Game Dev Studio are all bundled together, each running on its own local port under the hood; it feels like one app.
+Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, VStudio, and Game Dev Studio are all bundled together, each running on its own local port under the hood; it feels like one app.
 
 ```bash
 pnpm dev:desktop     # run it against your local dev servers, with hot reload
@@ -70,12 +71,15 @@ A pnpm workspace: each studio is its own app, shared code lives in packages.
 studios/
   universe/    the OS shell (Next.js) — default entry point
   bp/          Beyond Perspective
+  vstudio/     the video editor — a standalone app, also embedded by bp's Create stage via <iframe>
   gamedev/     Loom Engine (Vite)
 
 packages/
   universe/    shell UI: desktop, windows, taskbar, settings, cosmos
+  vstudio/     video editor logic/components — consumed by studios/vstudio
+  vicons/      the icon library every studio draws from
   ai/          shared AI utilities
-  ui/, auth/, database/, storage/, editor/, analytics/, automation/, utils/, vicons/
+  ui/, auth/, database/, storage/, editor/, analytics/, automation/, utils/
 
 apps/
   desktop/     the Electron wrapper — packages the studios above into a real installable app
@@ -113,10 +117,11 @@ Or run just what you need:
 ```bash
 pnpm dev          # Universe — http://localhost:3000
 pnpm dev:bp       # BP Studio — http://localhost:3001
+pnpm dev:vstudio  # VStudio — http://localhost:3002
 pnpm dev:gamedev  # Loom Engine — http://localhost:5173
 ```
 
-Studio windows inside Universe embed the other studios directly (`bp`, `gamedev`) — running them isn't required just to browse Universe itself, but it is required for those specific windows to load anything. `pnpm dev:all` is the easiest way to get everything working at once.
+Studio windows inside Universe embed the other studios directly (`bp`, `vstudio`, `gamedev`) — running them isn't required just to browse Universe itself, but it is required for those specific windows to load anything. BP Studio's own Create stage separately embeds VStudio too, so editing a video from inside BP also needs `vstudio` running. `pnpm dev:all` is the easiest way to get everything working at once.
 
 ---
 

@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/* VStudio is dark-only (no light-mode toggle anywhere in it) — without this, native form control
+   chrome the page's own CSS can't reach (a `<select>`'s OPEN dropdown popup list, in particular; also
+   scrollbars/checkboxes wherever `.scrollbar-thin` or a custom-styled control isn't already covering
+   them) defaults to the OS's LIGHT rendering regardless of `bg-white/5 text-white` etc. on the closed
+   control itself — those classes only ever reach the closed box, never the popup. Confirmed live: the
+   Export dialog's Resolution/Frame rate/Quality `<select>`s showed a plain white OPTIONS list against
+   this otherwise fully dark UI. `dark` (not `light dark`) since there's no light theme to opt back
+   into here — matching the OS's own light/dark preference would just reintroduce the same mismatch
+   for a user on a light OS theme. */
+:root {
+  color-scheme: dark;
+}
+
+/* @veasna/vstudio ships React components as SOURCE (consumed via transpilePackages), and its markup
+   is styled with Tailwind utilities like any component in this app. Tailwind v4 only scans the
+   project it's running in, so without this the entire editor renders with zero styles — every
+   utility class it uses simply wouldn't exist in the generated stylesheet. Confirmed the hard way
+   (in studios/bp, before this app existed): the first run produced a working but completely
+   unstyled editor with zero-height clips. */
+@source "../../../packages/vstudio/src";
+
+/* Registers the SAME bundled font files `buildExportPlan`'s FFmpeg `drawtext` reads server-side (see
+   the vstudio/fonts API route, packages/vstudio/assets/fonts, and the registry in
+   packages/vstudio/src/project/fonts.ts) for the browser's Canvas2D preview, via
+   `computeTextBlock`'s `context.font`. Each font's `cssFamily`/`files` there isn't importable into CSS
+   directly (CSS can't import a JS constant) — if the registry ever changes, these rules need to be
+   updated to match by hand. One rule per weight/style a font ACTUALLY ships a separate file for, not
+   one font-face with synthetic bold/italic: FFmpeg's drawtext never synthesizes bold or italic the way
+   a browser can — only a REAL matching font file produces the same glyphs export-side, so the preview
+   has to use real files too or the two would visibly disagree (`resolveFontVariant` is what keeps a
+   family with a MISSING file — every bundled Khmer font has no italic — from ever requesting a style
+   with no rule here to satisfy it: the browser would silently fake one FFmpeg can't reproduce). */
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/api/vstudio/fonts/Lato-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/api/vstudio/fonts/Lato-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/api/vstudio/fonts/Lato-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/api/vstudio/fonts/Lato-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioBattambang";
+  src: url("/api/vstudio/fonts/Battambang-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioBattambang";
+  src: url("/api/vstudio/fonts/Battambang-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioMoul";
+  src: url("/api/vstudio/fonts/Moul-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer utilities {
+  /* Keeps an element scrollable (wheel, drag, programmatic scrollLeft/scrollTop all still work) while
+     hiding the browser's own scrollbar chrome. Needs all three rules — there's no single standard
+     property that covers Firefox, WebKit/Chromium, and legacy Edge/IE. */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A slim, dark-theme scrollbar for panels that DO need a visible/discoverable scrollbar (Media,
+     Properties) — replaces the browser's default chunky, light-on-dark-UI one without hiding it
+     entirely the way `.scrollbar-none` does. `scrollbar-width`/`scrollbar-color` cover Firefox and
+     modern Chromium/Edge (both ship support for the standard properties now); the `::-webkit-scrollbar`
+     rules are the fallback for engines that don't yet honor those two. Colors match this app's own
+     `border-white/10`-style convention elsewhere rather than a fixed hex, so it stays visually
+     consistent if that convention ever changes. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.15);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.3);
+  }
+}

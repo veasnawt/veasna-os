@@ -4,3 +4,6 @@ node_modules
 *.db
 .claude/
 .desktop/
+# VStudio's project storage (repo-root fallback in dev — see packages/vstudio/README.md's
+# "Where your files live"). Same category as .desktop/ above: local runtime data, not source.
+.vstudio/

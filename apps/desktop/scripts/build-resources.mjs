@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-// Copies studios/universe's AND studios/bp's standalone Next.js build output into
-// apps/desktop/resources/{universe,bp} (gitignored), plus studios/gamedev's static Vite build into
-// apps/desktop/resources/gamedev, rebuilding native addons (better-sqlite3) for Electron's own Node
-// ABI where actually needed. Ready for electron-builder to pick up via `extraResources` entries in
-// electron-builder.yml.
+// Copies studios/universe's, studios/bp's, AND studios/vstudio's standalone Next.js build output
+// into apps/desktop/resources/{universe,bp,vstudio} (gitignored), plus studios/gamedev's static
+// Vite build into apps/desktop/resources/gamedev, rebuilding native addons (better-sqlite3) for
+// Electron's own Node ABI where actually needed. Ready for electron-builder to pick up via
+// `extraResources` entries in electron-builder.yml.
 //
-// Requires (all three) to have already been built:
+// Requires (all four) to have already been built:
 //   pnpm --filter universe build   (requires next.config.ts's output: "standalone")
 //   pnpm --filter bp build         (requires next.config.ts's output: "standalone")
+//   pnpm --filter vstudio build    (requires next.config.ts's output: "standalone")
 //   pnpm --filter loom-engine build
 
-import { cpSync, existsSync, mkdirSync, rmSync, lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -187,7 +188,7 @@ function findExternalSymlinks(outDir, dir = outDir, found = []) {
 /** Copies one Next.js app's standalone build output into apps/desktop/resources/<outName>,
  *  producing a fully self-contained, portable copy (no symlinks pointing outside it, no `next`
  *  MODULE_NOT_FOUND shadowing bug — see the two functions above for why each step exists). */
-function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite3 }) {
+function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite3, bundleFfmpeg = false }) {
   const appRoot = path.join(repoRoot, "studios", appDirName);
   const standaloneDir = path.join(appRoot, ".next", "standalone");
   const staticDir = path.join(appRoot, ".next", "static");
@@ -307,7 +308,79 @@ function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite
     console.log(`better-sqlite3 present in ${outName} but not marked as needed — skipping the Electron ABI rebuild.`);
   }
 
+  if (bundleFfmpeg) {
+    ensureFfmpegBinaries(outDir, outName);
+    ensureFontAssets(outDir, outName);
+  }
+
   console.log(`Done — resources/${outName} ready (internalized ${fixedCount} external symlink(s)).`);
+}
+
+/** VStudio (studios/vstudio, embedded by bp's Create stage via iframe) shells out to ffmpeg/ffprobe
+ *  for import, thumbnails, and export.
+ *
+ *  Both packages are deliberately marked external in vstudio's next.config.ts — they resolve their
+ *  binary by path relative to their own package directory, which bundling breaks — and that same
+ *  externality means Next's standalone tracer may not copy them at all. This is the exact situation
+ *  better-sqlite3 is in above, so it gets the same fix: hoist from the repo's real install when the
+ *  trace missed it.
+ *
+ *  The binary itself is then verified to actually be on disk. ffmpeg-static downloads it in a
+ *  postinstall step, so a package directory can exist with no executable inside it (easy to hit when a
+ *  package manager's build policy blocks install scripts). Failing loudly here beats shipping an
+ *  installer whose export button dies at runtime. */
+function ensureFfmpegBinaries(outDir, outName) {
+  const repoRootPnpm = path.join(repoRoot, "node_modules", ".pnpm");
+
+  for (const pkg of ["ffmpeg-static", "ffprobe-static"]) {
+    const entry = path.join(outDir, "node_modules", pkg);
+    if (!existsSync(entry)) {
+      if (!packageExistsInPnpmStore(repoRootPnpm, pkg)) {
+        console.error(`${pkg} not found anywhere — neither in ${outName}'s trace nor the repo root. Run "pnpm install" first.`);
+        process.exit(1);
+      }
+      console.log(`${pkg} missing from ${outName}'s standalone trace — hoisting it from the repo root's real install.`);
+      hoistPnpmPackage(outDir, pkg, repoRootPnpm);
+    }
+  }
+
+  const isWindows = process.platform === "win32";
+  const ffmpegBinary = path.join(outDir, "node_modules", "ffmpeg-static", isWindows ? "ffmpeg.exe" : "ffmpeg");
+  const ffprobeDir = path.join(outDir, "node_modules", "ffprobe-static", "bin", process.platform, process.arch);
+  const ffprobeBinary = path.join(ffprobeDir, isWindows ? "ffprobe.exe" : "ffprobe");
+
+  for (const binary of [ffmpegBinary, ffprobeBinary]) {
+    if (!existsSync(binary)) {
+      console.error(
+        `Refusing to package ${outName}: ${path.basename(binary)} is missing at\n  ${binary}\n\n` +
+          `The package installed but its binary was never downloaded. Run "pnpm rebuild ffmpeg-static" ` +
+          `(and check pnpm-workspace.yaml's allowBuilds allows it), then rebuild.`
+      );
+      process.exit(1);
+    }
+    // Copying through cpSync can drop the executable bit on POSIX; on Windows it's a no-op.
+    if (!isWindows) chmodSync(binary, 0o755);
+  }
+
+  console.log(`Done — ${outName} has runnable ffmpeg + ffprobe binaries.`);
+}
+
+/** VStudio's drawtext export (and its browser preview, via /api/vstudio/fonts) both read the bundled
+ *  Lato font files off disk by real path — see ffmpeg.ts's `resolveFontsDir` comment for why that
+ *  can't be `require.resolve`'d out of `@veasna/vstudio` once it's bundled (it's in this app's own
+ *  `transpilePackages`, so the package's own source directory doesn't exist in the packaged output
+ *  at all). Copied in as a sibling of `server.js` under a fixed name so `resolveFontsDir`'s
+ *  `process.cwd()`-relative check finds it without needing to know this script's own layout. */
+function ensureFontAssets(outDir, outName) {
+  const srcDir = path.join(repoRoot, "packages", "vstudio", "assets", "fonts");
+  if (!existsSync(srcDir)) {
+    console.error(`Refusing to package ${outName}: font assets not found at\n  ${srcDir}`);
+    process.exit(1);
+  }
+  const destDir = path.join(outDir, "vstudio-fonts");
+  rmSync(destDir, { recursive: true, force: true });
+  cpSync(srcDir, destDir, { recursive: true });
+  console.log(`Done — ${outName} has bundled VStudio fonts.`);
 }
 
 /** Game Dev Studio (Vite/"loom-engine") builds to a fully static, self-contained dist/ folder —
@@ -330,6 +403,9 @@ function buildGamedevStatic() {
 // migration when Next's tracer included it only because @veasna/ai was an unused dependency.
 buildNextStandaloneResources({ appDirName: "universe", outName: "universe", rebuildBetterSqlite3: true });
 buildNextStandaloneResources({ appDirName: "bp", outName: "bp", rebuildBetterSqlite3: true });
+// VStudio needs real ffmpeg/ffprobe binaries at runtime (see ensureFfmpegBinaries) but has no
+// better-sqlite3 dependency of its own.
+buildNextStandaloneResources({ appDirName: "vstudio", outName: "vstudio", rebuildBetterSqlite3: false, bundleFfmpeg: true });
 buildGamedevStatic();
 restoreRootBetterSqlite3Abi();
 

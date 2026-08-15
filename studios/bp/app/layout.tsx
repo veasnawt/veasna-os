@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "BP Studio — Veasna OS",
   description: "Every creation begins with curiosity.",
+};
+
+// Explicit rather than relying on Next's own default: this app's responsive pages (and the embedded
+// VStudio iframe on the Create page) assume the browser reports the device's real width, not a
+// desktop-sized virtual viewport scaled down — the usual mobile-web default for pages that were
+// never designed responsively.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
