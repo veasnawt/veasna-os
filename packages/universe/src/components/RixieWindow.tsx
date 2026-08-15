@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Ai } from "@veasnawt/vicons";
-import { Plus, History, Trash2, X, Copy, Paperclip, Loader2, EyeOff } from "lucide-react";
+import { Ai, History } from "@veasnawt/vicons";
+import { Plus, Trash2, X, Copy, Paperclip, Loader2, EyeOff } from "lucide-react";
 import FloatingWindow from "./FloatingWindow";
 import MarkdownMessage from "./MarkdownMessage";
 

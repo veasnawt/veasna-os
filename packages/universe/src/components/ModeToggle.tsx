@@ -1,4 +1,5 @@
 import React from "react";
+import { Cosmos, Desktop } from "@veasnawt/vicons";
 import type { ShellMode } from "../types";
 
 interface ModeToggleProps {
@@ -22,7 +23,7 @@ export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
         title="3D Living Universe"
         aria-label="Universe (3D) view"
       >
-        🌌
+        <Cosmos size={14} />
       </button>
       <button
         onClick={() => onChange("list")}
@@ -34,7 +35,7 @@ export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
         title="Desktop view"
         aria-label="Desktop view"
       >
-        🖥️
+        <Desktop size={14} />
       </button>
     </div>
   );

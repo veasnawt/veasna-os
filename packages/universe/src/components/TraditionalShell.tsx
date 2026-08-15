@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Ai, Art, Create, Document, Folder, Game, Globe, Music, Settings as SettingsIcon } from "@veasnawt/vicons";
+import { Ai, Art, Create, Document, Folder, Game, Globe, Music, Settings as SettingsIcon, Video } from "@veasnawt/vicons";
 import TerminalIcon from "./TerminalIcon";
 import BrowserIcon from "./BrowserIcon";
 import TaskManagerIcon from "./TaskManagerIcon";
@@ -44,6 +44,7 @@ import DragGhost from "./DragGhost";
 export const STUDIO_ICONS: Record<StudioId, React.ComponentType<{ size?: number }>> = {
   rixie: Ai,
   bp: Create,
+  vstudio: Video,
   art: Art,
   music: Music,
   gamedev: Game,

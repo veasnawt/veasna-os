@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { ExternalLink, Install } from "@veasnawt/vicons";
 import { isElectronDesktop, WebviewElement } from "../utils/runtime";
 import { Bookmark, addBookmark, isBookmarked, loadBookmarks, removeBookmark } from "../utils/bookmarks";
 import { ACCENTS, BrowserAccent, BrowserThemeMode, BrowserThemeState, browserThemeVars, loadBrowserTheme, saveBrowserTheme } from "../utils/browserTheme";
@@ -442,10 +443,7 @@ export default function BrowserPanel({
         </div>
 
         <NavButton onClick={() => setShowInstallDialog(true)} title="Install this site as an app">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="4" width="18" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M12 11v6M9 14l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Install size={13} />
         </NavButton>
 
         <NavButton
@@ -521,11 +519,7 @@ export default function BrowserPanel({
           title="Open in new browser tab"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--browser-text-muted)] transition hover:bg-[var(--browser-hover)] hover:text-[var(--browser-text)]"
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M15 3h6v6" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M10 14L21 3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <ExternalLink size={13} />
         </a>
       </div>
 
@@ -540,9 +534,10 @@ export default function BrowserPanel({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 rounded-full bg-amber-500/20 px-2.5 py-1 font-semibold text-amber-100 transition hover:bg-amber-500/30"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 font-semibold text-amber-100 transition hover:bg-amber-500/30"
           >
-            Open in real tab ↗
+            Open in real tab
+            <ExternalLink size={12} />
           </a>
         </div>
       )}
@@ -567,7 +562,7 @@ export default function BrowserPanel({
       <div className="shrink-0 border-t border-[var(--browser-border)] px-3 py-1 text-center text-[10px] text-[var(--browser-text-muted)]">
         {desktopMode
           ? "Running in the Veasna OS desktop app — most sites load normally here, even ones blocked in the web version."
-          : "Some sites block being embedded here — use ↗ to open them in a real browser tab instead."}
+          : "Some sites block being embedded here — use \"Open in real tab\" to open them in a real browser tab instead."}
       </div>
 
       {showInstallDialog && (

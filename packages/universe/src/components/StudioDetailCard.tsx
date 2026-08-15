@@ -1,4 +1,5 @@
 import React from "react";
+import { ExternalLink } from "@veasnawt/vicons";
 import { CelestialBody } from "../types";
 
 interface StudioDetailCardProps {
@@ -76,7 +77,8 @@ export default function StudioDetailCard({
             onClick={() => onOpenApp(body)}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--os-accent-soft)] border border-[var(--os-accent-border)] px-4 py-2.5 text-xs font-bold text-[var(--os-accent-text)] transition-all hover:brightness-110"
           >
-            Open Studio ↗
+            Open Studio
+            <ExternalLink size={13} />
           </button>
         ) : (
           <a
@@ -85,7 +87,8 @@ export default function StudioDetailCard({
             rel="noopener noreferrer"
             className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-[var(--os-accent-soft)] border border-[var(--os-accent-border)] px-4 py-2.5 text-xs font-bold text-[var(--os-accent-text)] transition-all hover:brightness-110"
           >
-            Open Studio ↗
+            Open Studio
+            <ExternalLink size={13} />
           </a>
         )
       ) : (

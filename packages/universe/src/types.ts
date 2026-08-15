@@ -21,6 +21,7 @@ export interface OpenWindow {
 export type StudioId =
   | "rixie"
   | "bp"
+  | "vstudio"
   | "art"
   | "music"
   | "gamedev"

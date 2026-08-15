@@ -50,6 +50,31 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
     launchUrl: "http://localhost:3001"
   },
   {
+    id: "vstudio",
+    name: "VStudio",
+    subtitle: "Timeline Forge & Waveform Aurora World",
+    description: "A luminous violet world wrapped in shifting filmstrip auroras, where timelines of light converge into a single cut.",
+    color: "#d946ef",
+    glowColor: "#a21caf",
+    size: 1.3,
+    // A close neighbor of BP Studio's own orbit (8.5), not out with the utility bodies — VStudio is
+    // BP's own editor, so its placement in the cosmos reflects that relationship.
+    orbitRadius: 11.2,
+    orbitSpeed: 0.11,
+    rotationSpeed: 0.013,
+    position: [11, 0, -2],
+    hasRing: true,
+    ringColor: "#f0abfc",
+    ringRadius: 1.9,
+    details: [
+      "Multi-track Video & Audio Timeline",
+      "Transitions, Effects & Live Voiceover",
+      "Crop, Rotate & Transform Any Clip",
+      "In/Out Range Export via Bundled FFmpeg"
+    ],
+    launchUrl: "http://localhost:3002"
+  },
+  {
     id: "art",
     name: "Art Studio",
     subtitle: "Visual Design & Ghibli Concept Realm",

@@ -82,7 +82,7 @@ declare global {
   }
 }
 
-const DEV_PORT_TO_STUDIO_KEY: Record<string, string> = { "3001": "bp", "5173": "gamedev" };
+const DEV_PORT_TO_STUDIO_KEY: Record<string, string> = { "3001": "bp", "3002": "vstudio", "5173": "gamedev" };
 let cachedStudioUrls: Promise<Record<string, string>> | null = null;
 let subscribedToUrlChanges = false;
 
