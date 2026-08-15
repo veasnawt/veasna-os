@@ -4,3 +4,6 @@
 [submodule "packages/vicons"]
 	path = packages/vicons
 	url = https://github.com/veasnawt/vicons.git
+[submodule "packages/vstudio"]
+	path = packages/vstudio
+	url = https://github.com/veasnawt/vstudio.git
