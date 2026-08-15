@@ -97,7 +97,7 @@ pnpm setup    # installs everything + creates studios/universe/.env.local from i
 pnpm dev:all  # everything at once — Universe, BP Studio, and Loom Engine together
 ```
 
-Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom`.
+Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom`, `packages/vicons`, and `packages/vstudio`.
 
 Then open `studios/universe/.env.local` and fill in your own model provider API key (see `studios/universe/.env.example`) — everything works without one except Rixie's chat (or set it later, in-app, via **Settings → Rixie AI** in the desktop app). `pnpm setup` never overwrites an existing `.env.local`, so it's safe to re-run any time.
 
