@@ -1,0 +1,20 @@
+{
+  "name": "@veasna/vstudio-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n build,electron -c cyan,magenta \"node esbuild.config.mjs --watch\" \"wait-on dist/main.cjs && electron .\"",
+    "build": "node esbuild.config.mjs",
+    "package": "node scripts/build-resources.mjs && node esbuild.config.mjs && electron-builder --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "typescript": "^5",
+    "wait-on": "^8.0.1"
+  }
+}

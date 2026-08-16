@@ -1,0 +1,32 @@
+appId: com.veasnawt.vstudio
+productName: VStudio
+# "maximum" (electron-builder's own default) drives NSIS's LZMA compressor to request a large
+# contiguous memory buffer for its dictionary — on a memory-constrained dev machine this can make
+# makensis.exe fail outright with "Internal compiler error #12345: error creating mmap" rather than
+# just running slower. "normal" still compresses, just with a smaller buffer.
+compression: normal
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# studios/vstudio's standalone Next.js server (server.js + a pruned node_modules + .next/static +
+# public/) — copied here by scripts/build-resources.mjs, forked at runtime by
+# src/server/spawnNextServer.ts. See src/main.ts's spawnPackagedServer.
+extraResources:
+  - from: resources/vstudio
+    to: vstudio
+    filter:
+      - "**/*"
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target: dmg
+  category: public.app-category.video
+linux:
+  target: AppImage
+  category: AudioVideo

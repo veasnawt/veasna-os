@@ -12,10 +12,13 @@
     "dev:bp": "pnpm --filter bp dev",
     "dev:gamedev": "pnpm --filter loom-engine dev",
     "dev:vstudio": "pnpm --filter vstudio dev",
+    "dev:mobile": "pnpm --filter vstudio-mobile dev",
     "dev:all": "concurrently -k -n universe,bp,gamedev,vstudio -c blue,green,yellow,cyan \"pnpm dev\" \"pnpm dev:bp\" \"pnpm dev:gamedev\" \"pnpm dev:vstudio\"",
     "dev:desktop": "concurrently -k -n next,electron -c blue,magenta \"pnpm dev\" \"wait-on http://127.0.0.1:3000 && pnpm --filter @veasna/desktop dev\"",
     "build:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop package",
-    "publish:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop release"
+    "publish:desktop": "pnpm --filter universe build && pnpm --filter @veasna/desktop release",
+    "dev:vstudio-desktop": "concurrently -k -n next,electron -c blue,magenta \"pnpm dev:vstudio\" \"wait-on http://127.0.0.1:3002 && pnpm --filter @veasna/vstudio-desktop dev\"",
+    "build:vstudio-desktop": "pnpm --filter vstudio build && pnpm --filter @veasna/vstudio-desktop package"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
