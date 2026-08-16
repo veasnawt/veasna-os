@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* VStudio is dark-only (no light-mode toggle anywhere in it) — see studios/vstudio/app/globals.css's
+   own comment for the full "why" (native form-control chrome, e.g. a <select>'s popup, otherwise
+   defaults to the OS's light rendering regardless of this app's own dark utility classes). */
+:root {
+  color-scheme: dark;
+}
+
+/* index.html's viewport meta opts into `viewport-fit=cover` (edge-to-edge — content draws under the
+   status bar / gesture-nav area / any notch), which every native Android/iOS shell needs explicitly
+   handled or content renders UNDER system chrome. Confirmed live on a real device (not reproduced on
+   the dev emulator, which apparently left room by default): the header text sat behind the status
+   bar's clock/battery icons, and — same root cause — `TransformHandles.tsx`'s on-canvas handles,
+   positioned via `canvas.getBoundingClientRect()`, landed wherever the canvas's rect READ AS being
+   (near the very top of the real screen) rather than where it visually was once system chrome
+   overlapped it. `env(safe-area-inset-*)` resolves to 0 with no notch/inset (desktop, older devices,
+   a plain browser tab), so this is a pure no-op everywhere else. `border-box` is load-bearing: without
+   it, this padding would make `#root` taller than the viewport instead of shrinking its content area
+   to fit inside the safe area. */
+html,
+body {
+  height: 100%;
+}
+#root {
+  height: 100dvh;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/* @veasna/vstudio ships React components as SOURCE, styled with Tailwind utilities like any
+   component in this app — Tailwind v4 only scans the project it's actually running in, so without
+   this the entire editor renders with zero styles. Mirrors studios/vstudio's own globals.css exactly,
+   just a different relative depth (apps/mobile/src -> packages/vstudio/src). */
+@source "../../../packages/vstudio/src";
+
+/* Same font registry as studios/vstudio/app/globals.css, but pointed at plain bundled static files
+   (public/fonts/, copied from packages/vstudio/assets/fonts) instead of the /api/vstudio/fonts/[file]
+   route — there is no server here to serve that route from. If the registry in
+   packages/vstudio/src/project/fonts.ts ever changes, these rules need to be updated to match by
+   hand, same caveat as the web host's copy. */
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/fonts/Lato-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/fonts/Lato-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/fonts/Lato-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioLato";
+  src: url("/fonts/Lato-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioBattambang";
+  src: url("/fonts/Battambang-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioBattambang";
+  src: url("/fonts/Battambang-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VStudioMoul";
+  src: url("/fonts/Moul-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Same scrollbar utilities as studios/vstudio/app/globals.css — kept identical since
+   packages/vstudio's components reference these class names directly. */
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.15);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.3);
+  }
+}

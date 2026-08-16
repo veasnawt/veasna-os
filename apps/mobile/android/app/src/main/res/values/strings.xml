@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VStudio</string>
+    <string name="title_activity_main">VStudio</string>
+    <string name="package_name">com.veasnaos.vstudio</string>
+    <string name="custom_url_scheme">com.veasnaos.vstudio</string>
+</resources>
