@@ -21,6 +21,23 @@ import { isElectronDesktop } from "./utils/runtime";
 import { loadBrowserSession, saveBrowserSession } from "./utils/browserSession";
 import { ambientAudio } from "./utils/ambientAudio";
 
+/** `crypto.randomUUID` is gated to secure contexts (HTTPS, or literally `localhost`) — a plain LAN
+ *  IP over HTTP does NOT count. The `typeof crypto !== "undefined"` checks this file used to guard
+ *  these calls with don't actually protect against that: `crypto` itself still exists in an insecure
+ *  context, it's `crypto.randomUUID` specifically that's missing there, so every one of those calls
+ *  still threw "crypto.randomUUID is not a function" (confirmed live — the same failure mode found
+ *  and fixed in VStudio for the identical reason). `crypto.getRandomValues`, unlike `randomUUID`, is
+ *  NOT restricted to secure contexts, so it's the real fallback here rather than `Math.random()`. */
+function randomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+}
+
 const TERMINAL_META_MARKER = "@@VEASNA_TERMINAL_META@@";
 // Most major search engines (Google, Bing, DuckDuckGo) send X-Frame-Options/CSP headers that refuse
 // iframe embedding entirely — confirmed empirically, not assumed — so Google as a default would be
@@ -44,12 +61,12 @@ function defaultBrowserUrl(): string {
 const BLANK_TAB_URL = "about:blank";
 
 function newBrowserTab(): BrowserTab {
-  const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+  const id = randomId();
   return { id, history: [BLANK_TAB_URL], historyIndex: 0, reloadTick: 0 };
 }
 
 function initialBrowserTab(): BrowserTab {
-  const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+  const id = randomId();
   return { id, history: [defaultBrowserUrl()], historyIndex: 0, reloadTick: 0 };
 }
 const STORAGE_KEY = "veasna-os:shell-mode";
@@ -132,7 +149,7 @@ export default function VeasnaShell() {
   const [terminalCwd, setTerminalCwd] = useState("");
   const terminalSessionIdRef = useRef<string>("");
   if (!terminalSessionIdRef.current) {
-    terminalSessionIdRef.current = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+    terminalSessionIdRef.current = randomId();
   }
   // Same lift-above-Window reasoning as the terminal state above — losing your place/history on every
   // minimize would make the browser far less useful than a real one. Multiple tabs, each with its
@@ -515,7 +532,7 @@ export default function VeasnaShell() {
   function browserDuplicateTab(tabId: string) {
     const source = browserTabs.find((t) => t.id === tabId);
     if (!source) return;
-    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+    const id = randomId();
     const duplicate: BrowserTab = { id, history: [...source.history], historyIndex: source.historyIndex, reloadTick: 0 };
     setBrowserTabs((prev) => [...prev, duplicate]);
     setActiveBrowserTabId(id);
@@ -536,7 +553,7 @@ export default function VeasnaShell() {
    *  opens/focuses the Browser window, matching what double-clicking an HTML file does on a real
    *  OS (renders it, doesn't open a text editor). */
   function openInBrowser(url: string) {
-    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random());
+    const id = randomId();
     const tab: BrowserTab = { id, history: [url], historyIndex: 0, reloadTick: 0 };
     setBrowserTabs((prev) => [...prev, tab]);
     setActiveBrowserTabId(id);

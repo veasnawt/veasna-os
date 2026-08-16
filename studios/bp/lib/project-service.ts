@@ -3,6 +3,20 @@ import { Project } from "@/types/project";
 const STORAGE_KEY = "bp-projects";
 const COUNTER_KEY = "bp-next-project-number";
 
+/** `crypto.randomUUID` is gated to secure contexts (HTTPS, or literally `localhost`) — a plain LAN
+ *  IP over HTTP (e.g. opening BP Studio on an iPad at `http://192.168.x.x:3001`) does NOT count, so
+ *  `crypto.randomUUID` is simply undefined there, throwing the instant a new project is created.
+ *  `crypto.getRandomValues`, unlike `randomUUID`, is NOT restricted to secure contexts. */
+function randomId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+}
+
 const defaultProjects: Project[] = [];
 
 export function loadProjects(): Project[] {
@@ -37,7 +51,7 @@ export function createProject(): Project {
     const number = getNextProjectNumber();
 
     const project: Project = {
-        id: crypto.randomUUID(),
+        id: randomId(),
         code: `BP${number.toString().padStart(3, "0")}`,
         title: "Untitled Project",
 
