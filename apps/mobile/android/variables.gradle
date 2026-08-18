@@ -1,5 +1,9 @@
 ext {
-    minSdkVersion = 23
+    // 24 (Android 7.0, 2016), not Capacitor's default 23 — the FFmpeg engine backing native video
+    // export (see FfmpegPlugin.kt) requires it; the manifest merger refuses a lower floor outright
+    // rather than risk APIs the library assumes exist. An 8+ year old device is a reasonable line to
+    // stop supporting for on-device video encoding specifically.
+    minSdkVersion = 24
     compileSdkVersion = 35
     targetSdkVersion = 35
     androidxActivityVersion = '1.9.2'

@@ -17,6 +17,10 @@ end
 target 'App' do
   capacitor_pods
   # Add your Pods here
+  # TODO(mobile export, iOS leg — unverified on this Windows machine, see FfmpegPlugin.swift's own
+  # header comment): needs a working ffmpeg-kit-compatible CocoaPods dependency here, e.g.
+  #   pod 'ffmpeg-kit-ios-full', :git => '<a maintained fork's repo>'
+  # No specific pod/version was confirmed resolvable this session — research one before uncommenting.
 end
 
 post_install do |installer|

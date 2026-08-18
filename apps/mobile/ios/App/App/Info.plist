@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VStudio needs microphone access to record voiceovers for your project.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>VStudio saves your exported videos to Photos so they're easy to find after export.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

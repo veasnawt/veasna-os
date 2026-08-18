@@ -1,4 +1,22 @@
+// FfmpegPlugin.kt is this app module's own first Kotlin source file — the Kotlin Gradle plugin isn't
+// applied to `app` by default the way it already is for Capacitor's own plugin modules (e.g.
+// @capacitor/filesystem's build.gradle, which declares this exact same self-contained buildscript
+// block). Without it, `.kt` files are silently never compiled at all — MainActivity.java's own
+// `registerPlugin(FfmpegPlugin.class)` fails with "cannot find symbol" rather than any Kotlin-specific
+// error, which is what surfaced this.
+buildscript {
+    ext.kotlin_version = '1.9.24'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
 
 android {
     namespace "com.veasnaos.vstudio"
@@ -35,6 +53,10 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // Retired ffmpeg-kit's own binaries were pulled from Maven Central in 2025 — this fork republishes
+    // a 16KB-page-aligned build (required for Play Store apps targeting API 35+, which this app already
+    // does) under the same `com.arthenica.ffmpegkit` package, so FfmpegPlugin.kt's imports work unchanged.
+    implementation "com.moizhassan.ffmpeg:ffmpeg-kit-16kb:6.1.1"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

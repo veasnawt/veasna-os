@@ -39,6 +39,14 @@ export interface ProjectPaths {
   mediaDir: string;
   thumbnailsDir: string;
   exportsDir: string;
+  /** Scratch space for a job's own intermediate files (e.g. the "Remove Object" inpaint pipeline's
+   *  extracted clip + synthesized mask before either is uploaded anywhere) — scoped per-project rather
+   *  than `os.tmpdir()` (unlike the export job's own text-file scratch dir) because these intermediates
+   *  can be tens of MB and per-job; keeping them inside the project folder means a crashed/interrupted
+   *  job's leftovers are visible and cleanable the same way the rest of the project's data is, instead
+   *  of scattered in a shared OS temp dir. Each job is still responsible for deleting its own files
+   *  once it finishes (success or failure) — this directory is not itself auto-purged. */
+  scratchDir: string;
 }
 
 export function projectPaths(bpProjectId: string): ProjectPaths {
@@ -50,12 +58,13 @@ export function projectPaths(bpProjectId: string): ProjectPaths {
     mediaDir: path.join(dir, "media"),
     thumbnailsDir: path.join(dir, "thumbnails"),
     exportsDir: path.join(dir, "exports"),
+    scratchDir: path.join(dir, "scratch"),
   };
 }
 
 export function ensureProjectDirs(bpProjectId: string): ProjectPaths {
   const paths = projectPaths(bpProjectId);
-  for (const dir of [paths.dir, paths.mediaDir, paths.thumbnailsDir, paths.exportsDir]) {
+  for (const dir of [paths.dir, paths.mediaDir, paths.thumbnailsDir, paths.exportsDir, paths.scratchDir]) {
     fs.mkdirSync(dir, { recursive: true });
   }
   return paths;

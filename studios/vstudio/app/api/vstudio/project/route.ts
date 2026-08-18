@@ -60,6 +60,19 @@ export const POST = localRoute(async (req) => {
   return Response.json({ project });
 });
 
+/** Deletes a project folder entirely — project.json, imported media, thumbnails, and exports. Used
+ *  by the standalone home page's project list to let old/test/abandoned projects actually be cleaned
+ *  up, since nothing else ever removes a project once created (see `projects/route.ts`, which scans
+ *  every folder under `VSTUDIO_ROOT` unconditionally). Recursive removal of a project's own directory
+ *  only — `projectPaths`/`assertValidProjectId` already confine `bpProjectId` to a safe character set
+ *  before it's ever joined into a path, so this can't be tricked into deleting outside its own folder. */
+export const DELETE = localRoute(async (req) => {
+  const bpProjectId = projectIdOf(req);
+  const paths = ensureProjectDirs(bpProjectId);
+  fs.rmSync(paths.dir, { recursive: true, force: true });
+  return Response.json({ ok: true });
+});
+
 export const PUT = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);

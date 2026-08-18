@@ -2,4 +2,9 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- Exported videos live under Directory.Data (getFilesDir()) — see nativeExport.ts's
+         `exportsDir` — which isn't covered by either entry above, so sharing a finished export
+         (ExportDialog.tsx's "Save / Share") would otherwise fail with a FileProvider permission
+         error even after the file:// vs files[] bug is fixed. -->
+    <files-path name="vstudio_exports" path="vstudio-projects/" />
 </paths>

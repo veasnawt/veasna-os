@@ -1,7 +1,7 @@
 import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
-import { buildFilmstripArgs, buildThumbnailArgs, buildWaveformArgs } from "@veasna/vstudio/src/export/ffmpegCommands";
+import { buildFilmstripArgs, buildMaskImageArgs, buildMaskVideoArgs, buildThumbnailArgs, buildWaveformArgs } from "@veasna/vstudio/src/export/ffmpegCommands";
 import { ApiError } from "./paths";
 
 /** A binary inside an `app.asar` archive can't be executed — electron-builder writes such files to a
@@ -185,6 +185,45 @@ export async function generateFilmstrip(input: string, output: string, durationS
 export async function generateWaveform(input: string, output: string): Promise<boolean> {
   return new Promise((resolve) => {
     execFile(ffmpegBinary(), buildWaveformArgs(input, output), { timeout: 30_000 }, (err) =>
+      resolve(!err && fs.existsSync(output))
+    );
+  });
+}
+
+/** Synthesizes the black/white mask video the "Remove Object" inpainting pipeline sends alongside the
+ *  extracted clip. No real input file — pure `color`+`drawbox` generation — so unlike
+ *  `generateThumbnail`/`generateFilmstrip` this never fails for a reason related to the SOURCE media;
+ *  a `false` return here means a real ffmpeg/filter problem worth surfacing, not a routine "this file
+ *  had no video stream" shrug. Still non-fatal at the call site regardless, same discipline as the
+ *  other generators. */
+export async function generateMaskVideo(
+  output: string,
+  width: number,
+  height: number,
+  fps: number,
+  durationSeconds: number,
+  rect: { x: number; y: number; width: number; height: number }
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(
+      ffmpegBinary(),
+      buildMaskVideoArgs(output, width, height, fps, durationSeconds, rect),
+      { timeout: 30_000 },
+      (err) => resolve(!err && fs.existsSync(output))
+    );
+  });
+}
+
+/** Synthesizes a black/white mask IMAGE (not video) for the local ProPainter provider — see
+ *  `buildMaskImageArgs`'s own comment for why a single still frame is sufficient here. */
+export async function generateMaskImage(
+  output: string,
+  width: number,
+  height: number,
+  rect: { x: number; y: number; width: number; height: number }
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(ffmpegBinary(), buildMaskImageArgs(output, width, height, rect), { timeout: 30_000 }, (err) =>
       resolve(!err && fs.existsSync(output))
     );
   });
