@@ -87,6 +87,14 @@ function humanizeProviderError(err: unknown): string {
   if (/overloaded_error|529/i.test(raw)) {
     return "The AI provider is overloaded right now — try again in a bit.";
   }
+  // Ollama's own most likely real-world failure isn't a bad/missing key like the other four
+  // providers — it's the local server simply not running. A raw Node fetch failure against a dead
+  // localhost port surfaces as an unhelpful "fetch failed" (the real ECONNREFUSED is nested in
+  // `.cause`, not `.message`) without this, which tells a user nothing actionable.
+  if (/ECONNREFUSED|fetch failed/i.test(raw)) {
+    const url = loadRixieEnv().OLLAMA_BASE_URL || "http://localhost:11434";
+    return `I can't respond right now — I couldn't reach Ollama at ${url}. Make sure the Ollama app is running, then try again.`;
+  }
   return raw;
 }
 
@@ -163,6 +171,11 @@ function getAgent(providerType?: string, modelName?: string, companionActive?: b
     openAIApiKey: overrides.OPENAI_API_KEY,
     geminiApiKey: overrides.GEMINI_API_KEY,
     groqApiKey: overrides.GROQ_API_KEY,
+    // Only forwarded when Ollama is actually the resolved provider — createProvider()'s
+    // openAIBaseURL also doubles as an override slot for the openai/groq branches, so an unrelated
+    // saved Ollama address must never leak into one of THOSE calls just because it happens to be
+    // present in the env file.
+    openAIBaseURL: resolvedProvider === "ollama" ? overrides.OLLAMA_BASE_URL || undefined : undefined,
   });
   // NOT `|| undefined` down to RixieAgent's own config.MODEL fallback — that constant is computed
   // once from process.env.RIXIE_PROVIDER, a stale snapshot from whenever this server started,

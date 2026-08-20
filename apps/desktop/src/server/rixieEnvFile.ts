@@ -2,15 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
-export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq";
+export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq" | "ollama";
 
 // Matches studios/universe/app/api/agent/route.ts's own documented variable names exactly
 // (originally studios/bp/.env.example's, from before Rixie's chat moved into Universe).
+// "ollama"'s slot holds a base URL, not a secret — see the web copy of this file
+// (studios/universe/app/api/_lib/rixieEnvFile.ts) for the full rationale.
 const PROVIDER_KEY_VAR: Record<RixieProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
   groq: "GROQ_API_KEY",
+  ollama: "OLLAMA_BASE_URL",
 };
 
 // Deliberately PER-PROVIDER, not a single shared RIXIE_MODEL — confirmed the hard way that a
@@ -23,6 +26,7 @@ const PROVIDER_MODEL_VAR: Record<RixieProvider, string> = {
   openai: "RIXIE_MODEL_OPENAI",
   gemini: "RIXIE_MODEL_GEMINI",
   groq: "RIXIE_MODEL_GROQ",
+  ollama: "RIXIE_MODEL_OLLAMA",
 };
 
 function rixieEnvPath(): string {
@@ -78,6 +82,9 @@ export function getApiKeyStatus(): RixieKeyStatus {
   const configured = Object.fromEntries(
     (Object.keys(PROVIDER_KEY_VAR) as RixieProvider[]).map((p) => [p, Boolean(env[PROVIDER_KEY_VAR[p]]?.trim())])
   ) as Record<RixieProvider, boolean>;
+  // Ollama has a real, working default (localhost:11434, model llama3.1) and needs no stored value
+  // to be usable — see the web copy of this file for the full rationale.
+  configured.ollama = true;
   const models = Object.fromEntries(
     (Object.keys(PROVIDER_MODEL_VAR) as RixieProvider[]).map((p) => [p, env[PROVIDER_MODEL_VAR[p]] ?? ""])
   ) as Record<RixieProvider, string>;

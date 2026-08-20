@@ -12,6 +12,7 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   openai: "OpenAI",
   gemini: "Google Gemini",
   groq: "Groq",
+  ollama: "Ollama (local)",
 };
 
 // Display-only mirror of @veasna/ai's defaultModelForProvider — that package is Node-only
@@ -23,12 +24,13 @@ const DEFAULT_MODEL_LABEL: Record<RixieProvider, string> = {
   openai: "gpt-4o",
   gemini: "gemini-2.0-flash",
   groq: "llama-3.3-70b-versatile",
+  ollama: "llama3.1",
 };
 
 type KeyStatus = { activeProvider: RixieProvider; configured: Record<RixieProvider, boolean>; models: Record<RixieProvider, string> };
 
-const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false, groq: false };
-const EMPTY_MODELS: Record<RixieProvider, string> = { anthropic: "", openai: "", gemini: "", groq: "" };
+const EMPTY_CONFIGURED: Record<RixieProvider, boolean> = { anthropic: false, openai: false, gemini: false, groq: false, ollama: false };
+const EMPTY_MODELS: Record<RixieProvider, string> = { anthropic: "", openai: "", gemini: "", groq: "", ollama: "" };
 
 /** The web-mode counterpart to the Electron bridge — same shape, backed by
  *  /api/settings/rixie-key instead of an IPC call. That route writes to a gitignored .env.rixie
@@ -128,7 +130,10 @@ function RixieApiKeySection() {
   }
 
   async function handleSave() {
-    if (!apiKey.trim()) return;
+    // Ollama has a real default address — an empty save is meaningful for it (confirms "use the
+    // default"/clears any override), unlike the other four where an empty value would just be a
+    // missing credential.
+    if (provider !== "ollama" && !apiKey.trim()) return;
     setSaving(true);
     setSaved(null);
     setError(null);
@@ -176,13 +181,17 @@ function RixieApiKeySection() {
 
       <div className="space-y-2.5 rounded-lg border border-[var(--os-border)] px-3 py-3">
         <div className="text-[11px] text-[var(--os-text-muted)]">
-          {isActive
-            ? isConfigured
-              ? `Rixie is currently using ${PROVIDER_LABELS[provider]}.`
-              : `Rixie is set to ${PROVIDER_LABELS[provider]}, but no key is saved for it yet — enter one below.`
-            : isConfigured
-            ? `Switching to ${PROVIDER_LABELS[provider]} — it already has a saved key.`
-            : `No key saved for ${PROVIDER_LABELS[provider]} yet — paste one below.`}
+          {provider === "ollama"
+            ? isActive
+              ? "Rixie is currently using Ollama (runs locally, no key needed) — leave the address below blank for the default (http://localhost:11434), or set a custom one."
+              : "Switching to Ollama — runs locally, no key needed."
+            : isActive
+              ? isConfigured
+                ? `Rixie is currently using ${PROVIDER_LABELS[provider]}.`
+                : `Rixie is set to ${PROVIDER_LABELS[provider]}, but no key is saved for it yet — enter one below.`
+              : isConfigured
+                ? `Switching to ${PROVIDER_LABELS[provider]} — it already has a saved key.`
+                : `No key saved for ${PROVIDER_LABELS[provider]} yet — paste one below.`}
         </div>
 
         <div className="flex items-center gap-2">
@@ -199,14 +208,20 @@ function RixieApiKeySection() {
             ))}
           </select>
           <input
-            type="password"
+            type={provider === "ollama" ? "text" : "password"}
             value={apiKey}
             onChange={(e) => {
               setApiKey(e.target.value);
               setSaved(null);
               setError(null);
             }}
-            placeholder={isConfigured ? "Paste a new key to replace the saved one" : "Paste your API key"}
+            placeholder={
+              provider === "ollama"
+                ? "http://localhost:11434/v1 (default — leave blank to use it)"
+                : isConfigured
+                  ? "Paste a new key to replace the saved one"
+                  : "Paste your API key"
+            }
             spellCheck={false}
             autoComplete="off"
             className="min-w-0 flex-1 rounded-md border border-[var(--os-border)] bg-[var(--os-surface)] px-2.5 py-1.5 text-xs text-[var(--os-text)] outline-none placeholder:text-[var(--os-text-muted)] focus:border-[var(--os-accent-border)]"
@@ -216,10 +231,10 @@ function RixieApiKeySection() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleSave}
-            disabled={!apiKey.trim() || saving}
+            disabled={(provider !== "ollama" && !apiKey.trim()) || saving}
             className="rounded-full bg-[var(--os-accent-soft)] px-3.5 py-1.5 text-[11px] font-semibold text-[var(--os-accent-text)] transition hover:opacity-90 disabled:opacity-40"
           >
-            {saving ? "Saving…" : isConfigured ? "Replace key" : "Save"}
+            {saving ? "Saving…" : provider === "ollama" ? "Save" : isConfigured ? "Replace key" : "Save"}
           </button>
         </div>
 

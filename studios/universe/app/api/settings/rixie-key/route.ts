@@ -4,7 +4,7 @@ import { getApiKeyStatus, setApiKey, setActiveProvider, setModel, RixieProvider 
 
 export const runtime = "nodejs";
 
-const VALID_PROVIDERS: RixieProvider[] = ["anthropic", "openai", "gemini", "groq"];
+const VALID_PROVIDERS: RixieProvider[] = ["anthropic", "openai", "gemini", "groq", "ollama"];
 
 /** The web-mode counterpart to apps/desktop's "settings:get-api-key-status"/"settings:set-api-key"/
  *  "settings:set-active-provider" IPC handlers — SettingsPanel.tsx's Rixie AI section uses the
@@ -39,10 +39,13 @@ export async function POST(req: NextRequest) {
     if (badProvider(provider)) {
       return NextResponse.json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` }, { status: 400 });
     }
-    if (!apiKey || !apiKey.trim()) {
+    // Ollama runs locally with a real default address — an empty value is a legitimate "use the
+    // default" save for it specifically, not a missing credential like it would be for the other
+    // four providers.
+    if (provider !== "ollama" && (!apiKey || !apiKey.trim())) {
       return NextResponse.json({ error: "Missing 'apiKey'" }, { status: 400 });
     }
-    setApiKey(provider as RixieProvider, apiKey);
+    setApiKey(provider as RixieProvider, apiKey ?? "");
     return NextResponse.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

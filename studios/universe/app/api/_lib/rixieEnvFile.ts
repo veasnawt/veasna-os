@@ -1,16 +1,20 @@
 import fs from "fs";
 import path from "path";
 
-export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq";
+export type RixieProvider = "anthropic" | "openai" | "gemini" | "groq" | "ollama";
 
 // Matches studios/universe/app/api/agent/route.ts's own documented variable names, and
 // apps/desktop/src/server/rixieEnvFile.ts's copy of the same map (that one can't import this file
 // directly — it needs Electron's `app.getPath`, which doesn't exist outside the desktop app).
+// "ollama"'s slot holds a base URL, not a secret — it runs locally, no API key involved — reusing
+// this same map rather than a parallel one since the rest of this file already treats every
+// provider's value as "the one string this provider needs," regardless of what kind of string it is.
 const PROVIDER_KEY_VAR: Record<RixieProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
   groq: "GROQ_API_KEY",
+  ollama: "OLLAMA_BASE_URL",
 };
 
 // Deliberately PER-PROVIDER, not a single shared RIXIE_MODEL — confirmed the hard way that a
@@ -23,6 +27,7 @@ const PROVIDER_MODEL_VAR: Record<RixieProvider, string> = {
   openai: "RIXIE_MODEL_OPENAI",
   gemini: "RIXIE_MODEL_GEMINI",
   groq: "RIXIE_MODEL_GROQ",
+  ollama: "RIXIE_MODEL_OLLAMA",
 };
 
 /** Documents/Veasna OS/rixie.env in the packaged desktop app (VEASNA_WORKSPACE_ROOT set by
@@ -81,6 +86,10 @@ export function getApiKeyStatus(): RixieKeyStatus {
   const configured = Object.fromEntries(
     (Object.keys(PROVIDER_KEY_VAR) as RixieProvider[]).map((p) => [p, Boolean(env[PROVIDER_KEY_VAR[p]]?.trim())])
   ) as Record<RixieProvider, boolean>;
+  // Ollama has a real, working default (localhost:11434, model llama3.1) and needs no stored value
+  // to be usable — unlike the other four, where an unset key hard-fails the very first request, so
+  // "configured" always reads true for it regardless of whether OLLAMA_BASE_URL is actually set.
+  configured.ollama = true;
   const models = Object.fromEntries(
     (Object.keys(PROVIDER_MODEL_VAR) as RixieProvider[]).map((p) => [p, env[PROVIDER_MODEL_VAR[p]] ?? ""])
   ) as Record<RixieProvider, string>;
