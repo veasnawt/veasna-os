@@ -1,5 +1,5 @@
 // Mirrors `FfmpegPlugin.kt` (Android) — same methods, same `Ffmpeg` JS-side plugin name, talking
-// to ffmpeg-kit's iOS SDK (via the `ffmpeg-kit-ios-full` pod in ../Podfile) instead of its Android AAR.
+// to ffmpeg-kit's iOS SDK (via the `ffmpeg-kit-lgpl` pod in ../Podfile) instead of its Android AAR.
 // The API surface below was checked against that pod's bundled Objective-C headers (FFmpegKit.h,
 // Session.h, Statistics.h, ReturnCode.h) and against the real compiler: the Obj-C selector
 // `executeWithArgumentsAsync:withCompleteCallback:withLogCallback:withStatisticsCallback:` is imported

@@ -7,7 +7,7 @@ PODS:
     - IONFilesystemLib (~> 1.1.1)
   - CapacitorShare (7.0.4):
     - Capacitor
-  - ffmpeg-kit-ios-full (6.0)
+  - ffmpeg-kit-lgpl (8.1.2)
   - IONFilesystemLib (1.1.2)
 
 DEPENDENCIES:
@@ -15,7 +15,7 @@ DEPENDENCIES:
   - "CapacitorCordova (from `../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios`)"
   - "CapacitorFilesystem (from `../../../../node_modules/.pnpm/@capacitor+filesystem@7.1.8_@capacitor+core@7.6.8/node_modules/@capacitor/filesystem`)"
   - "CapacitorShare (from `../../../../node_modules/.pnpm/@capacitor+share@7.0.4_@capacitor+core@7.6.8/node_modules/@capacitor/share`)"
-  - ffmpeg-kit-ios-full (from `https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec`)
+  - ffmpeg-kit-lgpl (from `FFmpegKitLGPL`)
 
 SPEC REPOS:
   trunk:
@@ -30,17 +30,17 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/.pnpm/@capacitor+filesystem@7.1.8_@capacitor+core@7.6.8/node_modules/@capacitor/filesystem"
   CapacitorShare:
     :path: "../../../../node_modules/.pnpm/@capacitor+share@7.0.4_@capacitor+core@7.6.8/node_modules/@capacitor/share"
-  ffmpeg-kit-ios-full:
-    :podspec: https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec
+  ffmpeg-kit-lgpl:
+    :path: FFmpegKitLGPL
 
 SPEC CHECKSUMS:
   Capacitor: ff6bf01336ac353098378828aff465095a89e459
   CapacitorCordova: e61ee8c40101b8cd011d0224261606a290c082cf
   CapacitorFilesystem: c63fc54df41e5a6761785a7f3c49dc696c22e296
   CapacitorShare: 25f7fc5dd0e4edbde5d6801c6de5d14a8b450a41
-  ffmpeg-kit-ios-full: 2da77324b0e9fb007195ab6661f64be4cf31dc12
+  ffmpeg-kit-lgpl: ba033bcd0fe6f0e65baba769a5cc3263689e3e0f
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
 
-PODFILE CHECKSUM: 696ff67802c615b046c69881ae721f44333dc4d4
+PODFILE CHECKSUM: 1be22d91e523a9fdd387b49f193e39380da64b49
 
 COCOAPODS: 1.17.0

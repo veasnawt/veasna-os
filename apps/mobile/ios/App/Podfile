@@ -17,11 +17,12 @@ end
 
 target 'App' do
   capacitor_pods
-  # The official `ffmpeg-kit-ios-full` pod's binary was pulled from CocoaPods' CDN when arthenica
-  # retired ffmpeg-kit in 2025 (its GitHub release asset now 404s too) — this points the same pod name
-  # at a community re-host of the identical v6.0 xcframework (GPL build: libx264/libmp3lame/libfdk-aac
-  # included, same as the Android side's `com.moizhassan.ffmpeg:ffmpeg-kit-16kb` fork already ships).
-  pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'
+  # LGPL-3.0 "full" package, not "full-gpl": no libx264/libfdk-aac, so this carries none of
+  # GPLv3's linking obligations for App Store/TestFlight distribution. H.264/H.265 export uses
+  # Apple's own VideoToolbox hardware encoders instead (confirmed present in the compiled binary,
+  # not just assumed from the package name) — see FFmpegKitLGPL/ffmpeg-kit-lgpl.podspec for where
+  # the binaries actually come from (the official ffmpeg-kit project retired in 2025).
+  pod 'ffmpeg-kit-lgpl', :path => 'FFmpegKitLGPL'
 end
 
 post_install do |installer|
