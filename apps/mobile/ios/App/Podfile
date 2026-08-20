@@ -12,15 +12,16 @@ def capacitor_pods
   pod 'Capacitor', :path => '../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios'
   pod 'CapacitorFilesystem', :path => '../../../../node_modules/.pnpm/@capacitor+filesystem@7.1.8_@capacitor+core@7.6.8/node_modules/@capacitor/filesystem'
+  pod 'CapacitorShare', :path => '../../../../node_modules/.pnpm/@capacitor+share@7.0.4_@capacitor+core@7.6.8/node_modules/@capacitor/share'
 end
 
 target 'App' do
   capacitor_pods
-  # Add your Pods here
-  # TODO(mobile export, iOS leg — unverified on this Windows machine, see FfmpegPlugin.swift's own
-  # header comment): needs a working ffmpeg-kit-compatible CocoaPods dependency here, e.g.
-  #   pod 'ffmpeg-kit-ios-full', :git => '<a maintained fork's repo>'
-  # No specific pod/version was confirmed resolvable this session — research one before uncommenting.
+  # The official `ffmpeg-kit-ios-full` pod's binary was pulled from CocoaPods' CDN when arthenica
+  # retired ffmpeg-kit in 2025 (its GitHub release asset now 404s too) — this points the same pod name
+  # at a community re-host of the identical v6.0 xcframework (GPL build: libx264/libmp3lame/libfdk-aac
+  # included, same as the Android side's `com.moizhassan.ffmpeg:ffmpeg-kit-16kb` fork already ships).
+  pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'
 end
 
 post_install do |installer|

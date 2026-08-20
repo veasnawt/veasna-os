@@ -1,21 +1,16 @@
 // Mirrors `FfmpegPlugin.kt` (Android) — same methods, same `Ffmpeg` JS-side plugin name, talking
-// to ffmpeg-kit's iOS SDK instead of its Android AAR. See the mobile-export plan's own note: this file
-// is written for parity so `apps/mobile/ios` isn't left half-wired, but it has NOT been built or run —
-// Xcode/the iOS simulator don't exist on this (Windows) dev machine, and this session has only ever
-// built/tested the Android APK. Whoever next has Mac access needs to:
-//   1. Add a working CocoaPods dependency to `apps/mobile/ios/App/Podfile`'s `target 'App' do` block for
-//      an ffmpeg-kit-compatible iOS pod (the Android side uses `com.moizhassan.ffmpeg:ffmpeg-kit-16kb`,
-//      which is Android/Maven-only — no confirmed iOS/CocoaPods equivalent from the same fork was
-//      verified this session; research a maintained iOS-covering fork before assuming one exists).
-//   2. Confirm the actual Swift/Objective-C API surface below against whatever pod is chosen — this is
-//      reconstructed from ffmpeg-kit's historical (pre-retirement) API shape, not verified against a
-//      real compile.
-//   3. Run `pod install`, build, and smoke-test on a real device the same way the Android build order
-//      does (see the plan: trivial export first, then the full filter-graph path).
+// to ffmpeg-kit's iOS SDK (via the `ffmpeg-kit-ios-full` pod in ../Podfile) instead of its Android AAR.
+// The API surface below was checked against that pod's bundled Objective-C headers (FFmpegKit.h,
+// Session.h, Statistics.h, ReturnCode.h) and against the real compiler: the Obj-C selector
+// `executeWithArgumentsAsync:withCompleteCallback:withLogCallback:withStatisticsCallback:` is imported
+// into Swift as `FFmpegKit.execute(withArgumentsAsync:withCompleteCallback:withLogCallback:
+// withStatisticsCallback:)` — Swift's importer factors the "WithArguments" piece into the first
+// parameter label rather than keeping it as part of the base method name.
 
 import Capacitor
 import Foundation
 import Photos
+import ffmpegkit
 
 @objc(FfmpegPlugin)
 public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -27,7 +22,7 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "saveToGallery", returnType: CAPPluginReturnPromise),
     ]
 
-    private var sessionIds: [String: Int32] = [:]
+    private var sessionIds: [String: Int] = [:]
     private var totalDurationMs: [String: Double] = [:]
 
     @objc func run(_ call: CAPPluginCall) {
@@ -41,8 +36,8 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         totalDurationMs[jobId] = (call.getDouble("duration") ?? 0) * 1000
 
-        let session = FFmpegKit.executeAsync(
-            withArguments: args,
+        let session = FFmpegKit.execute(
+            withArgumentsAsync: args,
             withCompleteCallback: { [weak self] session in
                 guard let self = self, let session = session else { return }
                 var payload: [String: Any] = ["jobId": jobId]
@@ -73,8 +68,11 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.notifyListeners("progress", data: ["jobId": jobId, "fraction": fraction])
             }
         )
-        if let session = session {
-            sessionIds[jobId] = session.getSessionId()
+        if let runningSession = session {
+            // `Session`'s own header declares `getSessionId`, but the framework's Swift overlay marks
+            // it `@available(swift, obsoleted: 3, renamed: "getId()")` — a leftover Swift 3 migration
+            // shim. `getSessionId()` doesn't compile in Swift; `getId()` is the real entry point.
+            sessionIds[jobId] = runningSession.getId()
         }
         call.resolve()
     }
