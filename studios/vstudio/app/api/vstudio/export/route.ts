@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { buildExportPlan } from "@veasna/vstudio/src/export/buildExportPlan";
 import { deserializeProject } from "@veasna/vstudio/src/project/serialize";
-import { ffmpegAvailable, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
+import { ffmpegAvailable, fontMetricsFor, fontsDirPath, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, resolveWithin } from "../_lib/paths";
 
@@ -71,6 +71,8 @@ export const POST = localRoute(async (req) => {
   // One text clip's content, written to its own file so `drawtext`'s `textfile=` can read it (see
   // `ExportPlanOptions.textFilePathFor`'s own comment on why a file rather than an escaped `text=`
   // value) — ephemeral, this export's only, cleaned up in the `finally` below regardless of outcome.
+  // A `wordHighlight` clip's generated `.ass` subtitle document (see `assFilePathFor` below) lives in
+  // this same directory — same lifetime, same cleanup, no reason for a second temp dir.
   const textFilesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vstudio-text-"));
 
   // buildExportPlan throws ExportError for anything it can't render (empty timeline, offline media).
@@ -85,11 +87,18 @@ export const POST = localRoute(async (req) => {
       },
       outputPath,
       fontPathFor: (fileName) => textFontPath(fileName),
-      textFilePathFor: (clip, content) => {
-        const filePath = path.join(textFilesDir, `${clip.id}.txt`);
+      textFilePathFor: (clip, content, variant) => {
+        const filePath = path.join(textFilesDir, `${clip.id}${variant ? `-${variant}` : ""}.txt`);
         fs.writeFileSync(filePath, content, "utf8");
         return filePath;
       },
+      assFilePathFor: (clip, assContent) => {
+        const filePath = path.join(textFilesDir, `${clip.id}.ass`);
+        fs.writeFileSync(filePath, assContent, "utf8");
+        return filePath;
+      },
+      fontMetricsFor,
+      fontsDirFor: fontsDirPath,
     });
   } catch (err) {
     fs.rmSync(textFilesDir, { recursive: true, force: true });

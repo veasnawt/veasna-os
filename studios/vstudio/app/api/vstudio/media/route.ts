@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { Asset } from "@veasna/vstudio/src/project/types";
-import { generateFilmstrip, generateThumbnail, generateWaveform, probeMedia } from "../_lib/ffmpeg";
+import { generateFilmstrip, generateThumbnail, generateWaveform, probeMedia, remuxForDuration } from "../_lib/ffmpeg";
 import { localRoute } from "../_lib/localOnly";
 import { kindForExtension, SUPPORTED_EXTENSIONS } from "../_lib/mediaFormats";
 import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName } from "../_lib/paths";
@@ -52,6 +52,14 @@ export const POST = localRoute(async (req) => {
     // Don't leave an unreadable file sitting in the project folder if it turned out not to be media.
     fs.rmSync(destination, { force: true });
     throw err;
+  }
+
+  // A duration-less probe with a REAL stream present is very often a MediaRecorder-captured voiceover
+  // (see `remuxForDuration`'s own comment for the exact mechanism) rather than a genuinely empty file —
+  // try recovering it with a lossless remux before giving up.
+  if (kind !== "image" && probe.duration <= 0 && (probe.hasAudio || probe.hasVideo)) {
+    const fixed = await remuxForDuration(destination);
+    if (fixed) probe = fixed;
   }
 
   // A still image has no duration and no video stream in the usual sense; everything else must have

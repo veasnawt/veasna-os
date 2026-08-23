@@ -51,6 +51,9 @@ importers:
       '@capacitor/android':
         specifier: ^7.0.0
         version: 7.6.8(@capacitor/core@7.6.8)
+      '@capacitor/camera':
+        specifier: ^7.0.0
+        version: 7.0.5(@capacitor/core@7.6.8)
       '@capacitor/core':
         specifier: ^7.0.0
         version: 7.6.8
@@ -230,6 +233,9 @@ importers:
 
   packages/vstudio:
     dependencies:
+      '@capacitor/camera':
+        specifier: ^7.0.0
+        version: 7.0.5(@capacitor/core@7.6.8)
       '@capacitor/core':
         specifier: ^7.0.0
         version: 7.6.8
@@ -675,6 +681,11 @@ packages:
     resolution: {integrity: sha512-ohz/OUq61Y1Fc6aVSt0uDrUdeOA7oTH4pkWDbv/8I3UrPjH7oPkzYhShuDRUjekNp9RBi198VSFdt0CetpEOzw==}
     engines: {node: '>=10.3.0'}
     hasBin: true
+
+  '@capacitor/camera@7.0.5':
+    resolution: {integrity: sha512-+53f1xHq8on7O+ULXbgWp00ooWvn3fUkWxTP3p5zHi1nVriCxLbYnY0zTpZQqn52M96vclFKkoABbTVQ3x755w==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/cli@5.7.8':
     resolution: {integrity: sha512-qN8LDlREMhrYhOvVXahoJVNkP8LP55/YPRJrzTAFrMqlNJC18L3CzgWYIblFPnuwfbH/RxbfoZT/ydkwgVpMrw==}
@@ -3695,6 +3706,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -7106,6 +7118,10 @@ snapshots:
       - encoding
       - react-native-b4a
       - supports-color
+
+  '@capacitor/camera@7.0.5(@capacitor/core@7.6.8)':
+    dependencies:
+      '@capacitor/core': 7.6.8
 
   '@capacitor/cli@5.7.8(supports-color@8.1.1)':
     dependencies:

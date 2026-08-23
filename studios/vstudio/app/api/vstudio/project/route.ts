@@ -49,12 +49,20 @@ export const GET = localRoute(async (req) => {
  *  id", which is what an `<iframe src>` with a `projectId` already baked into its query string needs
  *  — the two aren't redundant, they're create-with-a-name vs. open/create-by-a-given-key. */
 export const POST = localRoute(async (req) => {
-  const body = (await req.json().catch(() => ({}))) as { name?: string };
+  const body = (await req.json().catch(() => ({}))) as { name?: string; width?: number; height?: number; fps?: number };
   const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 120) : "Untitled";
+
+  // Optional — the home page's resolution picker sends real values; any other caller (or a request
+  // missing one of the three) falls straight through to createProject's own SHORT_PRESET default,
+  // same as before this existed.
+  const preset =
+    typeof body.width === "number" && typeof body.height === "number" && typeof body.fps === "number"
+      ? { width: body.width, height: body.height, fps: body.fps }
+      : undefined;
 
   const id = crypto.randomUUID();
   const paths = ensureProjectDirs(id);
-  const project = createProject(id, name);
+  const project = preset ? createProject(id, name, preset) : createProject(id, name);
   fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
 
   return Response.json({ project });

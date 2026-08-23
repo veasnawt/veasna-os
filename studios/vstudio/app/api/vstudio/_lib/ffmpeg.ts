@@ -1,7 +1,10 @@
 import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { buildFilmstripArgs, buildMaskImageArgs, buildMaskVideoArgs, buildThumbnailArgs, buildWaveformArgs } from "@veasna/vstudio/src/export/ffmpegCommands";
+import { readAssFontMetrics } from "@veasna/vstudio/src/project/fonts";
+import type { AssFontMetrics } from "@veasna/vstudio/src/project/fonts";
 import { ApiError } from "./paths";
 
 /** A binary inside an `app.asar` archive can't be executed — electron-builder writes such files to a
@@ -22,9 +25,15 @@ function unpackedPath(p: string): string {
 function resolveBinary(kind: "ffmpeg" | "ffprobe"): string {
   let raw: string | undefined;
   try {
+    // Deliberately `require`, not a static `import`: a static import of a missing/postinstall-skipped
+    // package fails at MODULE LOAD time (before this function's own `try/catch` even exists to catch
+    // it), crashing the whole route. `require()` here throws synchronously at CALL time instead, right
+    // where this `try/catch` can turn it into the clean `ApiError` below.
     if (kind === "ffmpeg") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       raw = require("ffmpeg-static") as string;
     } else {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       raw = (require("ffprobe-static") as { path: string }).path;
     }
   } catch {
@@ -78,6 +87,37 @@ export function textFontPath(file: string): string {
     throw new ApiError(500, `Bundled font file is missing: ${file}`, "font-missing");
   }
   return full;
+}
+
+/** The bundled fonts directory itself, not one file within it — what `wordHighlight` export's
+ *  `subtitles=...:fontsdir=...` filter needs (libass resolves a `Style: Fontname` by scanning a whole
+ *  directory for matching files, unlike `drawtext`'s `fontfile=`, which points at one exact file). Same
+ *  underlying folder `textFontPath` already resolves; exposed separately since that function's job is
+ *  specifically "one file's path", not "the directory". */
+export function fontsDirPath(): string {
+  return resolveFontsDir();
+}
+
+const fontMetricsCache = new Map<string, AssFontMetrics | null>();
+
+/** Resolves + caches a bundled font's real ASS metrics (family name + fontsize scale) from its own
+ *  file bytes — see `AssFontMetrics`'s own doc comment for what these mean and why they're needed.
+ *  Cached per REGULAR-file id (not per weight/style — verified empirically that a font's own weight/
+ *  style files all share one family name, and only the regular file's metrics are ever asked for here,
+ *  matching `buildWordHighlightAss`'s own use of `resolveFontVariant`/`fontById` to pick the style
+ *  WITHOUT needing separate metrics per face) so a project with many `wordHighlight` clips sharing one
+ *  font only reads that font's bytes once per server process. */
+export function fontMetricsFor(font: { id: string; files: { regular: string } }): AssFontMetrics | null {
+  if (fontMetricsCache.has(font.id)) return fontMetricsCache.get(font.id)!;
+  let metrics: AssFontMetrics | null;
+  try {
+    const buf = fs.readFileSync(path.join(resolveFontsDir(), font.files.regular));
+    metrics = readAssFontMetrics(buf);
+  } catch {
+    metrics = null;
+  }
+  fontMetricsCache.set(font.id, metrics);
+  return metrics;
 }
 
 let ffmpegPath: string | null = null;
@@ -152,6 +192,45 @@ export async function probeMedia(filePath: string): Promise<ProbeResult> {
     hasAudio: Boolean(audio),
     hasVideo: Boolean(video),
   };
+}
+
+/** MediaRecorder-produced WebM (the shape `VoiceoverRecorder`'s captures always are — see the media
+ *  import route's own comment) is written in STREAMING mode: the browser can't seek back to patch the
+ *  container header once recording stops, so the Matroska "Segment Duration" element — and any
+ *  per-stream `DURATION` tag — is simply never written at all (not even an unreliable placeholder).
+ *  `probeMedia` then reads a bare `0` for `format.duration`/the per-stream fallbacks, which the import
+ *  route treats as "empty file" and rejects outright — even though the recording is completely valid,
+ *  playable audio. Confirmed live: piping FFmpeg's own webm mux to a non-seekable output reproduces the
+ *  identical missing-duration shape a real `MediaRecorder` capture has, and this exact remux recovers
+ *  it (3.008s round-trips to 3.028s — the small delta is normal Opus encoder priming/padding, not data
+ *  loss).
+ *
+ *  The fix is a plain stream-copy remux (`-c copy`, no re-encode — fast and lossless, and format-
+ *  agnostic so it isn't special-cased to WebM/Opus) into a fresh, seekable output file: FFmpeg CAN seek
+ *  back on a file IT just created to patch in the correct header once it's read every packet and knows
+ *  the true duration, which a browser's live encoder never gets the chance to do. Only worth attempting
+ *  when the original probe already found a real stream (`hasAudio`/`hasVideo`) — a genuinely empty or
+ *  corrupt file gains nothing from a remux and shouldn't cost the extra ffmpeg invocation. Returns the
+ *  freshly re-probed result on success, having REPLACED `filePath`'s own on-disk content with the
+ *  remuxed version — so every later consumer of this same file (export, thumbnailing, playback) also
+ *  sees the fixed duration, not just this one import check — or `null` if the remux didn't actually
+ *  help (a real empty/corrupt file, not a streaming-duration artifact), leaving `filePath` untouched. */
+export async function remuxForDuration(filePath: string): Promise<ProbeResult | null> {
+  const tmpPath = `${filePath}.remux${path.extname(filePath)}`;
+  const ok = await new Promise<boolean>((resolve) => {
+    execFile(ffmpegBinary(), ["-y", "-i", filePath, "-c", "copy", tmpPath], { timeout: 60_000 }, (err) => resolve(!err));
+  });
+  if (!ok || !fs.existsSync(tmpPath)) {
+    fs.rmSync(tmpPath, { force: true });
+    return null;
+  }
+  const reprobed = await probeMedia(tmpPath).catch(() => null);
+  if (!reprobed || reprobed.duration <= 0) {
+    fs.rmSync(tmpPath, { force: true });
+    return null;
+  }
+  fs.renameSync(tmpPath, filePath);
+  return reprobed;
 }
 
 /** Grabs a single frame as a JPEG for the media library. Failure is non-fatal — a missing thumbnail
@@ -234,13 +313,43 @@ export interface FfmpegRun {
   done: Promise<void>;
 }
 
+/** FFmpeg's `-filter_complex_script` reads the filter graph from a FILE instead of the command line —
+ *  the fix for a real, live-reproduced failure: Windows' `CreateProcess` has a hard ~32,767-character
+ *  command-line limit, and a heavily keyframed clip's own filter graph (a text clip's
+ *  `textStyleKeyframes`-driven chain repeats its full font path/text file path/style params once PER
+ *  SLICE — see `buildKeyframedDrawTextCalls`'s own doc comment) can run well past that on its own,
+ *  before any other arg is even counted. Node's `child_process.spawn` throws `ENAMETOOLONG`
+ *  synchronously in that case — it never even reaches FFmpeg, so there's no stderr to diagnose it from.
+ *
+ *  Spilling to a script file ALWAYS, not just past some length threshold, is simpler and strictly safer
+ *  than guessing a "safe enough" inline size: FFmpeg supports `-filter_complex_script` unconditionally,
+ *  so there's no reason to keep the inline form as a special case for the common short-graph case. The
+ *  file lives in a fresh OS-temp directory and is deleted once the process actually exits (`cleanup`,
+ *  called from both the `close` and `error` paths below) — same "ephemeral, this run's only" lifetime
+ *  `studios/vstudio/app/api/vstudio/export/route.ts`'s own text-file temp dir already uses. */
+function spillFilterComplexToScript(args: string[]): { args: string[]; cleanup: () => void } {
+  const index = args.indexOf("-filter_complex");
+  if (index < 0 || index + 1 >= args.length) return { args, cleanup: () => {} };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vstudio-filter-"));
+  const scriptPath = path.join(dir, "filter_complex.txt");
+  fs.writeFileSync(scriptPath, args[index + 1], "utf8");
+
+  const next = [...args];
+  next[index] = "-filter_complex_script";
+  next[index + 1] = scriptPath;
+
+  return { args: next, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
 /** Runs FFmpeg, reporting progress as a 0–1 fraction.
  *
  *  `-progress pipe:1 -nostats` makes FFmpeg emit machine-readable `key=value` lines on stdout
  *  instead of its human-oriented status line, which is far more robust than scraping the usual
  *  terminal output. */
 export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fraction: number) => void): FfmpegRun {
-  const child = spawn(ffmpegBinary(), ["-progress", "pipe:1", "-nostats", ...args], {
+  const { args: resolvedArgs, cleanup } = spillFilterComplexToScript(args);
+  const child = spawn(ffmpegBinary(), ["-progress", "pipe:1", "-nostats", ...resolvedArgs], {
     windowsHide: true,
   });
 
@@ -266,8 +375,12 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
   });
 
   const done = new Promise<void>((resolve, reject) => {
-    child.on("error", (err) => reject(new ApiError(500, `Could not start FFmpeg: ${err.message}`, "ffmpeg-spawn")));
+    child.on("error", (err) => {
+      cleanup();
+      reject(new ApiError(500, `Could not start FFmpeg: ${err.message}`, "ffmpeg-spawn"));
+    });
     child.on("close", (code, signal) => {
+      cleanup();
       if (code === 0) return resolve();
       // A cancelled export is an expected outcome, not an error to surface as a failure.
       if (signal) return reject(new ApiError(499, "Export cancelled", "cancelled"));
