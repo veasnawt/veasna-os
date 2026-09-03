@@ -52,6 +52,30 @@ const registeredCustomFontIds = new Set<string>();
 export default function TextHarnessPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // The root layout gives every route's `<body>` an explicit opaque `bg-[#0a0c10]` (VCut's dark
+  // theme) — fine for every real page, but fatal here: `canvas.screenshot({omitBackground: true})`
+  // below only suppresses Chromium's own IMPLICIT default white background, it can't override an
+  // EXPLICITLY set CSS one. With the canvas's own CSS background left at its (transparent) default,
+  // Puppeteer ends up rasterizing the canvas's real per-pixel alpha=0 areas against whatever's behind
+  // them in the page — this body color — flattening the whole screenshot to an opaque, alpha-less
+  // PNG. Confirmed directly: the captured window PNGs decoded as `rgb24` (no alpha plane at all), and
+  // every exported Khmer clip showed solid `#0a0c10`-ish black instead of the video underneath for
+  // exactly the clip's own on-screen duration, recovering the instant it ended. Overriding back to
+  // transparent for just this one route (restored on unmount, though nothing else ever mounts here)
+  // is what makes "genuinely nothing behind the canvas" true again, so the real per-pixel alpha this
+  // page already draws correctly reaches the output PNG unflattened.
+  useEffect(() => {
+    const { body, documentElement: html } = document;
+    const prevBodyBg = body.style.background;
+    const prevHtmlBg = html.style.background;
+    body.style.background = "transparent";
+    html.style.background = "transparent";
+    return () => {
+      body.style.background = prevBodyBg;
+      html.style.background = prevHtmlBg;
+    };
+  }, []);
+
   useEffect(() => {
     window.__renderTextFrame = async (params) => {
       const canvas = canvasRef.current;

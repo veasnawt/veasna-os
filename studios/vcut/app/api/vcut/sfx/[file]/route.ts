@@ -1,7 +1,33 @@
-commit b0ecde2a8309b53e6dd88e02f797b622814c6604
-Author: veasnawt <veasnawt@gmail.com>
-Date:   Sun Aug 23 20:02:18 2026 +0700
+import { SFX_REGISTRY } from "@veasnawt/vcut/src/project/sfx";
+import fs from "fs";
+import { sfxAssetPath } from "../../_lib/sfx";
+import { localRoute } from "../../_lib/localOnly";
+import { ApiError } from "../../_lib/paths";
 
-    chore: bump vcut submodule (word-highlight/crossfade fixes, README refresh)
-    
-    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** Serves one bundled `SFX_REGISTRY` catalog entry's audio file to the browser — same
+ *  "`[file]` checked against a known-filenames set, never treated as a raw filesystem path" shape as
+ *  `fonts/[file]/route.ts`, for the identical reason (nothing here for a crafted request to escape
+ *  with). */
+const ALLOWED_FILES = new Set(SFX_REGISTRY.map((sfx) => sfx.file));
+
+export const GET = localRoute(async (_req, context: { params: Promise<{ file: string }> }) => {
+  const { file } = await context.params;
+  if (!ALLOWED_FILES.has(file)) throw new ApiError(404, "Unknown SFX file", "sfx-not-found");
+
+  const filePath = sfxAssetPath(file);
+  const stat = fs.statSync(filePath);
+
+  return new Response(new Uint8Array(fs.readFileSync(filePath)), {
+    status: 200,
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Content-Length": String(stat.size),
+      // Bundled app assets, never user content that could change under this URL — safe to cache
+      // aggressively, same reasoning as fonts/[file]/route.ts's identical header.
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+});

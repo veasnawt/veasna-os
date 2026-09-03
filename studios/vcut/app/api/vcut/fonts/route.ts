@@ -57,10 +57,15 @@ export const POST = localRoute(async (req) => {
   const destination = resolveWithin(paths.customFontsDir, fileName);
   fs.writeFileSync(destination, bytes);
 
+  const id = `cfont_${crypto.randomUUID().slice(0, 8)}`;
   const font: CustomFontAsset = {
-    id: `cfont_${crypto.randomUUID().slice(0, 8)}`,
-    label: file.name.replace(/\.(ttf|otf)$/i, ""),
+    id,
+    name: file.name.replace(/\.(ttf|otf)$/i, ""),
     relPath: fileName,
+    // Prefixed and distinct per upload, same "can never collide with a bundled font or another custom
+    // one" reasoning `FontDefinition.cssFamily`'s own doc comment gives — the id itself is already
+    // guaranteed unique, so reusing it here needs no extra randomness of its own.
+    cssFamily: `VCutCustom-${id}`,
     importedAt: Date.now(),
   };
 

@@ -47,6 +47,16 @@ export interface ProjectPaths {
    *  of scattered in a shared OS temp dir. Each job is still responsible for deleting its own files
    *  once it finishes (success or failure) — this directory is not itself auto-purged. */
   scratchDir: string;
+  /** The project's own reusable ".cube" 3D LUT library (`project.luts`) — see `LutAsset`'s own doc
+   *  comment. Same per-project, per-kind directory shape as `mediaDir`/`thumbnailsDir`, just for a
+   *  library entry rather than a placeable asset. */
+  lutsDir: string;
+  /** The project's own reusable custom-font library (`project.customFonts`) — see `CustomFontAsset`'s
+   *  own doc comment. Same shape as `lutsDir`. */
+  customFontsDir: string;
+  /** The project's own reusable "My Sounds" library (`project.customSfx`) — see `CustomSfxAsset`'s own
+   *  doc comment. Same shape as `lutsDir`. */
+  customSfxDir: string;
 }
 
 export function projectPaths(bpProjectId: string): ProjectPaths {
@@ -59,12 +69,24 @@ export function projectPaths(bpProjectId: string): ProjectPaths {
     thumbnailsDir: path.join(dir, "thumbnails"),
     exportsDir: path.join(dir, "exports"),
     scratchDir: path.join(dir, "scratch"),
+    lutsDir: path.join(dir, "luts"),
+    customFontsDir: path.join(dir, "custom-fonts"),
+    customSfxDir: path.join(dir, "custom-sfx"),
   };
 }
 
 export function ensureProjectDirs(bpProjectId: string): ProjectPaths {
   const paths = projectPaths(bpProjectId);
-  for (const dir of [paths.dir, paths.mediaDir, paths.thumbnailsDir, paths.exportsDir, paths.scratchDir]) {
+  for (const dir of [
+    paths.dir,
+    paths.mediaDir,
+    paths.thumbnailsDir,
+    paths.exportsDir,
+    paths.scratchDir,
+    paths.lutsDir,
+    paths.customFontsDir,
+    paths.customSfxDir,
+  ]) {
     fs.mkdirSync(dir, { recursive: true });
   }
   return paths;

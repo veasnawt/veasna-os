@@ -33,9 +33,24 @@ export interface KhmerTextHarness {
  *   here; their `@font-face` rules already ship in the harness page's own `globals.css`. */
 export async function openKhmerTextHarness(baseUrl: string, outDir: string, customFontUrls: Record<string, string>): Promise<KhmerTextHarness> {
   const browser: Browser = await puppeteer.launch({ headless: true });
-  const page: Page = await browser.newPage();
-  await page.goto(`${baseUrl}/vcut/text-harness`, { waitUntil: "networkidle0" });
-  await page.waitForFunction(() => (window as unknown as { __harnessReady?: boolean }).__harnessReady === true, { timeout: 30_000 });
+  // Everything between launch and the harness signaling ready can throw (a slow first-compile of the
+  // `/vcut/text-harness` route under `next dev`, or the whole machine just being busy — a concurrent
+  // FFmpeg encode from this SAME export is running the entire time this navigates) — and until now,
+  // any of those throwing left `browser` leaked: `openKhmerTextHarness` never returns a `close()` for
+  // its caller to call, since it never returns at all. Confirmed directly as a real, compounding
+  // bug: a single timed-out launch leaves a whole idle Chromium process running forever, which makes
+  // the NEXT export's own launch (if it also has a Khmer clip) that much more likely to ALSO time out
+  // on an already-busier machine — a failure mode that gets steadily more likely across a session,
+  // not a one-off. Closing `browser` here before rethrowing is what stops that snowball.
+  let page: Page;
+  try {
+    page = await browser.newPage();
+    await page.goto(`${baseUrl}/vcut/text-harness`, { waitUntil: "networkidle0" });
+    await page.waitForFunction(() => (window as unknown as { __harnessReady?: boolean }).__harnessReady === true, { timeout: 30_000 });
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
+  }
 
   let viewportSized = false;
   let counter = 0;

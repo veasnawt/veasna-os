@@ -353,6 +353,23 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
     windowsHide: true,
   });
 
+  // A multi-track, high-fps/high-quality encode legitimately wants every core it can get for wall-
+  // clock speed — capping `-threads` would just make it slower for no real benefit. The actual
+  // problem that showed up as "the whole computer froze" on a real run is OS *scheduling*, not core
+  // count: FFmpeg's threads default to the same NORMAL priority as everything else, so on a machine
+  // with only a few cores they compete directly with the UI/compositor for CPU time, and lose no more
+  // often than they win — which is what a system-wide freeze during export actually looks like.
+  // `BELOW_NORMAL` keeps FFmpeg getting 100% of any CPU time nothing else wants (so encode throughput
+  // is unaffected whenever the machine is otherwise idle, which is most of an export's duration) while
+  // yielding to literally anything else — the OS shell, the browser tab showing progress — the moment
+  // there's real contention. Wrapped in try/catch: unsupported on some platforms/sandboxes, and a
+  // failure here is a scheduling nicety, never worth failing the export itself over.
+  try {
+    os.setPriority(child.pid!, os.constants.priority.PRIORITY_BELOW_NORMAL);
+  } catch {
+    /* best-effort — the export still runs correctly at normal priority */
+  }
+
   let stdoutBuffer = "";
   child.stdout?.on("data", (chunk: Buffer) => {
     stdoutBuffer += chunk.toString();
