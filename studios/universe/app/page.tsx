@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 const VeasnaShell = dynamic(
-  () => import("@veasna/universe").then((mod) => mod.VeasnaShell),
+  () => import("@veasnawt/universe").then((mod) => mod.VeasnaShell),
   { ssr: false }
 );
 

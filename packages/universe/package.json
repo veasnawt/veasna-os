@@ -1,5 +1,5 @@
 {
-  "name": "@veasna/universe",
+  "name": "@veasnawt/universe",
   "version": "0.1.0",
   "description": "Veasna OS — Living 3D Spatial Cosmos built with React Three Fiber",
   "main": "src/index.ts",

@@ -1,5 +1,5 @@
 {
-  "name": "@veasna/desktop",
+  "name": "@veasnawt/desktop",
   "version": "0.2.9",
   "private": true,
   "main": "dist/main.cjs",

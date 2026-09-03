@@ -19,10 +19,10 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
 android {
-    namespace "com.veasnaos.vstudio"
+    namespace "com.veasnaos.vcut"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.veasnaos.vstudio"
+        applicationId "com.veasnaos.vcut"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

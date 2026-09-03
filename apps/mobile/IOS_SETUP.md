@@ -1,4 +1,4 @@
-# Building VStudio for iOS on your Mac
+# Building VCut for iOS on your Mac
 
 The `ios/` platform project (`apps/mobile/ios`) was generated here on Windows via `npx cap add ios`,
 but iOS builds require a real Mac with Xcode — this environment can't run or test that half. This is
@@ -19,11 +19,11 @@ the handoff checklist to get it building and running there.
 ```bash
 git clone <your fork/remote of veasna-os> veasna-os
 cd veasna-os
-git submodule update --init --recursive   # packages/vstudio and packages/vicons are submodules
+git submodule update --init --recursive   # packages/vcut and packages/vicons are submodules
 pnpm install
 
 # Build the web bundle and sync it (+ CocoaPods) into the iOS project
-pnpm --filter vstudio-mobile build
+pnpm --filter vcut-mobile build
 cd apps/mobile
 npx cap sync ios
 ```

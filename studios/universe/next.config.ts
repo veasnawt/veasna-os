@@ -1,11 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@veasna/universe", "@react-three/fiber", "@react-three/drei", "three", "@veasna/ai", "@veasnawt/vicons"],
-  // better-sqlite3 (Rixie's persistent memory, via @veasna/ai) is a native module — bundling it
+  transpilePackages: ["@veasnawt/universe", "@react-three/fiber", "@react-three/drei", "three", "@veasnawt/ai", "@veasnawt/vicons"],
+  // better-sqlite3 (Rixie's persistent memory, via @veasnawt/ai) is a native module — bundling it
   // via transpilePackages breaks its compiled-binary lookup at runtime (the `bindings` package
   // locates the .node file by walking the call stack, which webpack's bundled stack traces
-  // break). Reached transitively through @veasna/ai, so serverExternalPackages alone doesn't
+  // break). Reached transitively through @veasnawt/ai, so serverExternalPackages alone doesn't
   // catch it — force it via webpack externals directly. Mirrors studios/bp/next.config.ts's
   // identical setup, from when Rixie's chat lived there instead.
   serverExternalPackages: ["better-sqlite3"],

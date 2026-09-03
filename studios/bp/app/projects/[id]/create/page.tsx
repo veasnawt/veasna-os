@@ -9,8 +9,8 @@ import { Project } from "@/types/project";
 
 /** BP Studio's Create stage — where a project stops being a script and becomes a video.
  *
- *  The editor itself is VStudio, a standalone app (`studios/vstudio`) this page embeds via an
- *  `<iframe>` rather than rendering in-process — see `app/api/vstudio-url/route.ts` for how its real
+ *  The editor itself is VCut, a standalone app (`studios/vcut`) this page embeds via an
+ *  `<iframe>` rather than rendering in-process — see `app/api/vcut-url/route.ts` for how its real
  *  origin is resolved. The editor fills the viewport rather than sitting inside BP's usual page
  *  chrome: a timeline needs every pixel it can get, and an editor framed by a marketing-style layout
  *  is an editor nobody can work in. A single back link is the only BP navigation kept, outside the
@@ -19,7 +19,7 @@ export default function CreatePage() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [checked, setChecked] = useState(false);
-  const [vstudioUrl, setVstudioUrl] = useState<string | null>(null);
+  const [vcutUrl, setVstudioUrl] = useState<string | null>(null);
 
   // BP projects live in localStorage, which is browser-only — so this reads after mount rather than
   // during render.
@@ -30,7 +30,7 @@ export default function CreatePage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/vstudio-url")
+    fetch("/api/vcut-url")
       .then((res) => res.json())
       .then((body: { url: string }) => {
         if (!cancelled) setVstudioUrl(body.url);
@@ -69,17 +69,17 @@ export default function CreatePage() {
         </Link>
       </nav>
       {/* min-w-0 alongside min-h-0: without it, a flex child defaults to `min-width: auto`, so
-          VStudio's own widest descendant (Timeline's horizontally-scrolling content, easily
+          VCut's own widest descendant (Timeline's horizontally-scrolling content, easily
           1500px+) could force THIS wrapper — and this `<main>`'s scrollWidth with it — wider than
           the viewport, even though nested `overflow` rules clip it visually. That hidden width is
           what a focused element could get auto-scrolled into view against, yanking the whole page
-          sideways on a plain tap. VStudioApp.tsx has the matching fix on its own side of the iframe
+          sideways on a plain tap. VCutApp.tsx has the matching fix on its own side of the iframe
           boundary. */}
       <div className="min-h-0 min-w-0 flex-1">
-        {vstudioUrl ? (
+        {vcutUrl ? (
           <iframe
-            src={`${vstudioUrl}/edit?projectId=${encodeURIComponent(id)}&projectName=${encodeURIComponent(project.title)}`}
-            title="VStudio"
+            src={`${vcutUrl}/edit?projectId=${encodeURIComponent(id)}&projectName=${encodeURIComponent(project.title)}`}
+            title="VCut"
             className="h-full w-full border-0"
           />
         ) : (

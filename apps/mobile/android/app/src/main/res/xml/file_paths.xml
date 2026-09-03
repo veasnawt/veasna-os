@@ -6,5 +6,5 @@
          `exportsDir` — which isn't covered by either entry above, so sharing a finished export
          (ExportDialog.tsx's "Save / Share") would otherwise fail with a FileProvider permission
          error even after the file:// vs files[] bug is fixed. -->
-    <files-path name="vstudio_exports" path="vstudio-projects/" />
+    <files-path name="vcut_exports" path="vcut-projects/" />
 </paths>

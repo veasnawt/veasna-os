@@ -74,7 +74,7 @@ export interface RixieKeyStatus {
    *  a key it already has on disk. */
   configured: Record<RixieProvider, boolean>;
   /** The raw model override PER PROVIDER, if any — empty string means "no override for this
-   *  provider," i.e. Rixie uses @veasna/ai's own defaultModelForProvider(that provider) guess. */
+   *  provider," i.e. Rixie uses @veasnawt/ai's own defaultModelForProvider(that provider) guess. */
   models: Record<RixieProvider, string>;
 }
 
@@ -98,7 +98,7 @@ export function getApiKeyStatus(): RixieKeyStatus {
 
 /** What route.ts should actually pass as `model` for the given provider, given the already-loaded
  *  override file — the per-provider override if one's set, or "" (meaning: fall back to
- *  @veasna/ai's own defaultModelForProvider) otherwise. Takes `env` rather than re-reading the
+ *  @veasnawt/ai's own defaultModelForProvider) otherwise. Takes `env` rather than re-reading the
  *  file itself, since route.ts's getAgent() already has it loaded from the same loadRixieEnv()
  *  call it uses for provider/key resolution. */
 export function modelOverrideFrom(env: Record<string, string>, provider: RixieProvider): string {
@@ -132,7 +132,7 @@ export function setActiveProvider(provider: RixieProvider): void {
 
 /** Sets (or, given an empty/whitespace-only string, CLEARS) this SPECIFIC provider's model
  *  override — never touches any other provider's, or the active provider itself. Clearing it
- *  falls back to @veasna/ai's own defaultModelForProvider(provider) guess. */
+ *  falls back to @veasnawt/ai's own defaultModelForProvider(provider) guess. */
 export function setModel(provider: RixieProvider, model: string): void {
   const existing = loadRixieEnv();
   const trimmed = model.trim();

@@ -8,8 +8,12 @@ allowBuilds:
   electron: true
   esbuild: true
   # ffmpeg-static's postinstall is what actually downloads the ffmpeg binary for this platform —
-  # without it the package installs as an empty shell and VStudio's export step has nothing to run.
+  # without it the package installs as an empty shell and VCut's export step has nothing to run.
   ffmpeg-static: true
+  # Same reasoning as ffmpeg-static above — puppeteer's postinstall downloads the actual Chromium
+  # binary the Khmer-text export render harness (studios/vcut's khmerTextHarness.ts) launches;
+  # without it the package installs as an empty shell with no browser to launch at all.
+  puppeteer: true
   sharp: true
   unrs-resolver: true
 

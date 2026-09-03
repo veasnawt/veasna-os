@@ -1,5 +1,5 @@
 {
-  "name": "vstudio-mobile",
+  "name": "vcut-mobile",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,11 +13,12 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
+    "@capacitor/camera": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/filesystem": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
     "@capacitor/share": "^7.0.0",
-    "@veasna/vstudio": "workspace:*",
+    "@veasnawt/vcut": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

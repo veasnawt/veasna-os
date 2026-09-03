@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* VStudio is dark-only (no light-mode toggle anywhere in it) — see studios/vstudio/app/globals.css's
+/* VCut is dark-only (no light-mode toggle anywhere in it) — see studios/vcut/app/globals.css's
    own comment for the full "why" (native form-control chrome, e.g. a <select>'s popup, otherwise
    defaults to the OS's light rendering regardless of this app's own dark utility classes). */
 :root {
@@ -31,69 +31,69 @@ body {
   padding-left: env(safe-area-inset-left);
 }
 
-/* @veasna/vstudio ships React components as SOURCE, styled with Tailwind utilities like any
+/* @veasnawt/vcut ships React components as SOURCE, styled with Tailwind utilities like any
    component in this app — Tailwind v4 only scans the project it's actually running in, so without
-   this the entire editor renders with zero styles. Mirrors studios/vstudio's own globals.css exactly,
-   just a different relative depth (apps/mobile/src -> packages/vstudio/src). */
-@source "../../../packages/vstudio/src";
+   this the entire editor renders with zero styles. Mirrors studios/vcut's own globals.css exactly,
+   just a different relative depth (apps/mobile/src -> packages/vcut/src). */
+@source "../../../packages/vcut/src";
 
-/* Same font registry as studios/vstudio/app/globals.css, but pointed at plain bundled static files
-   (public/fonts/, copied from packages/vstudio/assets/fonts) instead of the /api/vstudio/fonts/[file]
+/* Same font registry as studios/vcut/app/globals.css, but pointed at plain bundled static files
+   (public/fonts/, copied from packages/vcut/assets/fonts) instead of the /api/vcut/fonts/[file]
    route — there is no server here to serve that route from. If the registry in
-   packages/vstudio/src/project/fonts.ts ever changes, these rules need to be updated to match by
+   packages/vcut/src/project/fonts.ts ever changes, these rules need to be updated to match by
    hand, same caveat as the web host's copy. */
 @font-face {
-  font-family: "VStudioLato";
+  font-family: "VCutLato";
   src: url("/fonts/Lato-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioLato";
+  font-family: "VCutLato";
   src: url("/fonts/Lato-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioLato";
+  font-family: "VCutLato";
   src: url("/fonts/Lato-Italic.ttf") format("truetype");
   font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioLato";
+  font-family: "VCutLato";
   src: url("/fonts/Lato-BoldItalic.ttf") format("truetype");
   font-weight: 700;
   font-style: italic;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioBattambang";
+  font-family: "VCutBattambang";
   src: url("/fonts/Battambang-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioBattambang";
+  font-family: "VCutBattambang";
   src: url("/fonts/Battambang-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "VStudioMoul";
+  font-family: "VCutMoul";
   src: url("/fonts/Moul-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
-/* Same scrollbar utilities as studios/vstudio/app/globals.css — kept identical since
-   packages/vstudio's components reference these class names directly. */
+/* Same scrollbar utilities as studios/vcut/app/globals.css — kept identical since
+   packages/vcut's components reference these class names directly. */
 @layer utilities {
   .scrollbar-none {
     scrollbar-width: none;

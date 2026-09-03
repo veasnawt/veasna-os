@@ -44,7 +44,7 @@ import DragGhost from "./DragGhost";
 export const STUDIO_ICONS: Record<StudioId, React.ComponentType<{ size?: number }>> = {
   rixie: Ai,
   bp: Create,
-  vstudio: Video,
+  vcut: Video,
   art: Art,
   music: Music,
   gamedev: Game,

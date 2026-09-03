@@ -15,7 +15,7 @@ const PROVIDER_LABELS: Record<RixieProvider, string> = {
   ollama: "Ollama (local)",
 };
 
-// Display-only mirror of @veasna/ai's defaultModelForProvider — that package is Node-only
+// Display-only mirror of @veasnawt/ai's defaultModelForProvider — that package is Node-only
 // (better-sqlite3), so it can never be imported into this client bundle; this is just what's
 // shown as the model input's placeholder, not something functionally load-bearing (the real
 // default is applied server-side, in route.ts, if no override is saved).

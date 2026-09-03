@@ -71,7 +71,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 // PUT /api/settings/rixie-key — { provider, model } -> sets an explicit model override FOR THAT
-// PROVIDER (empty string clears it back to @veasna/ai's own defaultModelForProvider guess).
+// PROVIDER (empty string clears it back to @veasnawt/ai's own defaultModelForProvider guess).
 export async function PUT(req: NextRequest) {
   if (!isLocalRequest(req)) return localOnlyResponse();
   try {

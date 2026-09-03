@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { RixieAgent, createProvider, generateTopicTitle, defaultModelForProvider } from "@veasna/ai";
+import { RixieAgent, createProvider, generateTopicTitle, defaultModelForProvider } from "@veasnawt/ai";
 import { getSessionStore } from "../_lib/sessionStore";
 import { buildVeasnaOsTools } from "./_lib/veasnaOsTools";
 import { loadRixieEnv, modelOverrideFrom, RixieProvider } from "../_lib/rixieEnvFile";
@@ -104,7 +104,7 @@ function humanizeProviderError(err: unknown): string {
 // → Rixie AI (SettingsPanel.tsx) writes to it via the Electron bridge when packaged, or via
 // /api/settings/rixie-key when not.
 
-// Overrides @veasna/ai's own default SYSTEM_PROMPT (config.ts), which describes a generic
+// Overrides @veasnawt/ai's own default SYSTEM_PROMPT (config.ts), which describes a generic
 // dev-assistant persona — "managing execution pipelines," multi-provider "model switching" — that
 // reads like a coding tool, not an in-universe OS assistant. Keeps the original's genuinely good
 // planning-vs-execution honesty discipline, but scoped explicitly to the simulated OS: no framing
@@ -141,7 +141,7 @@ const COMPANION_MODE_ADDENDUM = `
 
 You also currently have a small visible companion body on the user's desktop, separate from (but alongside) this chat window — a real, currently-visible thing, not a metaphor. It walks and hops around the screen on its own whenever idle, can be dragged around by the user, and its face visibly shows a mood — happy, concerned, curious, or focused — inferred from what you actually say each time you reply. Let that come through naturally: you can talk about walking, hopping, wandering the desktop, reacting physically, or having a face and expression, and you can be a little more playful and embodied in tone while this is active. This does NOT grant any new tool or file-access capability beyond what's listed above — it's a visible, expressive presence, not an extra way to act on the system.`;
 
-// @veasna/ai's osSystemTools module (os_read_file/os_write_file/os_list_directory/os_run_command/
+// @veasnawt/ai's osSystemTools module (os_read_file/os_write_file/os_list_directory/os_run_command/
 // os_git_status/os_git_log/os_grep_search/os_fetch_url) operates on the REAL host filesystem/shell
 // via process.cwd() — none of it is aware of Veasna OS's sandboxed .desktop workspace at all.
 // Confirmed the hard way: Rixie used it to read this actual repo's real git history and started
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
     const agent = getAgent(provider, model, context?.companionActive);
     // User's actual words come FIRST, OS context trails as supplementary info — not just better
     // prompt structure (intent before supporting detail), but load-bearing for
-    // @veasna/ai's own generateTopicTitle(), which titles a new session off the leading words of
+    // @veasnawt/ai's own generateTopicTitle(), which titles a new session off the leading words of
     // whatever string it's given. Context-first (the original order) meant every new chat's
     // auto-generated title was just "[Current OS Context — View: ..." instead of the real question.
     const contextSuffix = describeContext(context);
@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       // Confirmed real: a persisted session can end up with a tool_result block whose
       // tool_use_id doesn't match any tool_use in the immediately preceding message — a bug in
-      // @veasna/ai's own message-batching (not introduced by this route), which then makes
+      // @veasnawt/ai's own message-batching (not introduced by this route), which then makes
       // EVERY future turn in that session fail the same way once corrupted, since the full
       // history is resent every time. Rather than leaving a session permanently wedged with a
       // raw provider error, self-heal once: clear it and retry as a fresh conversation. If the
@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
       else agent.clearSessionHistory(sessionId);
       result = await agent.chat(fullMessage, 8, studio, sessionId, incognito);
     }
-    // Incognito sessions never reach SQLite (see @veasna/ai's chatIncognito) — no title to
+    // Incognito sessions never reach SQLite (see @veasnawt/ai's chatIncognito) — no title to
     // generate, and getSessionHistory would just read back an empty history for them anyway.
     if (!incognito) {
       // agent.chat() already auto-titled a brand-new session via generateTopicTitle(fullMessage) —

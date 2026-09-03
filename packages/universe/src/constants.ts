@@ -50,14 +50,14 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
     launchUrl: "http://localhost:3001"
   },
   {
-    id: "vstudio",
-    name: "VStudio",
+    id: "vcut",
+    name: "VCut",
     subtitle: "Timeline Forge & Waveform Aurora World",
     description: "A luminous violet world wrapped in shifting filmstrip auroras, where timelines of light converge into a single cut.",
     color: "#d946ef",
     glowColor: "#a21caf",
     size: 1.3,
-    // A close neighbor of BP Studio's own orbit (8.5), not out with the utility bodies — VStudio is
+    // A close neighbor of BP Studio's own orbit (8.5), not out with the utility bodies — VCut is
     // BP's own editor, so its placement in the cosmos reflects that relationship.
     orbitRadius: 11.2,
     orbitSpeed: 0.11,

@@ -11,8 +11,8 @@
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "@veasna/ai": "workspace:*",
-    "@veasna/universe": "workspace:*",
+    "@veasnawt/ai": "workspace:*",
+    "@veasnawt/universe": "workspace:*",
     "@veasnawt/vicons": "workspace:*",
     "better-sqlite3": "^11.8.1",
     "framer-motion": "^12.4.7",

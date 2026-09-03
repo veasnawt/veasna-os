@@ -32,4 +32,21 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Photo/video picking for media import (Camera plugin's pickImages). Android 13+ (API 33) uses
+         the granular media permissions; older versions fall back to READ_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <!-- Voiceover recording (VoiceoverRecorder.tsx's plain `navigator.mediaDevices.getUserMedia({audio:
+         true})` — no dedicated Capacitor microphone plugin here, just the raw Web API running inside
+         the WebView). Without this declared, Capacitor's Bridge can never grant the WebView's own
+         `onPermissionRequest` for RESOURCE_AUDIO_CAPTURE — a runtime permission can only be requested
+         (and so only ever succeed) for a permission the manifest actually lists, so getUserMedia's
+         permission prompt failed outright rather than merely being denied by the user. This was the
+         actual reported bug: recording on Android always failed with "no permission" — not fixable from
+         the OS Settings app either, since a permission the manifest never declares has nothing there to
+         toggle on. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

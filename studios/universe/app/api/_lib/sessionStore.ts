@@ -1,6 +1,6 @@
-import { SessionStore } from "@veasna/ai";
+import { SessionStore } from "@veasnawt/ai";
 
-/** Matches @veasna/ai's own config.ts resolution (RixieAgent's constructor default) — SessionStore
+/** Matches @veasnawt/ai's own config.ts resolution (RixieAgent's constructor default) — SessionStore
  *  itself has no env-aware default of its own (just a hardcoded relative path), so every direct
  *  instantiation has to repeat this fallback chain to land on the SAME db file RixieAgent (and the
  *  desktop app's RIXIE_MEMORY_DB) actually uses. Shared by /api/agent (title touch-up) and

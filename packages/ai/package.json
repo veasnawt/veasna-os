@@ -1,5 +1,5 @@
 {
-  "name": "@veasna/ai",
+  "name": "@veasnawt/ai",
   "version": "0.1.0",
   "description": "Rixie AI Engine & Local-First Memory Architecture for Veasna OS",
   "main": "./src/index.ts",

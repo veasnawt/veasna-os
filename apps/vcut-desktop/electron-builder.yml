@@ -1,0 +1,35 @@
+appId: com.veasnawt.vcut
+productName: VCut
+# NSIS's solid LZMA compressor tries to mmap a buffer sized to roughly the whole payload in one
+# shot — on 32-bit makensis.exe this fails outright ("Internal compiler error #12345: error creating
+# mmap") once the app's bundled resources (ffmpeg/ffprobe, fonts, the Next.js standalone server) get
+# big enough, regardless of "normal" vs "maximum". The real fix was build-resources.mjs pruning
+# ~230MB of unused-platform ffprobe binaries that were bloating the payload past that threshold in
+# the first place — "store" (no compression) was tried as a workaround but produced an installer
+# that reports success while silently failing to extract any files, so stick with "normal".
+compression: normal
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# studios/vcut's standalone Next.js server (server.js + a pruned node_modules + .next/static +
+# public/) — copied here by scripts/build-resources.mjs, forked at runtime by
+# src/server/spawnNextServer.ts. See src/main.ts's spawnPackagedServer.
+extraResources:
+  - from: resources/vcut
+    to: vcut
+    filter:
+      - "**/*"
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target: dmg
+  category: public.app-category.video
+linux:
+  target: AppImage
+  category: AudioVideo

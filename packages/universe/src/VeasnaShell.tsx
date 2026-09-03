@@ -26,7 +26,7 @@ import { ambientAudio } from "./utils/ambientAudio";
  *  these calls with don't actually protect against that: `crypto` itself still exists in an insecure
  *  context, it's `crypto.randomUUID` specifically that's missing there, so every one of those calls
  *  still threw "crypto.randomUUID is not a function" (confirmed live — the same failure mode found
- *  and fixed in VStudio for the identical reason). `crypto.getRandomValues`, unlike `randomUUID`, is
+ *  and fixed in VCut for the identical reason). `crypto.getRandomValues`, unlike `randomUUID`, is
  *  NOT restricted to secure contexts, so it's the real fallback here rather than `Math.random()`. */
 function randomId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();

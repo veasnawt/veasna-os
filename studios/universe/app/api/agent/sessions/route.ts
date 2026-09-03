@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 // GET /api/agent/sessions — list Rixie chat sessions for RixieWindow's history sidebar, most
 // recently updated first (SessionStore.getAllSessions()'s own ordering). Filtered to this studio
-// since the underlying table is shared across whatever else might use @veasna/ai.
+// since the underlying table is shared across whatever else might use @veasnawt/ai.
 export async function GET() {
   try {
     const sessions = getSessionStore()

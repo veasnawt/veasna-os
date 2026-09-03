@@ -5,7 +5,7 @@ import path from "node:path";
  *  package`/`build:desktop`) from the app's own `next build` (output: "standalone"). Only
  *  meaningful when app.isPackaged is true; dev mode never touches this path (see main.ts).
  *  `resourceName` matches the `outName` passed to build-resources.mjs's
- *  buildNextStandaloneResources — "universe", "bp", or "vstudio" today. */
+ *  buildNextStandaloneResources — "universe", "bp", or "vcut" today. */
 export function resolveServerJsPath(resourcesPath: string, resourceName: string): string {
   return path.join(resourcesPath, resourceName, "server.js");
 }

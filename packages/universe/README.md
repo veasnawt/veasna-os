@@ -1,4 +1,4 @@
-# `@veasna/universe`
+# `@veasnawt/universe`
 
 The Veasna OS shell UI — everything under the "Universe" studio: the 3D cosmos, the traditional
 desktop (windows, taskbar, Start menu, file manager, terminal, browser, settings), and Rixie's chat
@@ -36,7 +36,7 @@ a `launchUrl` set:
    can substitute the studio's real, dynamically-assigned port at runtime (via the
    `window.veasnaStudios` IPC bridge — see `apps/desktop/src/main.ts`'s `studioUrls`).
 
-VStudio was added this way — see its entry in `constants.ts` for a worked example.
+VCut was added this way — see its entry in `constants.ts` for a worked example.
 
 ## Icons
 

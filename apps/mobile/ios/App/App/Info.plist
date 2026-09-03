@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>VStudio</string>
+        <string>VCut</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,9 +23,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>VStudio needs microphone access to record voiceovers for your project.</string>
+	<string>VCut needs microphone access to record voiceovers for your project.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>VStudio saves your exported videos to Photos so they're easy to find after export.</string>
+	<string>VCut saves your exported videos to Photos so they're easy to find after export.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VCut needs access to your photo library to import videos and photos into your project.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

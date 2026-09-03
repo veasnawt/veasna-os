@@ -28,8 +28,8 @@ interface ChatMessage {
   content: string;
 }
 
-/** Mirrors @veasna/ai's SessionRecord shape (the JSON /api/agent/sessions actually returns) —
- *  defined locally rather than imported, since @veasna/ai pulls in better-sqlite3 and is Node-only;
+/** Mirrors @veasnawt/ai's SessionRecord shape (the JSON /api/agent/sessions actually returns) —
+ *  defined locally rather than imported, since @veasnawt/ai pulls in better-sqlite3 and is Node-only;
  *  it must never end up in this client component's bundle. */
 interface SessionSummary {
   id: string;
@@ -37,8 +37,8 @@ interface SessionSummary {
   updatedAt: number;
 }
 
-/** Mirrors @veasna/ai's ChatResult.toolCalls entries — defined locally for the same reason as
- *  SessionSummary above (never import the Node-only @veasna/ai package into this client bundle). */
+/** Mirrors @veasnawt/ai's ChatResult.toolCalls entries — defined locally for the same reason as
+ *  SessionSummary above (never import the Node-only @veasnawt/ai package into this client bundle). */
 interface ToolCallTrace {
   name: string;
   input: unknown;
@@ -119,7 +119,7 @@ function parseAttachment(content: string): { caption: string; relPath: string; d
   }
 }
 
-/** SessionRecord's timestamps are UNIX seconds (@veasna/ai's SessionStore uses
+/** SessionRecord's timestamps are UNIX seconds (@veasnawt/ai's SessionStore uses
  *  Math.floor(Date.now() / 1000)), not milliseconds — the *1000 below converts before comparing
  *  against Date.now(). */
 function formatRelativeTime(unixSeconds: number): string {
@@ -136,7 +136,7 @@ function formatRelativeTime(unixSeconds: number): string {
 
 /** Rixie's real chat — native to Universe's own server via /api/agent, with the shell's real
  *  context (what's open, active, browsing) sent alongside every message. Sessions are backed by
- *  @veasna/ai's own SQLite SessionStore (already multi-session-capable server-side); this window
+ *  @veasnawt/ai's own SQLite SessionStore (already multi-session-capable server-side); this window
  *  is what actually generates/tracks a sessionId and exposes a ChatGPT/Claude-style history
  *  sidebar for switching between past conversations — none of that existed client-side before. */
 export default function RixieWindow({
@@ -162,7 +162,7 @@ export default function RixieWindow({
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   // True no-persistence, not save-then-delete: while active, /api/agent routes the whole turn
-  // through RixieAgent's separate chatIncognito() path (@veasna/ai's agent.ts), which never writes
+  // through RixieAgent's separate chatIncognito() path (@veasnawt/ai's agent.ts), which never writes
   // to SQLite and never runs memory extraction — this flag is just what tells the API to take that
   // path, not a client-side simulation of privacy.
   const [incognito, setIncognito] = useState(false);

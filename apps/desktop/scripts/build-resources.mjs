@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Copies studios/universe's, studios/bp's, AND studios/vstudio's standalone Next.js build output
-// into apps/desktop/resources/{universe,bp,vstudio} (gitignored), plus studios/gamedev's static
+// Copies studios/universe's, studios/bp's, AND studios/vcut's standalone Next.js build output
+// into apps/desktop/resources/{universe,bp,vcut} (gitignored), plus studios/gamedev's static
 // Vite build into apps/desktop/resources/gamedev, rebuilding native addons (better-sqlite3) for
 // Electron's own Node ABI where actually needed. Ready for electron-builder to pick up via
 // `extraResources` entries in electron-builder.yml.
@@ -8,7 +8,7 @@
 // Requires (all four) to have already been built:
 //   pnpm --filter universe build   (requires next.config.ts's output: "standalone")
 //   pnpm --filter bp build         (requires next.config.ts's output: "standalone")
-//   pnpm --filter vstudio build    (requires next.config.ts's output: "standalone")
+//   pnpm --filter vcut build    (requires next.config.ts's output: "standalone")
 //   pnpm --filter loom-engine build
 
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
@@ -36,7 +36,7 @@ const repoRoot = path.resolve(desktopRoot, "..", "..");
 // `pnpmRoot` defaults to the copied output's OWN .pnpm store, but can be overridden — needed for
 // better-sqlite3 in bp's build, which Next's standalone tracer doesn't capture AT ALL (confirmed:
 // grepped the real standalone output, no trace of it anywhere) despite bp's /api/agent route
-// genuinely `require`-ing it transitively through @veasna/ai at runtime — likely because the
+// genuinely `require`-ing it transitively through @veasnawt/ai at runtime — likely because the
 // webpack `config.externals` entry bp's next.config.ts adds for it (needed so its native binary
 // lookup isn't broken by bundling) makes it invisible to NFT's static analysis, which walks the
 // COMPILED bundle's own require() calls to decide what's reachable. Falls back to the real
@@ -137,7 +137,7 @@ function restoreRootBetterSqlite3Abi() {
 
 // The ONE real portability gap: pnpm's tracer leaves some symlinks (confirmed: react, react-dom,
 // sharp, postcss, styled-jsx, caniuse-lite, baseline-browser-mapping, and — for bp specifically —
-// @veasna/ai, which is itself a symlink to an entirely different repo outside veasna-os) pointing
+// @veasnawt/ai, which is itself a symlink to an entirely different repo outside veasna-os) pointing
 // to ABSOLUTE paths on THIS dev machine, which won't exist on an end user's machine. Only symlinks
 // whose target resolves OUTSIDE outDir are the problem — walk the tree, and for each one found,
 // replace it with a real dereferenced copy of its target IN PLACE, leaving every internal-to-outDir
@@ -302,7 +302,7 @@ function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite
     execSync(`pnpm exec electron-rebuild --module-dir "${outDir}" --only better-sqlite3 --force`, { cwd: desktopRoot, stdio: "inherit" });
   } else if (existsSync(sqliteEntry)) {
     // Present but genuinely unused by this particular app's own runtime code paths (confirmed for
-    // universe: Next's tracer only includes it because @veasna/ai lists it as a dependency, not
+    // universe: Next's tracer only includes it because @veasnawt/ai lists it as a dependency, not
     // because anything universe actually imports reaches it) — guarded no-op rather than a hard
     // failure, in case that ever changes.
     console.log(`better-sqlite3 present in ${outName} but not marked as needed — skipping the Electron ABI rebuild.`);
@@ -316,10 +316,10 @@ function buildNextStandaloneResources({ appDirName, outName, rebuildBetterSqlite
   console.log(`Done — resources/${outName} ready (internalized ${fixedCount} external symlink(s)).`);
 }
 
-/** VStudio (studios/vstudio, embedded by bp's Create stage via iframe) shells out to ffmpeg/ffprobe
+/** VCut (studios/vcut, embedded by bp's Create stage via iframe) shells out to ffmpeg/ffprobe
  *  for import, thumbnails, and export.
  *
- *  Both packages are deliberately marked external in vstudio's next.config.ts — they resolve their
+ *  Both packages are deliberately marked external in vcut's next.config.ts — they resolve their
  *  binary by path relative to their own package directory, which bundling breaks — and that same
  *  externality means Next's standalone tracer may not copy them at all. This is the exact situation
  *  better-sqlite3 is in above, so it gets the same fix: hoist from the repo's real install when the
@@ -365,22 +365,22 @@ function ensureFfmpegBinaries(outDir, outName) {
   console.log(`Done — ${outName} has runnable ffmpeg + ffprobe binaries.`);
 }
 
-/** VStudio's drawtext export (and its browser preview, via /api/vstudio/fonts) both read the bundled
+/** VCut's drawtext export (and its browser preview, via /api/vcut/fonts) both read the bundled
  *  Lato font files off disk by real path — see ffmpeg.ts's `resolveFontsDir` comment for why that
- *  can't be `require.resolve`'d out of `@veasna/vstudio` once it's bundled (it's in this app's own
+ *  can't be `require.resolve`'d out of `@veasnawt/vcut` once it's bundled (it's in this app's own
  *  `transpilePackages`, so the package's own source directory doesn't exist in the packaged output
  *  at all). Copied in as a sibling of `server.js` under a fixed name so `resolveFontsDir`'s
  *  `process.cwd()`-relative check finds it without needing to know this script's own layout. */
 function ensureFontAssets(outDir, outName) {
-  const srcDir = path.join(repoRoot, "packages", "vstudio", "assets", "fonts");
+  const srcDir = path.join(repoRoot, "packages", "vcut", "assets", "fonts");
   if (!existsSync(srcDir)) {
     console.error(`Refusing to package ${outName}: font assets not found at\n  ${srcDir}`);
     process.exit(1);
   }
-  const destDir = path.join(outDir, "vstudio-fonts");
+  const destDir = path.join(outDir, "vcut-fonts");
   rmSync(destDir, { recursive: true, force: true });
   cpSync(srcDir, destDir, { recursive: true });
-  console.log(`Done — ${outName} has bundled VStudio fonts.`);
+  console.log(`Done — ${outName} has bundled VCut fonts.`);
 }
 
 /** Game Dev Studio (Vite/"loom-engine") builds to a fully static, self-contained dist/ folder —
@@ -398,14 +398,14 @@ function buildGamedevStatic() {
   console.log(`Done — resources/gamedev ready.`);
 }
 
-// Rixie's chat (SQLite-backed memory/session store, via @veasna/ai) now lives in Universe's own
+// Rixie's chat (SQLite-backed memory/session store, via @veasnawt/ai) now lives in Universe's own
 // /api/agent route — better-sqlite3 is genuinely used at runtime here now, unlike before this
-// migration when Next's tracer included it only because @veasna/ai was an unused dependency.
+// migration when Next's tracer included it only because @veasnawt/ai was an unused dependency.
 buildNextStandaloneResources({ appDirName: "universe", outName: "universe", rebuildBetterSqlite3: true });
 buildNextStandaloneResources({ appDirName: "bp", outName: "bp", rebuildBetterSqlite3: true });
-// VStudio needs real ffmpeg/ffprobe binaries at runtime (see ensureFfmpegBinaries) but has no
+// VCut needs real ffmpeg/ffprobe binaries at runtime (see ensureFfmpegBinaries) but has no
 // better-sqlite3 dependency of its own.
-buildNextStandaloneResources({ appDirName: "vstudio", outName: "vstudio", rebuildBetterSqlite3: false, bundleFfmpeg: true });
+buildNextStandaloneResources({ appDirName: "vcut", outName: "vcut", rebuildBetterSqlite3: false, bundleFfmpeg: true });
 buildGamedevStatic();
 restoreRootBetterSqlite3Abi();
 

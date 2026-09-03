@@ -1,4 +1,4 @@
-import type { ToolModule } from "@veasna/ai";
+import type { ToolModule } from "@veasnawt/ai";
 import { ApiError } from "../../_lib/sandboxedFs";
 import { listEntries, readFileContent, writeFileContent, mkdir, createFile, renameEntry, deleteEntries, statEntry } from "../../_lib/fileOps";
 import { runSandboxedCommand } from "../../_lib/sandboxedExec";
@@ -28,7 +28,7 @@ function errMessage(err: unknown): string {
 /** Rixie's genuine "things a Veasna OS user can do" toolkit — everything here operates through the
  *  exact same sandboxed Desktop workspace (studios/universe/app/api/_lib/fileOps.ts, the same code
  *  the File Manager/Terminal use) or signals a client-side action the shell already supports (open
- *  an icon, change the theme). Deliberately separate from @veasna/ai's own osSystemTools (disabled
+ *  an icon, change the theme). Deliberately separate from @veasnawt/ai's own osSystemTools (disabled
  *  entirely in route.ts's getAgent — real host filesystem/shell/git, not sandbox-aware at all):
  *  this module can only ever reach the sandbox, never the real machine underneath Veasna OS. */
 export function buildVeasnaOsTools(): ToolModule {
