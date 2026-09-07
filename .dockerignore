@@ -1,0 +1,106 @@
+# Only studios/vcut and its workspace dependencies ever need to be IN the image — this repo is a
+# big multi-app monorepo (mobile native projects, other studios' asset-heavy content, Electron
+# desktop resources) that the vcut.io web deploy has no use for. pnpm still needs every workspace
+# package.json + the root lockfile to resolve installs correctly (pnpm discovers workspace members
+# by scanning pnpm-workspace.yaml's globs against what's actually on disk, and a frozen-lockfile
+# install fails if a member's directory is missing entirely) — but nothing else under those
+# directories (node_modules, build output, native projects) is needed at all.
+#
+# Deliberately NOT using `**/node_modules`-style recursive globs — a real `fly deploy` against this
+# exact file left apps/ at 486MB of a 561MB uploaded context despite that pattern being present,
+# and flyctl's own build-context bundling has multiple open/history-of GitHub issues (superfly/
+# flyctl#456, #3228) about .dockerignore patterns not being honored the same way Docker's own CLI
+# honors them. Every pattern below is either a literal directory name or a single `*` one level
+# deep — listed once per actual workspace member (packages/*, studios/*, apps/* per
+# pnpm-workspace.yaml) rather than trusting a recursive wildcard to reach all of them.
+
+node_modules
+.git
+.claude
+.desktop
+.vstudio
+.vcut
+.veasna-workspace
+
+# packages/loom, packages/vicons, and packages/vcut are git submodules (see .gitmodules) — each
+# has its OWN .git at that nested path, which the bare `.git` pattern above does NOT reach (dockerignore
+# patterns without a leading `**/` only match at the context root). packages/loom and packages/vicons
+# use the normal "absorbed" gitlink (a tiny pointer file, harmless either way), but packages/vcut/.git
+# is a full nested repo directory — .git/hooks/*.sample ships files with permission bits that don't
+# survive Go's archive/tar on Windows (`unknown file mode ?rwxr-xr-x`), which is what was actually
+# breaking `fly deploy`'s context upload, not the size of anything.
+packages/loom/.git
+packages/vicons/.git
+packages/vcut/.git
+
+# packages/ai/src is a Windows junction pointing OUTSIDE this repo entirely (to a separate rixie/core
+# checkout — see packages/ai's own workspace-symlink setup) — not a real directory, and reparse
+# points like this are the actual root cause of the tar upload failing (`unknown file mode
+# ?rwxr-xr-x`), not context size. Excluded outright: @veasnawt/ai isn't a studios/vcut dependency, so
+# nothing here is needed for this build regardless.
+packages/ai/src
+packages/ai/node_modules
+packages/analytics/node_modules
+packages/auth/node_modules
+packages/automation/node_modules
+packages/database/node_modules
+packages/editor/node_modules
+packages/loom/node_modules
+packages/storage/node_modules
+packages/ui/node_modules
+packages/universe/node_modules
+packages/utils/node_modules
+packages/vcut/node_modules
+packages/vicons/node_modules
+packages/vicons/dist
+
+# studios/gamedev is itself a Windows junction pointing OUTSIDE this repo (to a separate loom-engine
+# checkout) — same external-reparse-point hazard as packages/ai/src above, and equally irrelevant to
+# studios/vcut's build.
+studios/gamedev
+
+studios/art/node_modules
+studios/bp/node_modules
+studios/games/node_modules
+studios/language/node_modules
+studios/music/node_modules
+studios/settings/node_modules
+studios/universe/node_modules
+studios/vcut/node_modules
+studios/vcut/.next
+studios/vcut/dist
+studios/vcut/build
+studios/bp/.next
+studios/universe/.next
+
+# Native mobile/desktop projects — irrelevant to the web image, and apps/mobile's Android/iOS
+# native folders in particular are large enough to make the Docker build context slow to send.
+# Each app keeps its own package.json (pnpm's frozen-lockfile install needs it to confirm this
+# workspace member still matches the lockfile) — everything actually heavy under it is named
+# explicitly instead, deliberately avoiding a `dir/*` + `!dir/package.json` negation pair: that
+# combination (wildcard exclude, then re-include one file) is the specific shape multiple flyctl
+# .dockerignore bug reports call out as unreliable, on top of the recursive-glob issue above.
+apps/desktop/node_modules
+apps/desktop/build
+apps/desktop/dist
+apps/desktop/release
+apps/desktop/resources
+apps/desktop/.desktop
+apps/vcut-desktop/node_modules
+apps/vcut-desktop/build
+apps/vcut-desktop/dist
+apps/vcut-desktop/release
+apps/vcut-desktop/resources
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/node_modules
+apps/mobile/dist
+apps/mobile/build
+
+# Never let a stray local secret reach a Docker layer even if the build context isn't otherwise
+# pruned to ignore it — Next's standalone tracer already double-checks this at build time (see
+# apps/vcut-desktop/scripts/build-resources.mjs's own stray-.env guard) but that check runs on the
+# TRACED output, not the raw build context, so this is the first line of defense.
+.env
+.env.*
+!.env.example

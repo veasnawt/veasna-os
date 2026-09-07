@@ -1,5 +1,5 @@
 import { getInpaintKeyStatus, setInpaintApiKey, setActiveInpaintProvider, type InpaintProvider } from "../../_lib/inpaintEnvFile";
-import { localRoute } from "../../_lib/localOnly";
+import { hostedDisabledRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 
 export const runtime = "nodejs";
@@ -21,13 +21,13 @@ function isCloudProvider(value: unknown): value is "replicate" | "fal" {
 /** Which provider is active and which providers have a saved key — the Inspector's "Remove Object"
  *  section calls this to render its provider dropdown and decide between showing the key-entry prompt
  *  and the working "Draw region" button. Never returns the keys themselves. */
-export const GET = localRoute(async () => {
+export const GET = hostedDisabledRoute("Remove Object", async () => {
   return Response.json(getInpaintKeyStatus());
 });
 
 /** Saves a provider's API key, file-backed (see `inpaintEnvFile.ts`) so it survives a server restart
  *  without needing a real `.env` edit or a rebuild. Saving a key also activates its provider. */
-export const POST = localRoute(async (req) => {
+export const POST = hostedDisabledRoute("Remove Object", async (req) => {
   const body = (await req.json().catch(() => ({}))) as { provider?: string; apiKey?: string };
   if (!isCloudProvider(body.provider)) throw new ApiError(400, "That provider has no key to save", "unknown-provider");
   const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
@@ -38,7 +38,7 @@ export const POST = localRoute(async (req) => {
 
 /** Switches the active provider without touching any saved key — the "this provider is already
  *  configured, just switch to it" path (mirrors Rixie's own `setActiveProvider`). */
-export const PATCH = localRoute(async (req) => {
+export const PATCH = hostedDisabledRoute("Remove Object", async (req) => {
   const body = (await req.json().catch(() => ({}))) as { provider?: string };
   if (!isProvider(body.provider)) throw new ApiError(400, "Unknown provider", "unknown-provider");
   setActiveInpaintProvider(body.provider);

@@ -1,0 +1,77 @@
+# Controls what `railway up` UPLOADS, separate from (and more important than) .dockerignore — that
+# file only prunes the build context AFTER Railway already has it; without this, `railway up` falls
+# back to the much sparser root .gitignore, which excludes node_modules/.env but nothing else here.
+# A real `railway up` against that fallback tried to upload 378MB and was rejected outright (413 Payload
+# Too Large) — this repo's local-only build artifacts (desktop installers, Android build output, a
+# project's actual video files) dwarf the studios/vcut SOURCE this deploy actually needs.
+#
+# Deliberately mirrors .dockerignore's own exclusion list byte-for-byte rather than drifting
+# independently — see that file's own doc comments for the full reasoning (pnpm workspace discovery
+# needing every member's package.json, the recursive-glob/permission-bit/junction gotchas already
+# fought there). Keep the two in sync; there's no single source both could point at without turning
+# one into a symlink of the other, which Windows checkouts of this repo can't rely on.
+
+node_modules
+.git
+.claude
+.desktop
+.vstudio
+.vcut
+.veasna-workspace
+
+packages/loom/.git
+packages/vicons/.git
+packages/vcut/.git
+
+packages/ai/src
+packages/ai/node_modules
+packages/analytics/node_modules
+packages/auth/node_modules
+packages/automation/node_modules
+packages/database/node_modules
+packages/editor/node_modules
+packages/loom/node_modules
+packages/storage/node_modules
+packages/ui/node_modules
+packages/universe/node_modules
+packages/utils/node_modules
+packages/vcut/node_modules
+packages/vicons/node_modules
+packages/vicons/dist
+
+studios/gamedev
+
+studios/art/node_modules
+studios/bp/node_modules
+studios/games/node_modules
+studios/language/node_modules
+studios/music/node_modules
+studios/settings/node_modules
+studios/universe/node_modules
+studios/vcut/node_modules
+studios/vcut/.next
+studios/vcut/dist
+studios/vcut/build
+studios/bp/.next
+studios/universe/.next
+
+apps/desktop/node_modules
+apps/desktop/build
+apps/desktop/dist
+apps/desktop/release
+apps/desktop/resources
+apps/desktop/.desktop
+apps/vcut-desktop/node_modules
+apps/vcut-desktop/build
+apps/vcut-desktop/dist
+apps/vcut-desktop/release
+apps/vcut-desktop/resources
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/node_modules
+apps/mobile/dist
+apps/mobile/build
+
+.env
+.env.*
+!.env.example

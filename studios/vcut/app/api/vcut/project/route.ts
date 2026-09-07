@@ -1,6 +1,7 @@
 import fs from "fs";
 import { createProject } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject, serializeProject } from "@veasnawt/vcut/src/project/serialize";
+import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
 
@@ -29,6 +30,14 @@ export const GET = localRoute(async (req) => {
   const paths = ensureProjectDirs(bpProjectId);
 
   if (!fs.existsSync(paths.projectFile)) {
+    // The BP-Studio-iframe convenience (a host handing in a projectId it already knows, auto-created
+    // on first visit) only makes sense when there's exactly one implicit local user — in hosted mode
+    // it would let anyone create-and-own a project at a GUESSED id, an id-squatting footgun. `POST`
+    // below is the only way to create a project in hosted mode; this just 404s instead. (The generic
+    // ownership gate in `localOnly.ts` already rejects this case first in practice, since a project
+    // id with no `projects_index` row fails its ownership check before this handler even runs — this
+    // is the explicit, defense-in-depth version of that, not the only thing preventing it.)
+    if (VCUT_HOSTED) throw new ApiError(404, "Project not found", "project-not-found");
     const rawName = new URL(req.url).searchParams.get("projectName");
     const name = rawName && rawName.trim() ? rawName.trim().slice(0, 120) : undefined;
     const project = createProject(bpProjectId, name);
@@ -63,6 +72,17 @@ export const POST = localRoute(async (req) => {
   const id = crypto.randomUUID();
   const paths = ensureProjectDirs(id);
   const project = preset ? createProject(id, name, preset) : createProject(id, name);
+
+  // The one place `ownerId` is ever decided: a fresh `crypto.randomUUID()` id, written once, so
+  // there's no race to worry about (unlike a save, which could race a concurrent request for the
+  // SAME id — creation always mints a brand-new one). `projects_index` gets its row here too, in the
+  // same request, so `GET /api/vcut/projects` sees the new project immediately rather than after its
+  // first save.
+  if (VCUT_HOSTED) {
+    const user = await requireSessionUser(req);
+    project.ownerId = user.id;
+    await upsertProjectIndex(id, user.id, project.name, project.updatedAt);
+  }
   fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
 
   return Response.json({ project });
@@ -78,6 +98,9 @@ export const DELETE = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
   fs.rmSync(paths.dir, { recursive: true, force: true });
+  // Without this, a deleted project leaves a phantom `projects_index` row — `GET /api/vcut/projects`
+  // would keep listing it forever, pointing at a folder that no longer exists.
+  if (VCUT_HOSTED) await deleteProjectIndex(bpProjectId);
   return Response.json({ ok: true });
 });
 
@@ -93,6 +116,20 @@ export const PUT = localRoute(async (req) => {
   const project = deserializeProject(JSON.stringify(body.project));
   if (project.bpProjectId !== bpProjectId) {
     throw new ApiError(400, "Project belongs to a different BP project", "project-mismatch");
+  }
+
+  // `localRoute`'s own gate already confirmed the session owns `bpProjectId` before this handler
+  // ever runs — but the CLIENT still supplied this whole `project` object, `ownerId` field included,
+  // and a save is exactly the kind of request a crafted body could try to slip a different value
+  // into. Force it back to the session's own id rather than trusting whatever the request body says,
+  // so a save can never reassign a project's ownership. `requireSessionUser` re-verifies the same
+  // bearer token the gate already checked — a second cheap Supabase call, not a second check of
+  // something already trusted, just how the resolved user reaches this specific handler (see
+  // `_lib/auth.ts`'s own doc comment on why `localRoute` doesn't thread it through directly).
+  if (VCUT_HOSTED) {
+    const user = await requireSessionUser(req);
+    project.ownerId = user.id;
+    await upsertProjectIndex(bpProjectId, user.id, project.name, project.updatedAt);
   }
 
   // Written to a temp file and renamed, so a crash mid-write can't leave a truncated project.json

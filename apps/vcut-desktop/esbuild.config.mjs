@@ -6,9 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const watch = process.argv.includes("--watch");
 
 // CJS output (not ESM) — the simplest, most compatible target for Electron's main process, no
-// "type": "module" interop concerns to work around. No preload script here (unlike apps/desktop) —
-// VCut's own renderer needs no privileged bridge, it only ever talks to its own bundled Next.js
-// server over plain fetch, exactly like it does in a browser tab.
+// "type": "module" interop concerns to work around.
 const shared = {
   bundle: true,
   platform: "node",
@@ -19,16 +17,26 @@ const shared = {
   logLevel: "info",
 };
 
-const entry = path.join(__dirname, "src/main.ts");
-const outfile = path.join(__dirname, "dist/main.cjs");
+const mainEntry = path.join(__dirname, "src/main.ts");
+const mainOutfile = path.join(__dirname, "dist/main.cjs");
+// The one privileged bridge this app exposes (see preload.ts's own doc comment for what and why) —
+// built as its own separate output alongside main.cjs. Was written but never actually wired up
+// (createMainWindow.ts never set `webPreferences.preload`, and this file was never built at all) until
+// the desktop sign-in flow needed a real one; see that file's own comment.
+const preloadEntry = path.join(__dirname, "src/preload.ts");
+const preloadOutfile = path.join(__dirname, "dist/preload.cjs");
 
 async function run() {
   if (watch) {
-    const ctx = await context({ ...shared, entryPoints: [entry], outfile });
-    await ctx.watch();
+    const mainCtx = await context({ ...shared, entryPoints: [mainEntry], outfile: mainOutfile });
+    const preloadCtx = await context({ ...shared, entryPoints: [preloadEntry], outfile: preloadOutfile });
+    await Promise.all([mainCtx.watch(), preloadCtx.watch()]);
     console.log("esbuild watching apps/vcut-desktop/src for changes...");
   } else {
-    await build({ ...shared, entryPoints: [entry], outfile });
+    await Promise.all([
+      build({ ...shared, entryPoints: [mainEntry], outfile: mainOutfile }),
+      build({ ...shared, entryPoints: [preloadEntry], outfile: preloadOutfile }),
+    ]);
   }
 }
 

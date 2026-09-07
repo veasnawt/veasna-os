@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
   // @veasnawt/vicons is consumed as SOURCE too (not its built dist) so a new icon the icon package's
   // own maintainer adds shows up here on the next save, no separate `pnpm build`/publish step needed
   // in between — same reasoning as @veasnawt/vcut itself.
-  transpilePackages: ["@veasnawt/vcut", "@veasnawt/vicons"],
+  transpilePackages: ["@veasnawt/vcut", "@veasnawt/vicons", "@veasnawt/auth"],
   // ffmpeg-static/ffprobe-static ship prebuilt BINARIES and locate them by resolving a path relative
   // to their own package directory. Bundling them rewrites that resolution and the binary path comes
   // out wrong at runtime, so they have to stay external — the same problem, and the same fix, as

@@ -1,0 +1,43 @@
+# Fly.io deploy config for vcut.io's hosted web editor. See Dockerfile for the image itself.
+#
+# HARD CONSTRAINT — never scale this app past one machine (`fly scale count 1` is the ceiling, not
+# a starting point to grow from later without more work first): export/captions/inpaint jobs
+# (studios/vcut/app/api/vcut/export/route.ts and friends) are tracked in a plain in-memory Map per
+# Node process, not a shared store. A second machine would silently break job polling/cancel for any
+# request that lands on the instance that didn't start the job — no error, just a job that looks
+# stuck forever to whoever's watching progress. Scaling this properly needs moving job state into
+# something shared (Postgres, Redis) — real follow-up work, not done here. Same reasoning is why
+# auto_stop_machines is "off" below: stopping the one machine mid-export would silently drop it.
+
+app = "vcut-io"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+  # NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY are NOT listed here on purpose — flyctl
+  # reads [build.args] from this committed file, and while the anon key is safe to expose to a
+  # browser by design, treating both as deploy-time secrets (passed via `fly deploy --build-arg
+  # NEXT_PUBLIC_SUPABASE_URL=... --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=...`, see the Dockerfile's
+  # own comment on why they must be build args, not [env]) keeps this file identical across
+  # environments instead of hardcoding one Supabase project's values into version control.
+
+[[mounts]]
+  source = "vcut_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # See the HARD CONSTRAINT comment above — this machine must never stop itself while idle (an
+  # in-flight export is real work Fly.io's own idle detection has no visibility into) and there must
+  # always be exactly one of it running, not scaled to zero between deploys or low-traffic periods.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[env]
+  # VCUT_HOSTED / NEXT_PUBLIC_VCUT_HOSTED are already baked into the image at build time (see
+  # Dockerfile) and don't need repeating here. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+  # (packages/auth/src/server.ts) are genuine runtime secrets — never listed in this committed
+  # file. Set them once per deploy target with:
+  #   fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...

@@ -1,7 +1,7 @@
 import fs from "fs";
 import { FONT_REGISTRY } from "@veasnawt/vcut/src/project/fonts";
 import { textFontPath } from "../../_lib/ffmpeg";
-import { localRoute } from "../../_lib/localOnly";
+import { publicAssetRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  *  `resolveWithin`'s containment check for exactly that reason. */
 const ALLOWED_FILES = new Set(FONT_REGISTRY.flatMap((font) => Object.values(font.files)));
 
-export const GET = localRoute(async (_req, context: { params: Promise<{ file: string }> }) => {
+export const GET = publicAssetRoute(async (_req, context: { params: Promise<{ file: string }> }) => {
   const { file } = await context.params;
   if (!ALLOWED_FILES.has(file)) throw new ApiError(404, "Unknown font file", "font-not-found");
 

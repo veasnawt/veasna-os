@@ -1,5 +1,5 @@
 import { getLocalSetupStatus, runLocalSetup, type LocalSetupJob, type LocalSetupJobStatus, type LocalSetupStage } from "../../_lib/localModel";
-import { localRoute } from "../../_lib/localOnly";
+import { hostedDisabledRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ function makeNotifier(job: Partial<LocalSetupJob>): { changed: Promise<void>; no
 
 /** Whether the local ProPainter runtime is set up — the Inspector's "Remove Object" section calls this
  *  to decide between showing the "Set up local model" button and the normal ready-to-use flow. */
-export const GET = localRoute(async (req) => {
+export const GET = hostedDisabledRoute("Remove Object", async (req) => {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) return Response.json(getLocalSetupStatus());
 
@@ -67,7 +67,7 @@ export const GET = localRoute(async (req) => {
 /** Starts provisioning the local Python runtime (clone + venv + pip install) — long-running (several
  *  minutes, network + disk heavy), so this returns immediately with a job id and the real work runs
  *  async, same fire-and-track-via-SSE shape as `inpaint/route.ts`'s own POST. */
-export const POST = localRoute(async () => {
+export const POST = hostedDisabledRoute("Remove Object", async () => {
   const id = crypto.randomUUID();
   const job = {
     id,
@@ -90,7 +90,7 @@ export const POST = localRoute(async () => {
 });
 
 /** Cancels a running setup job — kills whichever `git`/`pip` child process is currently active. */
-export const DELETE = localRoute(async (req) => {
+export const DELETE = hostedDisabledRoute("Remove Object", async (req) => {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) throw new ApiError(400, "Missing jobId", "missing-job-id");
   const job = jobs.get(jobId);

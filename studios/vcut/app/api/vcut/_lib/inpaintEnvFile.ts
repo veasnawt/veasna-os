@@ -1,6 +1,15 @@
 import fs from "fs";
 import path from "path";
+import { VCUT_HOSTED } from "./auth";
 import { getLocalSetupStatus } from "./localModel";
+
+/** Hosted mode's ONE server-owned Replicate token, set once as a Railway variable — no per-user file,
+ *  no provider choice (fal/local are simply never reachable hosted: `fal` would need its own separate
+ *  server-owned key for no real benefit given Replicate already covers this; `local` means spawning
+ *  Python ML inference on the shared production box per tenant, confirmed unsafe by reading
+ *  `runLocalPrediction` in `inpaint/route.ts`). `inpaint/settings/route.ts` and `local-setup/route.ts`
+ *  stay `hostedDisabledRoute`-gated — there is nothing for a hosted user to configure. */
+const HOSTED_REPLICATE_TOKEN_ENV_VAR = "VCUT_HOSTED_REPLICATE_API_TOKEN";
 
 /** Documents/Veasna OS/vcut.env in the packaged desktop app (`VEASNA_WORKSPACE_ROOT` set there);
  *  a gitignored file inside this checkout when running via `pnpm dev` instead (no
@@ -72,6 +81,12 @@ export interface InpaintKeyStatus {
  *  keeps treating `configured` as one opaque per-provider map, with no separate local-specific check
  *  needed anywhere else. */
 export function getInpaintKeyStatus(): InpaintKeyStatus {
+  if (VCUT_HOSTED) {
+    return {
+      activeProvider: "replicate",
+      configured: { replicate: Boolean(process.env[HOSTED_REPLICATE_TOKEN_ENV_VAR]?.trim()), fal: false, local: false },
+    };
+  }
   const env = loadVstudioEnv();
   const activeProvider: InpaintProvider =
     env.INPAINT_PROVIDER === "fal" ? "fal" : env.INPAINT_PROVIDER === "local" ? "local" : "replicate";
@@ -101,7 +116,22 @@ export function setActiveInpaintProvider(provider: InpaintProvider): void {
  *  `"local"`, which has no token concept — callers must check `activeProvider` before treating a null
  *  token as "not configured"). */
 export function getActiveInpaintToken(): string | null {
+  if (VCUT_HOSTED) return process.env[HOSTED_REPLICATE_TOKEN_ENV_VAR]?.trim() || null;
   const { activeProvider } = getInpaintKeyStatus();
   if (!isCloudProvider(activeProvider)) return null;
   return loadVstudioEnv()[PROVIDER_KEY_VAR[activeProvider]]?.trim() || null;
+}
+
+/** `captions/route.ts`'s own token need — Auto Captions runs on Replicate's `openai/whisper` model,
+ *  funded by the SAME saved Replicate credential Remove Object uses (one account, two features,
+ *  configured once in either Inspector section — see `inpaint/settings/route.ts`, which both now
+ *  share). Deliberately reads the token directly by its own key rather than going through
+ *  `getActiveInpaintToken`'s "whichever provider Remove Object currently has active" indirection:
+ *  Captions has no provider CHOICE of its own (it only ever runs on Replicate), so a local user who
+ *  saved a Replicate token here and later switched Remove Object's active provider to fal/local
+ *  should still have Captions keep working — reading `getActiveInpaintToken()` instead would make
+ *  Captions look unconfigured despite the token still sitting right here in the same file. */
+export function getReplicateToken(): string | null {
+  if (VCUT_HOSTED) return process.env[HOSTED_REPLICATE_TOKEN_ENV_VAR]?.trim() || null;
+  return loadVstudioEnv()[PROVIDER_KEY_VAR.replicate]?.trim() || null;
 }

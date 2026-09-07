@@ -1,9 +1,18 @@
 node_modules
 .env
-.env*.local
+# Broader than `.env` alone on purpose — `studios/vcut/.env.vstudio` (real-looking API keys, only
+# ever untracked by luck, never by this file actually covering it) is exactly the shape of file this
+# needs to catch: `.env.<anything>`. `.env.example` is the one file meant to be committed, so it's
+# carved back out explicitly.
+.env.*
+!.env.example
 *.db
 .claude/
 .desktop/
 # VStudio's project storage (repo-root fallback in dev — see packages/vstudio/README.md's
 # "Where your files live"). Same category as .desktop/ above: local runtime data, not source.
 .vstudio/
+# Same as .vstudio/ above, under its post-rename name (VCUT_ROOT in studios/vcut/app/api/vcut/
+# _lib/paths.ts) — local project/media storage, never source. Confirmed a real gap: this directory
+# already held 374MB of local test project data, uncommitted only by luck (never actually excluded).
+.vcut/

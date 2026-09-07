@@ -32,7 +32,25 @@ export interface KhmerTextHarness {
  *   straight through to the harness page's own `registerCustomFont` call. Bundled fonts need no entry
  *   here; their `@font-face` rules already ship in the harness page's own `globals.css`. */
 export async function openKhmerTextHarness(baseUrl: string, outDir: string, customFontUrls: Record<string, string>): Promise<KhmerTextHarness> {
-  const browser: Browser = await puppeteer.launch({ headless: true });
+  // `--no-sandbox`/`--disable-setuid-sandbox`: Chromium's default sandbox needs kernel privileges
+  // most Docker containers don't grant (confirmed: the hosted Docker deployment's first Khmer-text
+  // export otherwise fails outright with "No usable sandbox!"). Safe specifically because this
+  // browser only ever navigates to ONE page this same app already trusts (`/vcut/text-harness`,
+  // below) — it's never pointed at arbitrary or third-party content, which is the actual thing the
+  // sandbox protects against. Harmless outside Docker too (dev, desktop) — these flags just relax a
+  // protection that was never load-bearing for a same-origin page in the first place.
+  //
+  // `--disable-dev-shm-usage`: Chromium's default shared-memory usage assumes a real `/dev/shm`,
+  // which Docker caps at a tiny 64MB by default regardless of the container's own memory limit —
+  // a well-documented, standard Chromium-in-Docker gotcha, not specific to this app. Under real
+  // memory pressure (a live hosted export crashed this exact 1GB-limited container, confirmed via
+  // Railway's own metrics graph showing a hard spike-then-drop right at the crash), Chromium
+  // falling back to `/tmp`-backed memory instead of a too-small `/dev/shm` is the safer failure
+  // mode. Harmless outside Docker too, same reasoning as the sandbox flags above.
+  const browser: Browser = await puppeteer.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
   // Everything between launch and the harness signaling ready can throw (a slow first-compile of the
   // `/vcut/text-harness` route under `next dev`, or the whole machine just being busy — a concurrent
   // FFmpeg encode from this SAME export is running the entire time this navigates) — and until now,

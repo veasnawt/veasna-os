@@ -1,7 +1,7 @@
 import { SFX_REGISTRY } from "@veasnawt/vcut/src/project/sfx";
 import fs from "fs";
 import { sfxAssetPath } from "../../_lib/sfx";
-import { localRoute } from "../../_lib/localOnly";
+import { publicAssetRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  *  with). */
 const ALLOWED_FILES = new Set(SFX_REGISTRY.map((sfx) => sfx.file));
 
-export const GET = localRoute(async (_req, context: { params: Promise<{ file: string }> }) => {
+export const GET = publicAssetRoute(async (_req, context: { params: Promise<{ file: string }> }) => {
   const { file } = await context.params;
   if (!ALLOWED_FILES.has(file)) throw new ApiError(404, "Unknown SFX file", "sfx-not-found");
 

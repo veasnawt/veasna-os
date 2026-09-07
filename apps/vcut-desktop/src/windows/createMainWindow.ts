@@ -16,12 +16,15 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: "#0a0c10",
     show: false,
     webPreferences: {
-      // No preload script and no <webview> support — unlike apps/desktop (which wraps several
-      // studios, one of which embeds arbitrary sites via <webview>), VCut's own renderer needs
-      // no privileged bridge at all: it only ever talks to its own bundled Next.js server over
-      // plain fetch, exactly like it does in a browser tab.
+      // No <webview> support — unlike apps/desktop (which wraps several studios, one of which
+      // embeds arbitrary sites via <webview>). The preload bridge (see preload.ts) stays narrow:
+      // crash reporting and the desktop sign-in flow, not a general "run anything in main" bridge.
       contextIsolation: true,
       nodeIntegration: false,
+      // esbuild bundles this whole file into a single apps/vcut-desktop/dist/main.cjs, so `__dirname`
+      // at runtime is `dist/` itself (same reasoning the `icon` path above already relies on) —
+      // preload.cjs (built as its own separate output, see esbuild.config.mjs) lands right beside it.
+      preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
