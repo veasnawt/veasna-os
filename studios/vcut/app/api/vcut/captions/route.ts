@@ -9,7 +9,7 @@ import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { segmentLine } from "@veasnawt/vcut/src/timeline/textAnimation";
 import { ffmpegAvailable, ffmpegBinary, runFfmpeg } from "../_lib/ffmpeg";
 import { VCUT_HOSTED } from "../_lib/auth";
-import { getInpaintKeyStatus, getReplicateToken } from "../_lib/inpaintEnvFile";
+import { getInpaintKeyStatus, getKiriToken, getReplicateToken } from "../_lib/inpaintEnvFile";
 import { refundCredits } from "../_lib/credits";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, resolveWithin } from "../_lib/paths";
@@ -137,6 +137,110 @@ interface WhisperOutput {
   detected_language?: string;
 }
 
+/** Kiri TTS's own transcription API (https://www.kiritts.com/docs/api) — used INSTEAD of Replicate's
+ *  WhisperX specifically for Khmer (`language === "km"`, gated on `getKiriToken()` being configured —
+ *  see that function's own doc comment for why there's no per-user key involved at all). The whole
+ *  reason this exists: WhisperX has no forced-alignment model for Khmer (see `LANGUAGES_WITHOUT_SPACES`
+ *  and `chunkSegment`'s estimated-timing fallback above), so Khmer captions from that path never get
+ *  real per-word timestamps, only an even-spread estimate. Kiri is built Khmer-first and genuinely
+ *  returns real per-word timing for Khmer — confirmed against a real key and real Khmer speech (NOT
+ *  Kiri's own TTS output — that was tried first and separately confirmed broken: a Khmer-text `/v1/
+ *  audio/speech` call returns audio that isn't actually Khmer speech, plus mislabels its own
+ *  `response_format` — WAV bytes came back even when `mp3` was requested — so it's useless as a
+ *  transcription test input and irrelevant to this function either way).
+ *
+ *  Confirmed shapes below (previously guessed from docs prose, now verified live, 2026-09-11):
+ *  - `POST .../jobs` (multipart) → `202` with `{id, status: "pending", ...}` — job id is `id`.
+ *  - `GET .../jobs/{id}` → same shape, `status` cycles `pending` → `processing` → `completed` | `failed`
+ *    (a failed job's own `error` is a plain STRING here, e.g. "Transcription failed. Please try
+ *    again." — different shape from the nested `{error:{message,type}}` envelope other endpoints use
+ *    for HTTP-level failures, confirmed separately against a 403 from `/v1/audio/speech`).
+ *  - `GET .../jobs/{id}/content` → bare (no query params) returns only `{text}`, EVEN for a completed
+ *    job — `response_format=verbose_json` must be passed again here as a query param to get the full
+ *    `{task, language, duration, text, segments}` shape, and `timestamp_granularities` must ALSO be
+ *    passed again as REPEATED query params (`...&timestamp_granularities=word&timestamp_granularities=
+ *    segment`, not one comma-joined value) to get `words` included at all — neither carries over from
+ *    what was requested at job creation. `language` comes back as a full name ("khmer"), not an ISO
+ *    code — irrelevant here since this function only ever runs for Khmer, so `detected_language` below
+ *    is simply hardcoded to `"km"` rather than trusted from the response. `segments` also carry a
+ *    `speaker` field (e.g. "Speaker 1") `WhisperOutput` doesn't declare — harmless, the `as` cast below
+ *    just ignores it, same as any other extra field.
+ *
+ *  Real output confirmed genuinely word-per-word for Khmer script (not character-per-character, unlike
+ *  `LANGUAGES_WITHOUT_SPACES`'s zh/ja case) — see that const's own updated comment for why `chunkSegment`
+ *  must still join Kiri's words with NO separator despite that, same as zh/ja: a real completed
+ *  segment's own `text` has zero spaces between words within it (spaces only appear between separate
+ *  segments, marking phrase/clause boundaries, not word boundaries) — confirmed directly from a live
+ *  response, not assumed. */
+const KIRI_API_BASE = "https://api.kiritts.com/v1";
+const KIRI_POLL_INTERVAL_MS = 5000;
+
+async function transcribeWithKiri(
+  job: CaptionsJob,
+  audioPath: string,
+  token: string,
+  onProgress: (fraction: number) => void
+): Promise<WhisperOutput> {
+  const form = new FormData();
+  form.append("file", new Blob([await fs.promises.readFile(audioPath)], { type: "audio/mpeg" }), "audio.mp3");
+  form.append("model", "kiristt");
+  form.append("language", "km-KH");
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities", "word,segment");
+
+  const startRes = await fetch(`${KIRI_API_BASE}/audio/transcriptions/jobs`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+    signal: job.abortController.signal,
+  });
+  if (!startRes.ok) {
+    // The nested `{error:{message}}` envelope, confirmed against a real 403 — see this function's own
+    // doc comment. `.detail` kept as a harmless second fallback in case a given error path differs.
+    const body = (await startRes.json().catch(() => null)) as { error?: { message?: string }; detail?: string } | null;
+    throw new ApiError(502, body?.error?.message ?? body?.detail ?? "Kiri could not start the transcription job", "kiri-start-failed");
+  }
+  const started = (await startRes.json()) as { id?: string };
+  const jobId = started.id;
+  if (!jobId) throw new ApiError(502, "Kiri did not return a job id", "kiri-no-job-id");
+  onProgress(0.1);
+
+  // Polled, not SSE/webhook — Kiri's own docs describe only a plain GET status endpoint for job mode.
+  // Confirmed live: even a short (~10s) clip regularly takes several minutes to leave "processing", so
+  // this polls slower than `watchCaptions`' own SSE cadence would suggest — no point hammering it.
+  for (;;) {
+    if (job.abortController.signal.aborted) throw new ApiError(499, "Cancelled", "cancelled");
+    const statusRes = await fetch(`${KIRI_API_BASE}/audio/transcriptions/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: job.abortController.signal,
+    });
+    if (!statusRes.ok) throw new ApiError(502, "Lost contact with Kiri's transcription job", "kiri-status-failed");
+    const statusBody = (await statusRes.json()) as { status?: string; error?: string };
+    if (statusBody.status === "completed") {
+      onProgress(0.9);
+      break;
+    }
+    if (statusBody.status === "failed") {
+      throw new ApiError(502, statusBody.error ?? "Kiri's transcription job failed", "kiri-job-failed");
+    }
+    onProgress(0.5);
+    await new Promise((resolve) => setTimeout(resolve, KIRI_POLL_INTERVAL_MS));
+  }
+
+  const contentUrl = new URL(`${KIRI_API_BASE}/audio/transcriptions/jobs/${jobId}/content`);
+  contentUrl.searchParams.set("response_format", "verbose_json");
+  contentUrl.searchParams.append("timestamp_granularities", "word");
+  contentUrl.searchParams.append("timestamp_granularities", "segment");
+  const contentRes = await fetch(contentUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: job.abortController.signal,
+  });
+  if (!contentRes.ok) throw new ApiError(502, "Could not download Kiri's finished transcript", "kiri-content-failed");
+  const data = (await contentRes.json()) as { segments?: WhisperOutput["segments"] };
+  onProgress(1);
+  return { segments: data.segments, detected_language: "km" };
+}
+
 /** A caption clip should read as one short line, not a whole paragraph — past either threshold, a
  *  segment gets split further (see `chunkSegment`). `*_SECONDS` catches the OTHER shape of "too long":
  *  a segment that's short in text but slow, drawled speech (rare, but a 40-char segment spanning 15s
@@ -150,14 +254,23 @@ const MAX_CAPTION_SECONDS = 5;
 const WORD_HIGHLIGHT_MAX_WORDS = 4;
 const WORD_HIGHLIGHT_MAX_SECONDS = 2.2;
 
-/** Mirrors WhisperX's own `LANGUAGES_WITHOUT_SPACES` (`whisperx/alignment.py`) exactly — confirmed by
- *  reading that file directly, not guessed. Chinese and Japanese are the two scripts where WhisperX's
- *  own forced-alignment step operates per CHARACTER rather than per space-delimited word, so its
- *  `words` array for these two is really a character list — joining consecutive entries with an
- *  inserted space would put a foreign space between every character. Every OTHER language WhisperX can
- *  align is genuinely space-delimited already (or, for Khmer/Thai/Lao/Malay in this app's own language
- *  list, simply has no alignment model at all — see `chunkSegment`'s fallback branch for those). */
-const LANGUAGES_WITHOUT_SPACES = new Set(["zh", "ja"]);
+/** `zh`/`ja` mirror WhisperX's own `LANGUAGES_WITHOUT_SPACES` (`whisperx/alignment.py`) exactly —
+ *  confirmed by reading that file directly, not guessed. Chinese and Japanese are the two scripts where
+ *  WhisperX's own forced-alignment step operates per CHARACTER rather than per space-delimited word, so
+ *  its `words` array for these two is really a character list — joining consecutive entries with an
+ *  inserted space would put a foreign space between every character.
+ *
+ *  `km` is here for a DIFFERENT reason, not from WhisperX at all (it has no Khmer alignment model to
+ *  begin with — see `chunkSegment`'s fallback branch): written Khmer simply doesn't put spaces between
+ *  words within a sentence — a space marks a phrase/clause boundary, not a word boundary. Confirmed two
+ *  ways: `transcribeWithKiri`'s real per-word Khmer output has zero spaces between words within one
+ *  segment's own `text` (only between separate segments), AND `segmentLine`'s `Intl.Segmenter` already
+ *  finds correct Khmer word boundaries directly from that same unspaced source text (ICU's dictionary-
+ *  based segmentation, not whitespace-splitting) — so the ESTIMATED fallback branch below, which
+ *  rebuilds a word list from `segmentLine`'s own pieces, needs the same no-space joiner to avoid
+ *  reinserting spaces that were never actually there. Without `km` here, both the real-word branch
+ *  (Kiri) and the estimated-fallback branch would incorrectly space out Khmer captions word by word. */
+const LANGUAGES_WITHOUT_SPACES = new Set(["zh", "ja", "km"]);
 
 interface TimedWord {
   text: string;
@@ -389,76 +502,87 @@ async function runCaptionsJob(
 
     // --- transcribing ---
     setStageProgress(job, "transcribing", 0);
-    const token = getReplicateToken();
-    if (!token) throw new ApiError(400, "Set your Replicate API key first", "no-api-key");
-
-    const replicate = new Replicate({ auth: token });
-    // `victor-upmeet/whisperx`, not the plain `openai/whisper` model this route started with —
-    // switched after a real, reported bug: stock Whisper decodes in ~30s windows and only splits a
-    // segment where ITS OWN timestamp-token prediction happens to land, which for a short clip with no
-    // long pause can come back as ONE segment spanning the whole thing (confirmed live, worse for
-    // Khmer specifically — a low-resource language where Whisper's segment-boundary predictions are
-    // markedly less reliable). WhisperX runs its own VAD (voice-activity detection) pass first and
-    // transcribes each detected speech span separately — genuinely helps for audio with real pauses in
-    // it, but confirmed LIVE this is not sufficient on its own: continuous, pause-free speech (a common
-    // case, not an edge case) still came back as one giant VAD-detected span, and so still one segment.
-    // `align_output: true` below is what actually closes that gap — it makes WhisperX ALSO run a
-    // forced-alignment pass that re-segments its own output by SENTENCE (not just by VAD-detected
-    // pause), so a single long span of continuous speech still comes back as several natural,
-    // sentence-sized segments. `chunkSegment` (above) is the backstop for whatever's still too long
-    // after that — either a single long sentence, or a whole un-split ASR/VAD segment for a language
-    // alignment doesn't cover (Khmer among them — see that function's own comment for how it estimates
-    // timing there without real per-word alignment to go on). Same underlying large-v3 weights as
-    // before either way (this doesn't fix Khmer being under-represented in Whisper's OWN training
-    // data — no provider swap can), but shorter, VAD-isolated chunks also cut down on the long-context
-    // "drift"/repeat-loop failure mode Whisper is known for, which should read as somewhat more
-    // accurate too.
-    //
-    // Resolved to the model's own `latest_version.id` rather than the bare "owner/name" shorthand —
-    // same reasoning `inpaint/route.ts`'s own Replicate calls use: works regardless of whether a given
-    // model happens to support the shorthand route, and pins this run to whichever version was
-    // actually current when it started even if a newer one lands mid-request.
-    const model = await replicate.models.get("victor-upmeet", "whisperx");
-    const version = model.latest_version?.id;
-    if (!version) throw new ApiError(502, "Replicate's Whisper model has no runnable version", "replicate-model-unavailable");
-
-    const audio_file = new File([await fs.promises.readFile(audioPath)], "audio.mp3", { type: "audio/mpeg" });
-    const input: Record<string, unknown> = { audio_file, align_output: true };
-    // `language: null`/omitted means "detect it" to this model (unlike `openai/whisper`'s own
-    // `"auto"` string) — see this model's own `predict.py`: `Optional[str] = Input(default=None)`.
-    if (language !== "auto") {
-      input.language = language;
+    // Khmer routes to Kiri instead of Replicate's WhisperX whenever a server-owned Kiri token is
+    // configured (see `getKiriToken`'s own doc comment — always server-owned, never per-user) — see
+    // `transcribeWithKiri`'s own doc comment for why Khmer specifically benefits. Every other language,
+    // and Khmer itself when no Kiri token is set (e.g. a local/desktop build, which never has one), keep
+    // using the existing Replicate/WhisperX path below unchanged.
+    const kiriToken = language === "km" ? getKiriToken() : null;
+    let data: WhisperOutput;
+    if (kiriToken) {
+      data = await transcribeWithKiri(job, audioPath, kiriToken, (fraction) => setStageProgress(job, "transcribing", fraction));
     } else {
-      // Left at its own default (`language_detection_min_prob: 0`), a bare `language: None` skips
-      // this model's own recursive-sampling detection entirely and falls straight through to
-      // faster-whisper's OWN per-batch auto-detect during transcription itself — confirmed, not
-      // hypothetical, a real, documented WhisperX failure class (github.com/m-bain/whisperX#298,
-      // "a phantom language can ruin the whole transcription"): a single VAD chunk mid-file
-      // misdetected as a DIFFERENT language than the rest gets transcribed as if it genuinely were
-      // that language (or dropped outright), which for a whole-SEQUENCE job — several concatenated
-      // clips, exactly the kind of file most likely to contain a chunk that reads ambiguously
-      // (background music, a quiet clip, a brief non-speech gap) — reads as "captions only cover the
-      // first clip, then stop": once a later chunk gets misdetected, nothing after it decodes
-      // sensibly. Setting a real probability threshold here activates the model's OWN more-robust
-      // path instead: it samples SEVERAL segments spread across the whole file (`audio_duration`
-      // permitting) and keeps the most confident result as ONE language for the entire transcription,
-      // rather than trusting whatever a single chunk's own in-flight guess happens to be. A per-clip
-      // job (always short, always one genuinely uniform source) never needed this — it's the
-      // whole-sequence case specifically that benefits, but there's no reason to condition it on job
-      // size when it's harmless and strictly more robust for a short file too (the recursive sampling
-      // itself only kicks in past this model's own 30s floor either way — see `predict.py`).
-      input.language_detection_min_prob = 0.6;
-    }
-    const output = await replicate.run(
-      `victor-upmeet/whisperx:${version}`,
-      { input, signal: job.abortController.signal },
-      (prediction) => {
-        // Same coarse status→fraction mapping `inpaint/route.ts`'s own Replicate call uses —
-        // Replicate's own API reports a status enum here, not a fine-grained percentage.
-        setStageProgress(job, "transcribing", prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
+      const token = getReplicateToken();
+      if (!token) throw new ApiError(400, "Set your Replicate API key first", "no-api-key");
+
+      const replicate = new Replicate({ auth: token });
+      // `victor-upmeet/whisperx`, not the plain `openai/whisper` model this route started with —
+      // switched after a real, reported bug: stock Whisper decodes in ~30s windows and only splits a
+      // segment where ITS OWN timestamp-token prediction happens to land, which for a short clip with no
+      // long pause can come back as ONE segment spanning the whole thing (confirmed live, worse for
+      // Khmer specifically — a low-resource language where Whisper's segment-boundary predictions are
+      // markedly less reliable). WhisperX runs its own VAD (voice-activity detection) pass first and
+      // transcribes each detected speech span separately — genuinely helps for audio with real pauses in
+      // it, but confirmed LIVE this is not sufficient on its own: continuous, pause-free speech (a common
+      // case, not an edge case) still came back as one giant VAD-detected span, and so still one segment.
+      // `align_output: true` below is what actually closes that gap — it makes WhisperX ALSO run a
+      // forced-alignment pass that re-segments its own output by SENTENCE (not just by VAD-detected
+      // pause), so a single long span of continuous speech still comes back as several natural,
+      // sentence-sized segments. `chunkSegment` (above) is the backstop for whatever's still too long
+      // after that — either a single long sentence, or a whole un-split ASR/VAD segment for a language
+      // alignment doesn't cover (Khmer among them — now routed to Kiri above instead when a token is
+      // configured; see that function's own comment for how this path still estimates timing when
+      // there's no real per-word alignment to go on, for whichever language/case it still handles).
+      // Same underlying large-v3 weights as before either way, but shorter, VAD-isolated chunks also cut
+      // down on the long-context "drift"/repeat-loop failure mode Whisper is known for, which should
+      // read as somewhat more accurate too.
+      //
+      // Resolved to the model's own `latest_version.id` rather than the bare "owner/name" shorthand —
+      // same reasoning `inpaint/route.ts`'s own Replicate calls use: works regardless of whether a given
+      // model happens to support the shorthand route, and pins this run to whichever version was
+      // actually current when it started even if a newer one lands mid-request.
+      const model = await replicate.models.get("victor-upmeet", "whisperx");
+      const version = model.latest_version?.id;
+      if (!version) throw new ApiError(502, "Replicate's Whisper model has no runnable version", "replicate-model-unavailable");
+
+      const audio_file = new File([await fs.promises.readFile(audioPath)], "audio.mp3", { type: "audio/mpeg" });
+      const input: Record<string, unknown> = { audio_file, align_output: true };
+      // `language: null`/omitted means "detect it" to this model (unlike `openai/whisper`'s own
+      // `"auto"` string) — see this model's own `predict.py`: `Optional[str] = Input(default=None)`.
+      if (language !== "auto") {
+        input.language = language;
+      } else {
+        // Left at its own default (`language_detection_min_prob: 0`), a bare `language: None` skips
+        // this model's own recursive-sampling detection entirely and falls straight through to
+        // faster-whisper's OWN per-batch auto-detect during transcription itself — confirmed, not
+        // hypothetical, a real, documented WhisperX failure class (github.com/m-bain/whisperX#298,
+        // "a phantom language can ruin the whole transcription"): a single VAD chunk mid-file
+        // misdetected as a DIFFERENT language than the rest gets transcribed as if it genuinely were
+        // that language (or dropped outright), which for a whole-SEQUENCE job — several concatenated
+        // clips, exactly the kind of file most likely to contain a chunk that reads ambiguously
+        // (background music, a quiet clip, a brief non-speech gap) — reads as "captions only cover the
+        // first clip, then stop": once a later chunk gets misdetected, nothing after it decodes
+        // sensibly. Setting a real probability threshold here activates the model's OWN more-robust
+        // path instead: it samples SEVERAL segments spread across the whole file (`audio_duration`
+        // permitting) and keeps the most confident result as ONE language for the entire transcription,
+        // rather than trusting whatever a single chunk's own in-flight guess happens to be. A per-clip
+        // job (always short, always one genuinely uniform source) never needed this — it's the
+        // whole-sequence case specifically that benefits, but there's no reason to condition it on job
+        // size when it's harmless and strictly more robust for a short file too (the recursive sampling
+        // itself only kicks in past this model's own 30s floor either way — see `predict.py`).
+        input.language_detection_min_prob = 0.6;
       }
-    );
-    const data = output as WhisperOutput;
+      const output = await replicate.run(
+        `victor-upmeet/whisperx:${version}`,
+        { input, signal: job.abortController.signal },
+        (prediction) => {
+          // Same coarse status→fraction mapping `inpaint/route.ts`'s own Replicate call uses —
+          // Replicate's own API reports a status enum here, not a fine-grained percentage.
+          setStageProgress(job, "transcribing", prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
+        }
+      );
+      data = output as WhisperOutput;
+    }
 
     // --- building-captions ---
     setStageProgress(job, "building-captions", 0);

@@ -11,6 +11,14 @@ import { getLocalSetupStatus } from "./localModel";
  *  stay `hostedDisabledRoute`-gated — there is nothing for a hosted user to configure. */
 const HOSTED_REPLICATE_TOKEN_ENV_VAR = "VCUT_HOSTED_REPLICATE_API_TOKEN";
 
+/** Hosted mode's own server-owned Kiri token — same shape as `HOSTED_REPLICATE_TOKEN_ENV_VAR` above,
+ *  set once as a Railway variable. For `captions/route.ts`'s Khmer-specific transcription path (see
+ *  that file's `transcribeWithKiri`). Unlike Remove Object/Replicate, Kiri has no self-serve UI at
+ *  all anywhere — nothing in the Inspector ever lets a USER type in a Kiri key, in either mode — the
+ *  founder is the only one who ever populates `KIRI_API_TOKEN` in `.env.vcut` (below) for local dev, or
+ *  this var in hosted, so Khmer users (self-serve or hosted) never touch a key either way. */
+const HOSTED_KIRI_TOKEN_ENV_VAR = "VCUT_HOSTED_KIRI_API_TOKEN";
+
 /** Documents/Veasna OS/vcut.env in the packaged desktop app (`VEASNA_WORKSPACE_ROOT` set there);
  *  a gitignored file inside this checkout when running via `pnpm dev` instead (no
  *  `VEASNA_WORKSPACE_ROOT` there) — same "read fresh on every request, no restart needed" behavior
@@ -134,4 +142,16 @@ export function getActiveInpaintToken(): string | null {
 export function getReplicateToken(): string | null {
   if (VCUT_HOSTED) return process.env[HOSTED_REPLICATE_TOKEN_ENV_VAR]?.trim() || null;
   return loadVstudioEnv()[PROVIDER_KEY_VAR.replicate]?.trim() || null;
+}
+
+/** Same `.env.vcut` file Replicate/fal already use for local dev, under its own `KIRI_API_TOKEN` key —
+ *  deliberately NOT wired into `PROVIDER_KEY_VAR`/`setInpaintApiKey`/`getInpaintKeyStatus` (those exist
+ *  to drive the Inspector's key-entry UI, and Kiri has none — the founder edits this file by hand, the
+ *  same way he'd edit any other local secret). `captions/route.ts` treats a `null` return as "use the
+ *  existing Replicate/WhisperX path instead," never as an error. */
+const KIRI_LOCAL_ENV_VAR = "KIRI_API_TOKEN";
+
+export function getKiriToken(): string | null {
+  if (VCUT_HOSTED) return process.env[HOSTED_KIRI_TOKEN_ENV_VAR]?.trim() || null;
+  return loadVstudioEnv()[KIRI_LOCAL_ENV_VAR]?.trim() || null;
 }
