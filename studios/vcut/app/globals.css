@@ -609,6 +609,69 @@
   font-style: normal;
   font-display: swap;
 }
+@font-face {
+  font-family: "VCutBayon";
+  src: url("/api/vcut/fonts/Bayon-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutFreehand";
+  src: url("/api/vcut/fonts/Freehand-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutKdamThmorPro";
+  src: url("/api/vcut/fonts/KdamThmorPro-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutKhmer";
+  src: url("/api/vcut/fonts/Khmer-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutKohSantepheap";
+  src: url("/api/vcut/fonts/KohSantepheap-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutKohSantepheap";
+  src: url("/api/vcut/fonts/KohSantepheap-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutKonkhmerSleokchher";
+  src: url("/api/vcut/fonts/KonkhmerSleokchher-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutOdorMeanChey";
+  src: url("/api/vcut/fonts/OdorMeanChey-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "VCutTaprom";
+  src: url("/api/vcut/fonts/Taprom-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* Battambang was already loaded above for user-added TEXT CLIPS (via the Inspector's font picker) —
    this is the separate case of the app's own UI chrome switching to it, applied to VCutApp's root
