@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { drawAnimatedTextFrame } from "@veasnawt/vcut/src/playback/textLayout";
 import { registerCustomFont, resolveFont } from "@veasnawt/vcut/src/project/fonts";
 import type { Clip, CustomFontAsset, TextStyle } from "@veasnawt/vcut/src/project/types";
+import type { WordTiming } from "@veasnawt/vcut/src/timeline/textAnimation";
 
 /** Not a real page anyone visits — a render target for `_lib/khmerTextHarness.ts`'s headless Chromium
  *  instance, which navigates here once per export and calls `window.__renderTextFrame` repeatedly
@@ -28,6 +29,10 @@ interface RenderFrameParams {
   elapsedSeconds: number;
   clipDurationSeconds: number;
   customFonts: CustomFontAsset[];
+  /** Mirrors `khmerTextRenderer.ts`'s `RenderKhmerTextParams.wordTimings` exactly (a separate copy,
+   *  same cross-app-boundary reasoning this whole interface already follows) — passed straight through
+   *  to `drawAnimatedTextFrame` below. */
+  wordTimings?: WordTiming[];
   /** Custom-font id → a URL (or `data:` URI) `registerCustomFont` can fetch — bundled fonts need none
    *  of this (their `@font-face` rules are already in `globals.css`), but a custom (project-uploaded)
    *  font has no static CSS rule anywhere, the same reason `registerCustomFont` itself exists (see its
@@ -112,7 +117,8 @@ export default function TextHarnessPage() {
         params.animation,
         params.elapsedSeconds,
         params.clipDurationSeconds,
-        params.customFonts
+        params.customFonts,
+        params.wordTimings
       );
     };
     window.__harnessReady = true;

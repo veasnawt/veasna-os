@@ -49,6 +49,13 @@ interface CaptionSegment {
    *  whole-sequence share this same code path correctly. */
   start: number;
   end: number;
+  /** Real per-word timing, CLIP-RELATIVE (seconds from this segment's own `start`, matching
+   *  `Clip.wordTimings`'s exact convention) — present only when `chunkSegment` had genuine per-word
+   *  timestamps to work with (Kiri's Khmer output; WhisperX-aligned languages), never for the
+   *  ESTIMATED-fallback branch (its own timing is invented, not real, so it would be dishonest to hand
+   *  it to the client as if it were — the client's own `wordBoundaries` already has an equivalent
+   *  even-spread fallback for exactly this "no real timing" case, no need to fabricate one here too). */
+  words?: { text: string; start: number; end: number }[];
 }
 
 interface CaptionsJob {
@@ -310,7 +317,11 @@ function alignWordsToText(text: string, rawWords: { word: string; start: number;
  *  that field's own doc comment) is simply used as-is — EXCEPT for whichever word ends up first in a
  *  chunk after a `flush()`, which never gets a leading joiner charged against it (that word starts a
  *  fresh line; its `leadingJoiner` describes its relationship to the PREVIOUS chunk, not this one). */
-function groupTimedWords(words: TimedWord[], limits: { maxChars?: number; maxWords?: number; maxSeconds: number }): CaptionSegment[] {
+function groupTimedWords(
+  words: TimedWord[],
+  limits: { maxChars?: number; maxWords?: number; maxSeconds: number },
+  includeWordTimings: boolean
+): CaptionSegment[] {
   const chunks: CaptionSegment[] = [];
   let current: TimedWord[] = [];
   let currentChars = 0;
@@ -319,7 +330,15 @@ function groupTimedWords(words: TimedWord[], limits: { maxChars?: number; maxWor
     if (current.length === 0) return;
     let content = current[0].text;
     for (let i = 1; i < current.length; i++) content += current[i].leadingJoiner + current[i].text;
-    chunks.push({ content, start: current[0].start, end: current[current.length - 1].end });
+    // Clip-relative (relative to THIS chunk's own start) even though `mapToRealTime` hasn't run yet —
+    // safe because that mapping is a constant per-range OFFSET, so subtracting two not-yet-mapped
+    // timestamps in the SAME range already equals subtracting the mapped ones would. Only emitted for
+    // the real-word branch (`includeWordTimings`) — see `CaptionSegment.words`'s own doc comment for
+    // why the estimated fallback's invented timing shouldn't be handed to the client as if real.
+    const words = includeWordTimings
+      ? current.map((w) => ({ text: w.text, start: w.start - current[0].start, end: w.end - current[0].start }))
+      : undefined;
+    chunks.push({ content, start: current[0].start, end: current[current.length - 1].end, ...(words ? { words } : null) });
     current = [];
     currentChars = 0;
   }
@@ -387,7 +406,7 @@ function chunkSegment(
   );
 
   if (rawWords.length > 0) {
-    return groupTimedWords(alignWordsToText(text, rawWords), limits);
+    return groupTimedWords(alignWordsToText(text, rawWords), limits, true);
   }
 
   // Estimated fallback — no real per-word timing to go on for this segment/language at all.
@@ -414,7 +433,7 @@ function chunkSegment(
     index += 1;
     return { text: p.text, leadingJoiner: p.leadingJoiner, start, end: segment.start + index * secondsPerWord };
   });
-  return groupTimedWords(estimatedWords, limits);
+  return groupTimedWords(estimatedWords, limits, false);
 }
 
 /** One span of the timeline to transcribe — the whole sequence is a single `CaptionRange`, a per-clip
@@ -628,7 +647,10 @@ async function runCaptionsJob(
     // not guessed from an overall segment/job language.
     const captions: CaptionSegment[] = (data.segments ?? [])
       .flatMap((s) => chunkSegment(s, wordHighlight))
-      .map((c) => ({ content: c.content, start: mapToRealTime(c.start), end: mapToRealTime(c.end) }))
+      // `words` is already clip-relative (see `groupTimedWords`'s own comment on why it doesn't need
+      // `mapToRealTime` at all) — passed through as-is, unlike `start`/`end` which are still relative
+      // to the combined extracted audio at this point.
+      .map((c) => ({ content: c.content, start: mapToRealTime(c.start), end: mapToRealTime(c.end), ...(c.words ? { words: c.words } : null) }))
       .filter((c) => c.content.length > 0 && c.end > c.start);
 
     job.captions = captions;
