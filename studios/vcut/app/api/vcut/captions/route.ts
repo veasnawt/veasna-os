@@ -128,10 +128,10 @@ function setStageProgress(job: CaptionsJob, stage: Stage, fraction: number) {
  *  `align_output` succeeds for the segment's language — which this route now always requests, and
  *  `chunkSegment` below now actually uses (see its own comment for why an earlier version of this
  *  route deliberately didn't). `detected_language` is WhisperX's own guess (always present, whether
- *  `language` was pinned by the caller or left to auto-detect) — used to decide whether to join
- *  recovered words with a space or not (see `LANGUAGES_WITHOUT_SPACES` below), since that has to match
- *  whatever language the words actually came out in, not necessarily what the caller originally asked
- *  for. */
+ *  `language` was pinned by the caller or left to auto-detect) — kept here for completeness/debugging
+ *  visibility but no longer consumed downstream: word-joining spacing is now read directly from the
+ *  real source text per word (see `TimedWord.leadingJoiner`'s own doc comment), not guessed from an
+ *  overall segment language. */
 interface WhisperOutput {
   segments?: { start: number; end: number; text: string; words?: { word: string; start?: number; end?: number }[] }[];
   detected_language?: string;
@@ -140,8 +140,8 @@ interface WhisperOutput {
 /** Kiri TTS's own transcription API (https://www.kiritts.com/docs/api) — used INSTEAD of Replicate's
  *  WhisperX specifically for Khmer (`language === "km"`, gated on `getKiriToken()` being configured —
  *  see that function's own doc comment for why there's no per-user key involved at all). The whole
- *  reason this exists: WhisperX has no forced-alignment model for Khmer (see `LANGUAGES_WITHOUT_SPACES`
- *  and `chunkSegment`'s estimated-timing fallback above), so Khmer captions from that path never get
+ *  reason this exists: WhisperX has no forced-alignment model for Khmer (see `chunkSegment`'s
+ *  estimated-timing fallback above), so Khmer captions from that path never get
  *  real per-word timestamps, only an even-spread estimate. Kiri is built Khmer-first and genuinely
  *  returns real per-word timing for Khmer — confirmed against a real key and real Khmer speech (NOT
  *  Kiri's own TTS output — that was tried first and separately confirmed broken: a Khmer-text `/v1/
@@ -167,11 +167,14 @@ interface WhisperOutput {
  *    just ignores it, same as any other extra field.
  *
  *  Real output confirmed genuinely word-per-word for Khmer script (not character-per-character, unlike
- *  `LANGUAGES_WITHOUT_SPACES`'s zh/ja case) — see that const's own updated comment for why `chunkSegment`
- *  must still join Kiri's words with NO separator despite that, same as zh/ja: a real completed
- *  segment's own `text` has zero spaces between words within it (spaces only appear between separate
- *  segments, marking phrase/clause boundaries, not word boundaries) — confirmed directly from a live
- *  response, not assumed. */
+ *  WhisperX's own zh/ja case) — but real spacing within a completed segment's own `text` turned out
+ *  messier than "Khmer never has spaces, only between segments": a segment can mix in a bare
+ *  Latin-script word (e.g. "reflection") WITH a real space around it, AND carry an internal
+ *  clause-boundary space between two ordinary Khmer words, both confirmed live from this exact
+ *  function's own output reaching production. Neither is predictable from script or language alone —
+ *  `chunkSegment`'s real-word branch handles this correctly by finding each word's own position back
+ *  in `segment.text` and reading the real separator directly (see `TimedWord.leadingJoiner`'s own doc
+ *  comment for the two guessing approaches this replaced and why both were wrong). */
 const KIRI_API_BASE = "https://api.kiritts.com/v1";
 const KIRI_POLL_INTERVAL_MS = 5000;
 
@@ -254,28 +257,46 @@ const MAX_CAPTION_SECONDS = 5;
 const WORD_HIGHLIGHT_MAX_WORDS = 4;
 const WORD_HIGHLIGHT_MAX_SECONDS = 2.2;
 
-/** `zh`/`ja` mirror WhisperX's own `LANGUAGES_WITHOUT_SPACES` (`whisperx/alignment.py`) exactly —
- *  confirmed by reading that file directly, not guessed. Chinese and Japanese are the two scripts where
- *  WhisperX's own forced-alignment step operates per CHARACTER rather than per space-delimited word, so
- *  its `words` array for these two is really a character list — joining consecutive entries with an
- *  inserted space would put a foreign space between every character.
- *
- *  `km` is here for a DIFFERENT reason, not from WhisperX at all (it has no Khmer alignment model to
- *  begin with — see `chunkSegment`'s fallback branch): written Khmer simply doesn't put spaces between
- *  words within a sentence — a space marks a phrase/clause boundary, not a word boundary. Confirmed two
- *  ways: `transcribeWithKiri`'s real per-word Khmer output has zero spaces between words within one
- *  segment's own `text` (only between separate segments), AND `segmentLine`'s `Intl.Segmenter` already
- *  finds correct Khmer word boundaries directly from that same unspaced source text (ICU's dictionary-
- *  based segmentation, not whitespace-splitting) — so the ESTIMATED fallback branch below, which
- *  rebuilds a word list from `segmentLine`'s own pieces, needs the same no-space joiner to avoid
- *  reinserting spaces that were never actually there. Without `km` here, both the real-word branch
- *  (Kiri) and the estimated-fallback branch would incorrectly space out Khmer captions word by word. */
-const LANGUAGES_WITHOUT_SPACES = new Set(["zh", "ja", "km"]);
-
 interface TimedWord {
   text: string;
   start: number;
   end: number;
+  /** Raw text that appeared between this word and the PREVIOUS one in the real source text — "" for
+   *  a word that starts a chunk fresh, otherwise copied VERBATIM from the real source rather than
+   *  guessed by any per-language or per-script rule. An earlier version of this tried exactly that (a
+   *  per-language flag, then a per-adjacent-pair Unicode-script check) and both were proven wrong
+   *  live: a real Kiri Khmer segment mixes in a bare Latin word ("reflection") WITH a real space
+   *  around it, AND — the script check's own blind spot — a single Khmer segment can carry an
+   *  internal clause-boundary space between two Khmer-script words that no per-word script rule can
+   *  ever tell apart from a genuine no-space Khmer word boundary. The real fix is to stop guessing:
+   *  this field is populated by literally reading the separator that was really there, per branch
+   *  below — `chunkSegment`'s real-word branch finds each word's own position in `segment.text` and
+   *  takes whatever's actually between them; its estimated-fallback branch already has this for free,
+   *  since `segmentLine`'s non-word pieces (spaces, punctuation) ARE the real separators, just
+   *  previously discarded by an `isWord`-only filter instead of kept. */
+  leadingJoiner: string;
+}
+
+/** Locates each `rawWords` entry's own position in `text`, in order, and returns a `TimedWord[]` whose
+ *  `leadingJoiner` is copied verbatim from whatever real text actually separated it from the PREVIOUS
+ *  word — see `TimedWord.leadingJoiner`'s own doc comment for why this replaced a script-based guess.
+ *  Search starts from just past the previous match each time (never re-scans from 0), so a word that
+ *  happens to repeat earlier in the segment can't be mismatched to its own earlier occurrence. A word
+ *  that can't be found from that point on (case mismatch, punctuation Kiri/WhisperX stripped
+ *  differently than it appears in `text`, ...) falls back to a plain space — the common-case default —
+ *  rather than dropping the word or throwing. */
+function alignWordsToText(text: string, rawWords: { word: string; start: number; end: number }[]): TimedWord[] {
+  const result: TimedWord[] = [];
+  let cursor = 0;
+  for (const w of rawWords) {
+    const word = w.word.trim();
+    if (!word) continue;
+    const idx = text.indexOf(word, cursor);
+    const leadingJoiner = result.length === 0 ? "" : idx === -1 ? " " : text.slice(cursor, idx);
+    if (idx !== -1) cursor = idx + word.length;
+    result.push({ text: word, start: w.start, end: w.end, leadingJoiner });
+  }
+  return result;
 }
 
 /** Groups already-timed words into chunks, cutting whenever the NEXT word would push the current
@@ -283,33 +304,34 @@ interface TimedWord {
  *  first word — whichever limit is actually configured for this call. Each chunk's own `start`/`end`
  *  comes directly from its first/last word's real timestamp, never recomputed — this is the one place
  *  both `chunkSegment` branches below (real per-word timing and the estimated fallback) converge, so
- *  there's only one grouping/capping algorithm to keep correct. */
-function groupTimedWords(words: TimedWord[], joiner: string, limits: { maxChars?: number; maxWords?: number; maxSeconds: number }): CaptionSegment[] {
+ *  there's only one grouping/capping algorithm to keep correct. Each word's own `leadingJoiner` (see
+ *  that field's own doc comment) is simply used as-is — EXCEPT for whichever word ends up first in a
+ *  chunk after a `flush()`, which never gets a leading joiner charged against it (that word starts a
+ *  fresh line; its `leadingJoiner` describes its relationship to the PREVIOUS chunk, not this one). */
+function groupTimedWords(words: TimedWord[], limits: { maxChars?: number; maxWords?: number; maxSeconds: number }): CaptionSegment[] {
   const chunks: CaptionSegment[] = [];
   let current: TimedWord[] = [];
   let currentChars = 0;
 
   function flush() {
     if (current.length === 0) return;
-    chunks.push({
-      content: current.map((w) => w.text).join(joiner),
-      start: current[0].start,
-      end: current[current.length - 1].end,
-    });
+    let content = current[0].text;
+    for (let i = 1; i < current.length; i++) content += current[i].leadingJoiner + current[i].text;
+    chunks.push({ content, start: current[0].start, end: current[current.length - 1].end });
     current = [];
     currentChars = 0;
   }
 
   for (const word of words) {
     if (current.length > 0) {
-      const nextChars = currentChars + joiner.length + word.text.length;
+      const nextChars = currentChars + word.leadingJoiner.length + word.text.length;
       const overChars = limits.maxChars !== undefined && nextChars > limits.maxChars;
       const overWords = limits.maxWords !== undefined && current.length + 1 > limits.maxWords;
       const overSeconds = word.end - current[0].start > limits.maxSeconds;
       if (overChars || overWords || overSeconds) flush();
     }
     current.push(word);
-    currentChars = current.length === 1 ? word.text.length : currentChars + joiner.length + word.text.length;
+    currentChars = current.length === 1 ? word.text.length : currentChars + word.leadingJoiner.length + word.text.length;
   }
   flush();
   return chunks;
@@ -346,7 +368,6 @@ function groupTimedWords(words: TimedWord[], joiner: string, limits: { maxChars?
  *  tighter cap) shrink that estimation error too, even without real timing to work from. */
 function chunkSegment(
   segment: { start: number; end: number; text: string; words?: { word: string; start?: number; end?: number }[] },
-  detectedLanguage: string,
   wordHighlight: boolean
 ): CaptionSegment[] {
   const text = segment.text.trim();
@@ -359,34 +380,39 @@ function chunkSegment(
     duration <= limits.maxSeconds && (limits.maxChars === undefined || text.length <= limits.maxChars) && !wordHighlight;
   if (fitsAsOneChunk) return [{ content: text, start: segment.start, end: segment.end }];
 
-  const realWords: TimedWord[] = (segment.words ?? [])
-    .filter((w) => typeof w.start === "number" && typeof w.end === "number" && w.word.trim().length > 0)
-    .map((w) => ({ text: w.word.trim(), start: w.start!, end: w.end! }));
+  const rawWords = (segment.words ?? []).filter(
+    (w): w is { word: string; start: number; end: number } => typeof w.start === "number" && typeof w.end === "number" && w.word.trim().length > 0
+  );
 
-  if (realWords.length > 0) {
-    const joiner = LANGUAGES_WITHOUT_SPACES.has(detectedLanguage) ? "" : " ";
-    return groupTimedWords(realWords, joiner, limits);
+  if (rawWords.length > 0) {
+    return groupTimedWords(alignWordsToText(text, rawWords), limits);
   }
 
   // Estimated fallback — no real per-word timing to go on for this segment/language at all.
+  // `segmentLine` returns EVERY piece of `text`, word and non-word alike, in order — non-word pieces
+  // (spaces, punctuation) ARE the real separators, so they're accumulated into `pendingJoiner` and
+  // attached to the NEXT word piece as its `leadingJoiner`, rather than discarded and reconstructed by
+  // a guess (see `TimedWord.leadingJoiner`'s own doc comment for why a guess isn't good enough here).
   const pieces = segmentLine(text);
-  const totalWords = pieces.filter((p) => p.isWord).length;
-  if (totalWords === 0) return [{ content: text, start: segment.start, end: segment.end }];
-  const secondsPerWord = duration / totalWords;
-  // `segmentLine` already returns each word in its ORIGINAL script's own natural form (no separator
-  // needed between them here — `estimatedWords` below rebuilds a per-word LIST for `groupTimedWords`
-  // from segment-relative positions, but the actual joiner used for space-less scripts still has to be
-  // `""`, same as the real-word branch above, keyed off `detectedLanguage` the same way).
-  const joiner = LANGUAGES_WITHOUT_SPACES.has(detectedLanguage) ? "" : " ";
+  const wordPieces: { text: string; leadingJoiner: string }[] = [];
+  let pendingJoiner = "";
+  for (const piece of pieces) {
+    if (piece.isWord) {
+      wordPieces.push({ text: piece.text, leadingJoiner: wordPieces.length === 0 ? "" : pendingJoiner });
+      pendingJoiner = "";
+    } else {
+      pendingJoiner += piece.text;
+    }
+  }
+  if (wordPieces.length === 0) return [{ content: text, start: segment.start, end: segment.end }];
+  const secondsPerWord = duration / wordPieces.length;
   let index = 0;
-  const estimatedWords: TimedWord[] = pieces
-    .filter((p) => p.isWord)
-    .map((p) => {
-      const start = segment.start + index * secondsPerWord;
-      index += 1;
-      return { text: p.text, start, end: segment.start + index * secondsPerWord };
-    });
-  return groupTimedWords(estimatedWords, joiner, limits);
+  const estimatedWords: TimedWord[] = wordPieces.map((p) => {
+    const start = segment.start + index * secondsPerWord;
+    index += 1;
+    return { text: p.text, leadingJoiner: p.leadingJoiner, start, end: segment.start + index * secondsPerWord };
+  });
+  return groupTimedWords(estimatedWords, limits);
 }
 
 /** One span of the timeline to transcribe — the whole sequence is a single `CaptionRange`, a per-clip
@@ -591,12 +617,11 @@ async function runCaptionsJob(
     // sequence-timeline seconds (a plain `ranges[0].start +` offset for the single-range case, the
     // exact same shift `trimProjectToRange` itself undid when it moved that range's own timeline zero;
     // see `mapToRealTime`'s own doc comment for the general, multi-range version of the same idea).
-    // `detected_language` falls back to the caller's own explicit choice (never "auto" — the POST
-    // handler already normalizes that) on the off chance the model ever omits the field; in practice
-    // it's always present (confirmed against `victor-upmeet/whisperx-replicate`'s own `predict.py`).
-    const detectedLanguage = data.detected_language ?? (language !== "auto" ? language : "");
+    // `data.detected_language` itself is no longer needed here — `chunkSegment`'s spacing is now read
+    // straight from the real source text per word (see `TimedWord.leadingJoiner`'s own doc comment),
+    // not guessed from an overall segment/job language.
     const captions: CaptionSegment[] = (data.segments ?? [])
-      .flatMap((s) => chunkSegment(s, detectedLanguage, wordHighlight))
+      .flatMap((s) => chunkSegment(s, wordHighlight))
       .map((c) => ({ content: c.content, start: mapToRealTime(c.start), end: mapToRealTime(c.end) }))
       .filter((c) => c.content.length > 0 && c.end > c.start);
 
