@@ -266,6 +266,34 @@ const MAX_CAPTION_SECONDS = 5;
 const WORD_HIGHLIGHT_MAX_WORDS = 4;
 const WORD_HIGHLIGHT_MAX_SECONDS = 2.2;
 
+/** A real per-word gap longer than this forces a chunk break, REGARDLESS of the char/word/second
+ *  budgets above — a caption clip's own `[start, end]` otherwise spans straight through a genuine pause
+ *  in the speech (a whole ASR segment CAN legitimately cover one: WhisperX/Kiri split by VAD/sentence,
+ *  not by every brief silence), which reads as one caption sitting on screen doing nothing for the
+ *  pause's own duration instead of the screen genuinely going blank between two separate thoughts —
+ *  confirmed as a real, reported gap, not a hypothetical one. Only ever checked against REAL per-word
+ *  timing (see `includeWordTimings`/`hasInternalPause`) — the estimated fallback's synthetic,
+ *  evenly-spread word positions have no genuine silence to detect at all. 0.5s: long enough that normal
+ *  inter-word gaps (a consonant closure, a breath mid-word) never trigger it, short enough to still
+ *  catch a real pause between sentences/phrases. */
+const PAUSE_GAP_SECONDS = 0.5;
+
+/** Whether any two REAL, consecutive per-word timestamps in `words` are separated by more than
+ *  `PAUSE_GAP_SECONDS` — used to veto `chunkSegment`'s "fits as one chunk" shortcut, which otherwise
+ *  has no way to know a segment it would leave whole actually contains a pause worth splitting on (see
+ *  `PAUSE_GAP_SECONDS`'s own doc comment). Entries without a real `start`/`end` (alignment failed for
+ *  that specific word) are simply skipped rather than treated as a gap — same "not every word aligns"
+ *  tolerance `chunkSegment`'s own `rawWords` filter already has. */
+function hasInternalPause(words: { word: string; start?: number; end?: number }[]): boolean {
+  let previousEnd: number | undefined;
+  for (const w of words) {
+    if (typeof w.start !== "number" || typeof w.end !== "number") continue;
+    if (previousEnd !== undefined && w.start - previousEnd > PAUSE_GAP_SECONDS) return true;
+    previousEnd = w.end;
+  }
+  return false;
+}
+
 interface TimedWord {
   text: string;
   start: number;
@@ -349,7 +377,11 @@ function groupTimedWords(
       const overChars = limits.maxChars !== undefined && nextChars > limits.maxChars;
       const overWords = limits.maxWords !== undefined && current.length + 1 > limits.maxWords;
       const overSeconds = word.end - current[0].start > limits.maxSeconds;
-      if (overChars || overWords || overSeconds) flush();
+      // Only against REAL timing (see `PAUSE_GAP_SECONDS`'s own doc comment) — the estimated fallback's
+      // synthetic word positions are contiguous by construction, so this would never fire for them
+      // anyway, but gating it explicitly keeps the intent honest rather than relying on that coincidence.
+      const overGap = includeWordTimings && word.start - current[current.length - 1].end > PAUSE_GAP_SECONDS;
+      if (overChars || overWords || overSeconds || overGap) flush();
     }
     current.push(word);
     currentChars = current.length === 1 ? word.text.length : currentChars + word.leadingJoiner.length + word.text.length;
@@ -398,7 +430,10 @@ function chunkSegment(
     ? { maxWords: WORD_HIGHLIGHT_MAX_WORDS, maxSeconds: WORD_HIGHLIGHT_MAX_SECONDS }
     : { maxChars: MAX_CAPTION_CHARS, maxSeconds: MAX_CAPTION_SECONDS };
   const fitsAsOneChunk =
-    duration <= limits.maxSeconds && (limits.maxChars === undefined || text.length <= limits.maxChars) && !wordHighlight;
+    duration <= limits.maxSeconds &&
+    (limits.maxChars === undefined || text.length <= limits.maxChars) &&
+    !wordHighlight &&
+    !hasInternalPause(segment.words ?? []);
   if (fitsAsOneChunk) return [{ content: text, start: segment.start, end: segment.end }];
 
   const rawWords = (segment.words ?? []).filter(
