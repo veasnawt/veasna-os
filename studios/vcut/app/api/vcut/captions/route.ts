@@ -206,6 +206,7 @@ async function transcribeWithKiri(
   const started = (await startRes.json()) as { id?: string };
   const jobId = started.id;
   if (!jobId) throw new ApiError(502, "Kiri did not return a job id", "kiri-no-job-id");
+  console.log(`[vcut] transcribeWithKiri: started Kiri job ${jobId}`); // temporary diagnostic, see call site's own comment
   onProgress(0.1);
 
   // Polled, not SSE/webhook — Kiri's own docs describe only a plain GET status endpoint for job mode.
@@ -240,6 +241,7 @@ async function transcribeWithKiri(
   });
   if (!contentRes.ok) throw new ApiError(502, "Could not download Kiri's finished transcript", "kiri-content-failed");
   const data = (await contentRes.json()) as { segments?: WhisperOutput["segments"] };
+  console.log(`[vcut] transcribeWithKiri: Kiri job ${jobId} done, ${data.segments?.length ?? 0} segment(s)`); // temporary diagnostic
   onProgress(1);
   return { segments: data.segments, detected_language: "km" };
 }
@@ -534,6 +536,10 @@ async function runCaptionsJob(
     // and Khmer itself when no Kiri token is set (e.g. a local/desktop build, which never has one), keep
     // using the existing Replicate/WhisperX path below unchanged.
     const kiriToken = language === "km" ? getKiriToken() : null;
+    // Temporary diagnostic — confirms in the Railway logs which provider a given job actually took,
+    // since nothing else currently surfaces that distinction anywhere observable from outside this
+    // function. Safe to remove once Kiri routing is confirmed working end-to-end in production.
+    console.log(`[vcut] captions job ${job.id}: language=${language} provider=${kiriToken ? "kiri" : "replicate"}`);
     let data: WhisperOutput;
     if (kiriToken) {
       data = await transcribeWithKiri(job, audioPath, kiriToken, (fraction) => setStageProgress(job, "transcribing", fraction));
