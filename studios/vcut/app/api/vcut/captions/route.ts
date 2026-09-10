@@ -248,7 +248,31 @@ async function transcribeWithKiri(
   });
   if (!contentRes.ok) throw new ApiError(502, "Could not download Kiri's finished transcript", "kiri-content-failed");
   const data = (await contentRes.json()) as { segments?: WhisperOutput["segments"] };
-  console.log(`[vcut] transcribeWithKiri: Kiri job ${jobId} done, ${data.segments?.length ?? 0} segment(s)`); // temporary diagnostic
+  // Temporary diagnostic — measures gaps DIRECTLY off Kiri's own raw response, independent of
+  // chunkSegment/groupTimedWords' own pause-splitting logic, to answer a real open question: does
+  // Kiri's raw data even CONTAIN gaps worth splitting on (both within one segment's own `words`, and
+  // between one segment's `end` and the next segment's own `start`), or does it report segments/words
+  // as touching exactly regardless of real silence in the source audio? A live report said captions
+  // still show no gaps after the pause-splitting fix shipped — this settles whether that's a threshold
+  // problem (real gaps exist but are smaller than PAUSE_GAP_SECONDS) or Kiri's own timestamps simply
+  // don't represent the pause at all (no amount of threshold tuning could fix that).
+  {
+    const segments = data.segments ?? [];
+    let maxInterSegmentGap = 0;
+    let maxInterWordGap = 0;
+    for (let i = 1; i < segments.length; i++) maxInterSegmentGap = Math.max(maxInterSegmentGap, segments[i].start - segments[i - 1].end);
+    for (const s of segments) {
+      const words = s.words ?? [];
+      for (let i = 1; i < words.length; i++) {
+        const prev = words[i - 1].end;
+        const cur = words[i].start;
+        if (typeof prev === "number" && typeof cur === "number") maxInterWordGap = Math.max(maxInterWordGap, cur - prev);
+      }
+    }
+    console.log(
+      `[vcut] transcribeWithKiri: Kiri job ${jobId} done, ${segments.length} segment(s), max inter-segment gap=${maxInterSegmentGap.toFixed(3)}s, max inter-word gap=${maxInterWordGap.toFixed(3)}s`
+    );
+  }
   onProgress(1);
   return { segments: data.segments, detected_language: "km" };
 }
@@ -273,10 +297,16 @@ const WORD_HIGHLIGHT_MAX_SECONDS = 2.2;
  *  pause's own duration instead of the screen genuinely going blank between two separate thoughts —
  *  confirmed as a real, reported gap, not a hypothetical one. Only ever checked against REAL per-word
  *  timing (see `includeWordTimings`/`hasInternalPause`) — the estimated fallback's synthetic,
- *  evenly-spread word positions have no genuine silence to detect at all. 0.5s: long enough that normal
- *  inter-word gaps (a consonant closure, a breath mid-word) never trigger it, short enough to still
- *  catch a real pause between sentences/phrases. */
-const PAUSE_GAP_SECONDS = 0.5;
+ *  evenly-spread word positions have no genuine silence to detect at all.
+ *
+ *  Lowered from an initial 0.5s after a live report that captions still showed no gaps at all — a real
+ *  captured Kiri sample's own MAX real inter-word gap across a whole 10s clip of continuous speech was
+ *  only 0.34s, meaning normal conversational pacing regularly never crosses 0.5s in the first place, so
+ *  that threshold was simply too high to ever fire for anything but a dramatic, deliberate pause. 0.3s
+ *  still comfortably clears a plain consonant closure or a breath mid-word (real ones measured well
+ *  under 0.1s) while actually catching the kind of ordinary between-phrase pause a viewer would expect
+ *  reflected as a gap. */
+const PAUSE_GAP_SECONDS = 0.3;
 
 /** Whether any two REAL, consecutive per-word timestamps in `words` are separated by more than
  *  `PAUSE_GAP_SECONDS` — used to veto `chunkSegment`'s "fits as one chunk" shortcut, which otherwise
@@ -687,6 +717,23 @@ async function runCaptionsJob(
       // to the combined extracted audio at this point.
       .map((c) => ({ content: c.content, start: mapToRealTime(c.start), end: mapToRealTime(c.end), ...(c.words ? { words: c.words } : null) }))
       .filter((c) => c.content.length > 0 && c.end > c.start);
+
+    // Temporary diagnostic — the ground-truth check for whether a real gap actually made it all the
+    // way through to the final caption clips the client will place on the timeline, independent of
+    // WHERE in the pipeline it came from (real per-word pause-splitting, or simply two separate ASR
+    // segments that already had a gap between them).
+    {
+      let maxClipGap = 0;
+      let gapCount = 0;
+      for (let i = 1; i < captions.length; i++) {
+        const gap = captions[i].start - captions[i - 1].end;
+        if (gap > 0.01) gapCount++;
+        maxClipGap = Math.max(maxClipGap, gap);
+      }
+      console.log(
+        `[vcut] captions job ${job.id}: ${captions.length} caption clip(s), ${gapCount} with a real gap before them, max gap=${maxClipGap.toFixed(3)}s`
+      );
+    }
 
     job.captions = captions;
     job.status = "done";
