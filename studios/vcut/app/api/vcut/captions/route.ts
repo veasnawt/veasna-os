@@ -248,30 +248,19 @@ async function transcribeWithKiri(
   });
   if (!contentRes.ok) throw new ApiError(502, "Could not download Kiri's finished transcript", "kiri-content-failed");
   const data = (await contentRes.json()) as { segments?: WhisperOutput["segments"] };
-  // Temporary diagnostic — measures gaps DIRECTLY off Kiri's own raw response, independent of
-  // chunkSegment/groupTimedWords' own pause-splitting logic, to answer a real open question: does
-  // Kiri's raw data even CONTAIN gaps worth splitting on (both within one segment's own `words`, and
-  // between one segment's `end` and the next segment's own `start`), or does it report segments/words
-  // as touching exactly regardless of real silence in the source audio? A live report said captions
-  // still show no gaps after the pause-splitting fix shipped — this settles whether that's a threshold
-  // problem (real gaps exist but are smaller than PAUSE_GAP_SECONDS) or Kiri's own timestamps simply
-  // don't represent the pause at all (no amount of threshold tuning could fix that).
+  // Kiri-specific diagnostic — measures the gap BETWEEN Kiri's own ASR segments (as opposed to within
+  // one segment's own `words`, which `runCaptionsJob`'s own permanent diagnostic already covers
+  // provider-agnostically once `chunkSegment` has run for every segment). Segment boundaries are
+  // Kiri's own call (VAD/sentence splitting), not this route's — a real pause landing exactly AT a
+  // segment boundary rather than inside one flows straight through to the final captions with no
+  // `pauseThreshold` involved at all (see `chunkSegment`'s own doc comment: it runs per segment via
+  // `flatMap`, never merging across segment boundaries), so this has no adaptive-threshold logic of
+  // its own to get wrong — kept simple, just real numbers off the raw response.
   {
     const segments = data.segments ?? [];
     let maxInterSegmentGap = 0;
-    let maxInterWordGap = 0;
     for (let i = 1; i < segments.length; i++) maxInterSegmentGap = Math.max(maxInterSegmentGap, segments[i].start - segments[i - 1].end);
-    for (const s of segments) {
-      const words = s.words ?? [];
-      for (let i = 1; i < words.length; i++) {
-        const prev = words[i - 1].end;
-        const cur = words[i].start;
-        if (typeof prev === "number" && typeof cur === "number") maxInterWordGap = Math.max(maxInterWordGap, cur - prev);
-      }
-    }
-    console.log(
-      `[vcut] transcribeWithKiri: Kiri job ${jobId} done, ${segments.length} segment(s), max inter-segment gap=${maxInterSegmentGap.toFixed(3)}s, max inter-word gap=${maxInterWordGap.toFixed(3)}s`
-    );
+    console.log(`[vcut] transcribeWithKiri: Kiri job ${jobId} done, ${segments.length} segment(s), max inter-segment gap=${maxInterSegmentGap.toFixed(3)}s`);
   }
   onProgress(1);
   return { segments: data.segments, detected_language: "km" };
@@ -290,35 +279,100 @@ const MAX_CAPTION_SECONDS = 5;
 const WORD_HIGHLIGHT_MAX_WORDS = 4;
 const WORD_HIGHLIGHT_MAX_SECONDS = 2.2;
 
-/** A real per-word gap longer than this forces a chunk break, REGARDLESS of the char/word/second
- *  budgets above — a caption clip's own `[start, end]` otherwise spans straight through a genuine pause
- *  in the speech (a whole ASR segment CAN legitimately cover one: WhisperX/Kiri split by VAD/sentence,
- *  not by every brief silence), which reads as one caption sitting on screen doing nothing for the
- *  pause's own duration instead of the screen genuinely going blank between two separate thoughts —
- *  confirmed as a real, reported gap, not a hypothetical one. Only ever checked against REAL per-word
- *  timing (see `includeWordTimings`/`hasInternalPause`) — the estimated fallback's synthetic,
- *  evenly-spread word positions have no genuine silence to detect at all.
+/** A real per-word gap longer than the job's own `pauseThreshold` (see `computePauseThreshold` below)
+ *  forces a chunk break, REGARDLESS of the char/word/second budgets above — a caption clip's own
+ *  `[start, end]` otherwise spans straight through a genuine pause in the speech (a whole ASR segment
+ *  CAN legitimately cover one: WhisperX/Kiri split by VAD/sentence, not by every brief silence), which
+ *  reads as one caption sitting on screen doing nothing for the pause's own duration instead of the
+ *  screen genuinely going blank between two separate thoughts — confirmed as a real, reported gap, not
+ *  a hypothetical one. Only ever checked against REAL per-word timing (see
+ *  `includeWordTimings`/`hasInternalPause`) — the estimated fallback's synthetic, evenly-spread word
+ *  positions have no genuine silence to detect at all.
  *
- *  Lowered from an initial 0.5s after a live report that captions still showed no gaps at all — a real
- *  captured Kiri sample's own MAX real inter-word gap across a whole 10s clip of continuous speech was
- *  only 0.34s, meaning normal conversational pacing regularly never crosses 0.5s in the first place, so
- *  that threshold was simply too high to ever fire for anything but a dramatic, deliberate pause. 0.3s
- *  still comfortably clears a plain consonant closure or a breath mid-word (real ones measured well
- *  under 0.1s) while actually catching the kind of ordinary between-phrase pause a viewer would expect
- *  reflected as a gap. */
-const PAUSE_GAP_SECONDS = 0.3;
+ *  This used to be one hardcoded constant shared by every job ever run (0.5s, then lowered to 0.3s
+ *  after a live report that captions still showed no gaps at all — a real captured Kiri sample's own
+ *  MAX real inter-word gap across a whole 10s clip of continuous speech was only 0.34s, meaning normal
+ *  conversational pacing regularly never crossed 0.5s in the first place). That fix was itself fragile
+ *  in the same way the first constant was: "normal word-to-word gap" isn't one universal number — it
+ *  varies by speaker, language, mic quality, and even provider timestamp quantization, so any single
+ *  fixed cutoff will eventually be wrong again for the next recording (too high for a slow, deliberate
+ *  speaker whose normal gaps regularly approach it; too low for a fast, dense speaker whose real pauses
+ *  never get that large in absolute terms). `computePauseThreshold` replaces the fixed constant with a
+ *  threshold computed FROM each job's own real gap distribution — adaptive per recording instead of
+ *  requiring a human to keep re-guessing a shared global number as new samples come in. */
+const PAUSE_GAP_FLOOR_SECONDS = 0.2;
+
+/** How many "typical gap units" above the job's own median counts as a genuine outlier — see
+ *  `computePauseThreshold`'s own doc comment. 3 is a standard robust-statistics convention (a "modified
+ *  z-score" of 3 using MAD in place of standard deviation is the widely-used default for flagging
+ *  outliers, e.g. Iglewicz & Hoaglin's rule of thumb) — comfortably past ordinary variance in
+ *  conversational pacing without requiring a dramatic, multi-second silence to fire. */
+const PAUSE_OUTLIER_MULTIPLIER = 3;
+
+/** Floor under the job's own median-absolute-deviation spread — a recording with extremely uniform
+ *  inter-word gaps (near-zero variance, e.g. a very clean, evenly-paced reading) would otherwise collapse
+ *  `PAUSE_OUTLIER_MULTIPLIER * mad` to almost nothing, making the adaptive threshold MORE sensitive than
+ *  intended instead of less. Keeps the multiplier meaningful even when a recording's own gaps genuinely
+ *  don't vary much. */
+const MIN_GAP_SPREAD_SECONDS = 0.05;
+
+/** Below this many real inter-word gap samples, a per-job median/MAD is too noisy to trust (a "typical
+ *  gap" computed from 2-3 data points isn't a real distribution) — falls back to the plain floor instead
+ *  of possibly building an adaptive threshold that's actively worse than a fixed one. A short clip or a
+ *  segment-sparse transcript can easily land here; the floor alone is still a reasonable, conservative
+ *  default in that case (see `PAUSE_GAP_FLOOR_SECONDS`'s own value). */
+const MIN_GAP_SAMPLES_FOR_ADAPTIVE = 12;
+
+/** Computes ONE pause threshold for an entire transcription job from every REAL inter-word gap that
+ *  job's provider reported (across ALL segments, not per-segment — a single ASR segment often has too
+ *  few words for a reliable median/MAD on its own, while pacing is generally consistent across one
+ *  speaker/recording, so pooling the whole job's gaps gives a much more stable per-recording baseline
+ *  while still adapting per speaker/recording instead of using one number for every job ever run).
+ *
+ *  Uses the MEDIAN (not mean) as the "typical gap" baseline and MAD (median absolute deviation, not
+ *  standard deviation) as the spread — both are robust to the outliers this function exists to detect
+ *  in the first place: a handful of genuine multi-second pauses in an otherwise fast-paced recording
+ *  would drag a MEAN/stddev-based baseline upward, making the resulting threshold LESS sensitive to
+ *  exactly the pauses it's supposed to catch. Final threshold is `max(floor, median + K * spread)` —
+ *  never below the floor even for a recording with almost no real gap variance at all, always adaptive
+ *  above it for a recording whose own pacing runs unusually slow (median well above the floor) or
+ *  unusually punctuated (spread genuinely wide). */
+function computePauseThreshold(segments: { words?: { word: string; start?: number; end?: number }[] }[]): number {
+  const gaps: number[] = [];
+  for (const segment of segments) {
+    const words = segment.words ?? [];
+    let previousEnd: number | undefined;
+    for (const w of words) {
+      if (typeof w.start !== "number" || typeof w.end !== "number") continue;
+      if (previousEnd !== undefined) {
+        const gap = w.start - previousEnd;
+        if (gap >= 0) gaps.push(gap);
+      }
+      previousEnd = w.end;
+    }
+  }
+  if (gaps.length < MIN_GAP_SAMPLES_FOR_ADAPTIVE) return PAUSE_GAP_FLOOR_SECONDS;
+
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const deviations = sorted.map((g) => Math.abs(g - median)).sort((a, b) => a - b);
+  const mad = deviations[Math.floor(deviations.length / 2)];
+  const spread = Math.max(mad, MIN_GAP_SPREAD_SECONDS);
+  return Math.max(PAUSE_GAP_FLOOR_SECONDS, median + PAUSE_OUTLIER_MULTIPLIER * spread);
+}
 
 /** Whether any two REAL, consecutive per-word timestamps in `words` are separated by more than
- *  `PAUSE_GAP_SECONDS` — used to veto `chunkSegment`'s "fits as one chunk" shortcut, which otherwise
- *  has no way to know a segment it would leave whole actually contains a pause worth splitting on (see
- *  `PAUSE_GAP_SECONDS`'s own doc comment). Entries without a real `start`/`end` (alignment failed for
- *  that specific word) are simply skipped rather than treated as a gap — same "not every word aligns"
- *  tolerance `chunkSegment`'s own `rawWords` filter already has. */
-function hasInternalPause(words: { word: string; start?: number; end?: number }[]): boolean {
+ *  `pauseThreshold` — used to veto `chunkSegment`'s "fits as one chunk" shortcut, which otherwise has no
+ *  way to know a segment it would leave whole actually contains a pause worth splitting on (see
+ *  `computePauseThreshold`'s own doc comment for where `pauseThreshold` itself comes from). Entries
+ *  without a real `start`/`end` (alignment failed for that specific word) are simply skipped rather than
+ *  treated as a gap — same "not every word aligns" tolerance `chunkSegment`'s own `rawWords` filter
+ *  already has. */
+function hasInternalPause(words: { word: string; start?: number; end?: number }[], pauseThreshold: number): boolean {
   let previousEnd: number | undefined;
   for (const w of words) {
     if (typeof w.start !== "number" || typeof w.end !== "number") continue;
-    if (previousEnd !== undefined && w.start - previousEnd > PAUSE_GAP_SECONDS) return true;
+    if (previousEnd !== undefined && w.start - previousEnd > pauseThreshold) return true;
     previousEnd = w.end;
   }
   return false;
@@ -378,7 +432,8 @@ function alignWordsToText(text: string, rawWords: { word: string; start: number;
 function groupTimedWords(
   words: TimedWord[],
   limits: { maxChars?: number; maxWords?: number; maxSeconds: number },
-  includeWordTimings: boolean
+  includeWordTimings: boolean,
+  pauseThreshold: number
 ): CaptionSegment[] {
   const chunks: CaptionSegment[] = [];
   let current: TimedWord[] = [];
@@ -407,10 +462,11 @@ function groupTimedWords(
       const overChars = limits.maxChars !== undefined && nextChars > limits.maxChars;
       const overWords = limits.maxWords !== undefined && current.length + 1 > limits.maxWords;
       const overSeconds = word.end - current[0].start > limits.maxSeconds;
-      // Only against REAL timing (see `PAUSE_GAP_SECONDS`'s own doc comment) — the estimated fallback's
-      // synthetic word positions are contiguous by construction, so this would never fire for them
-      // anyway, but gating it explicitly keeps the intent honest rather than relying on that coincidence.
-      const overGap = includeWordTimings && word.start - current[current.length - 1].end > PAUSE_GAP_SECONDS;
+      // Only against REAL timing (see `computePauseThreshold`'s own doc comment) — the estimated
+      // fallback's synthetic word positions are contiguous by construction, so this would never fire for
+      // them anyway, but gating it explicitly keeps the intent honest rather than relying on that
+      // coincidence.
+      const overGap = includeWordTimings && word.start - current[current.length - 1].end > pauseThreshold;
       if (overChars || overWords || overSeconds || overGap) flush();
     }
     current.push(word);
@@ -451,7 +507,8 @@ function groupTimedWords(
  *  tighter cap) shrink that estimation error too, even without real timing to work from. */
 function chunkSegment(
   segment: { start: number; end: number; text: string; words?: { word: string; start?: number; end?: number }[] },
-  wordHighlight: boolean
+  wordHighlight: boolean,
+  pauseThreshold: number
 ): CaptionSegment[] {
   const text = segment.text.trim();
   if (!text) return [];
@@ -463,7 +520,7 @@ function chunkSegment(
     duration <= limits.maxSeconds &&
     (limits.maxChars === undefined || text.length <= limits.maxChars) &&
     !wordHighlight &&
-    !hasInternalPause(segment.words ?? []);
+    !hasInternalPause(segment.words ?? [], pauseThreshold);
   if (fitsAsOneChunk) return [{ content: text, start: segment.start, end: segment.end }];
 
   const rawWords = (segment.words ?? []).filter(
@@ -471,7 +528,7 @@ function chunkSegment(
   );
 
   if (rawWords.length > 0) {
-    return groupTimedWords(alignWordsToText(text, rawWords), limits, true);
+    return groupTimedWords(alignWordsToText(text, rawWords), limits, true, pauseThreshold);
   }
 
   // Estimated fallback — no real per-word timing to go on for this segment/language at all.
@@ -498,7 +555,7 @@ function chunkSegment(
     index += 1;
     return { text: p.text, leadingJoiner: p.leadingJoiner, start, end: segment.start + index * secondsPerWord };
   });
-  return groupTimedWords(estimatedWords, limits, false);
+  return groupTimedWords(estimatedWords, limits, false, pauseThreshold);
 }
 
 /** One span of the timeline to transcribe — the whole sequence is a single `CaptionRange`, a per-clip
@@ -710,19 +767,41 @@ async function runCaptionsJob(
     // `data.detected_language` itself is no longer needed here — `chunkSegment`'s spacing is now read
     // straight from the real source text per word (see `TimedWord.leadingJoiner`'s own doc comment),
     // not guessed from an overall segment/job language.
+    //
+    // `pauseThreshold` is computed ONCE for the whole job (see `computePauseThreshold`'s own doc
+    // comment for why job-wide, not per-segment) and reused for every segment's own chunking below —
+    // this is what makes pause detection adapt to THIS recording's own pacing instead of one constant
+    // shared by every job ever run.
+    const pauseThreshold = computePauseThreshold(data.segments ?? []);
     const captions: CaptionSegment[] = (data.segments ?? [])
-      .flatMap((s) => chunkSegment(s, wordHighlight))
+      .flatMap((s) => chunkSegment(s, wordHighlight, pauseThreshold))
       // `words` is already clip-relative (see `groupTimedWords`'s own comment on why it doesn't need
       // `mapToRealTime` at all) — passed through as-is, unlike `start`/`end` which are still relative
       // to the combined extracted audio at this point.
       .map((c) => ({ content: c.content, start: mapToRealTime(c.start), end: mapToRealTime(c.end), ...(c.words ? { words: c.words } : null) }))
       .filter((c) => c.content.length > 0 && c.end > c.start);
 
-    // Temporary diagnostic — the ground-truth check for whether a real gap actually made it all the
-    // way through to the final caption clips the client will place on the timeline, independent of
-    // WHERE in the pipeline it came from (real per-word pause-splitting, or simply two separate ASR
-    // segments that already had a gap between them).
+    // Kept as a permanent (not "temporary") diagnostic, not removed once this fix is confirmed working —
+    // `pauseThreshold` is now computed fresh per job from a third-party provider's own real timestamp
+    // quality, which can legitimately drift (a model update, a different accent/recording condition);
+    // having this land in the logs for every real job, not just while actively debugging, is what makes
+    // a future regression here diagnosable from production evidence instead of another live report +
+    // guesswork cycle. Reports both what the job's own gap distribution actually looked like (so a
+    // future reader can sanity-check `computePauseThreshold`'s own choices against real data) and the
+    // ground-truth check for whether a real gap actually made it all the way through to the final
+    // caption clips the client will place on the timeline.
     {
+      const interWordGaps: number[] = [];
+      for (const s of data.segments ?? []) {
+        const words = s.words ?? [];
+        let previousEnd: number | undefined;
+        for (const w of words) {
+          if (typeof w.start !== "number" || typeof w.end !== "number") continue;
+          if (previousEnd !== undefined) interWordGaps.push(w.start - previousEnd);
+          previousEnd = w.end;
+        }
+      }
+      const maxInterWordGap = interWordGaps.reduce((m, g) => Math.max(m, g), 0);
       let maxClipGap = 0;
       let gapCount = 0;
       for (let i = 1; i < captions.length; i++) {
@@ -731,7 +810,7 @@ async function runCaptionsJob(
         maxClipGap = Math.max(maxClipGap, gap);
       }
       console.log(
-        `[vcut] captions job ${job.id}: ${captions.length} caption clip(s), ${gapCount} with a real gap before them, max gap=${maxClipGap.toFixed(3)}s`
+        `[vcut] captions job ${job.id}: pauseThreshold=${pauseThreshold.toFixed(3)}s from ${interWordGaps.length} real inter-word gap(s) (max=${maxInterWordGap.toFixed(3)}s) -> ${captions.length} caption clip(s), ${gapCount} with a real gap before them, max clip gap=${maxClipGap.toFixed(3)}s`
       );
     }
 
