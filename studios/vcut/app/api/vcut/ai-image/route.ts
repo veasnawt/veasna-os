@@ -4,6 +4,7 @@ import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,17 +25,19 @@ const AI_IMAGE_CREDITS_PER_GENERATION = 1;
 
 const FLUX_SCHNELL_MODEL = "black-forest-labs/flux-schnell";
 
+/** A first production run of this route came back with `ai-image-no-output` — proof that Replicate's
+ *  real output shape for this model doesn't match the single `FileOutput`-with-`.blob()` shape
+ *  `inpaint/route.ts`'s own working pattern uses (this sandbox's own outbound network can't reach
+ *  replicate.com to have confirmed the real shape before shipping — see this route's own credit-cost
+ *  comment). `extractReplicateMediaBytes` (shared with `ai-video/route.ts`, which has the same
+ *  uncertainty) tries several real shapes instead of assuming just one. */
+
 /** Every aspect ratio this route offers matches one of `RESOLUTION_PRESETS` (`project/types.ts`)
  *  exactly — a user generating an image for THIS project almost always wants it to already fit the
  *  project's own frame shape, so the client defaults to whichever of these matches the current
  *  sequence rather than making that a second decision on top of the prompt itself. */
 const ASPECT_RATIOS = ["9:16", "16:9", "1:1"] as const;
 type AspectRatio = (typeof ASPECT_RATIOS)[number];
-
-interface FluxOutput {
-  url: () => string;
-  blob: () => Promise<Blob>;
-}
 
 /** `POST /api/vcut/ai-image?projectId=...` `{prompt, aspectRatio}` — synchronous, unlike Remove
  *  Object/Auto Captions' own job+SSE pattern: Flux Schnell is genuinely fast (its own name — a single
@@ -70,21 +73,14 @@ export const POST = hostedCreditGatedRoute("ai-image", AI_IMAGE_CREDITS_PER_GENE
       signal: req.signal,
     });
 
-    // Same defensive shape `inpaint/route.ts`'s own `runInpaintPrediction` already treats Replicate
-    // output with — a single-output prediction is USUALLY one `FileOutput` object directly, but
-    // `num_outputs` conceptually makes an array possible, so both are handled rather than assuming one.
-    const result = Array.isArray(output) ? output[0] : output;
-    if (!result || typeof (result as Partial<FluxOutput>).blob !== "function") {
-      throw new ApiError(502, "The image generator returned no usable output", "ai-image-no-output");
-    }
-    const blob = await (result as FluxOutput).blob();
-    const bytes = Buffer.from(await blob.arrayBuffer());
+    const bytes = await extractReplicateMediaBytes(output, "The image generator returned no usable output", "ai-image-no-output");
 
     const asset = await importMediaBytes(paths, bytes, `${prompt.slice(0, 40).replace(/[^a-zA-Z0-9-]+/g, "-") || "ai-image"}.png`);
     return Response.json({ asset });
   } catch (err) {
     if (user) void refundCredits(user.id, AI_IMAGE_CREDITS_PER_GENERATION);
     if (err instanceof ApiError) throw err;
+    console.error("[vcut] ai-image: generation failed:", err);
     throw new ApiError(502, err instanceof Error ? err.message : "The image generator failed", "ai-image-generate-failed");
   }
 });

@@ -1,9 +1,10 @@
 import Replicate from "replicate";
 import { refundCredits } from "../_lib/credits";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
-import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
+import { importMediaBytes } from "../_lib/importMedia";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,37 +81,6 @@ function setStageProgress(job: AiVideoJob, stage: Stage, fraction: number) {
   job.notify();
 }
 
-/** Pulls real bytes out of a Replicate prediction's output whatever SHAPE it turns out to be —
- *  deliberately more defensive than `ai-image/route.ts`'s own single well-confirmed shape, because
- *  this model's exact output schema could NOT be confirmed the same way (see
- *  `AI_VIDEO_CREDITS_PER_GENERATION`'s own comment on why: Cloudflare blocks this sandbox's own
- *  outbound requests to replicate.com's API). Tries, in order: (1) a `FileOutput` object exposing
- *  `.blob()` directly — the shape `bria/video-erase-object` and `flux-schnell` both use; (2) a plain
- *  URL string, or an object carrying one under a `url`/`video.url` field (a shape closer to fal.ai's
- *  own convention for the SAME underlying MiniMax model) — downloaded via `downloadMediaUrl` in that
- *  case. Once a real job has actually run in production, whichever branch it took should be confirmed
- *  and this simplified to just that one — kept broad for now specifically so a schema guess being
- *  wrong fails LOUDLY (a clear "no usable output" error) rather than silently producing a broken
- *  import. */
-async function extractVideoBytes(output: unknown): Promise<Buffer> {
-  const candidate = Array.isArray(output) ? output[0] : output;
-  if (candidate && typeof (candidate as { blob?: unknown }).blob === "function") {
-    const blob = await (candidate as { blob: () => Promise<Blob> }).blob();
-    return Buffer.from(await blob.arrayBuffer());
-  }
-  const asRecord = candidate as { url?: unknown; video?: { url?: unknown } } | string | undefined;
-  const url =
-    typeof asRecord === "string"
-      ? asRecord
-      : typeof asRecord?.url === "string"
-        ? asRecord.url
-        : typeof asRecord?.video?.url === "string"
-          ? asRecord.video.url
-          : undefined;
-  if (url) return downloadMediaUrl(url);
-  throw new ApiError(502, "The video generator returned no usable output", "ai-video-no-output");
-}
-
 async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: string, ownerId: string | undefined) {
   const paths = ensureProjectDirs(bpProjectId);
   try {
@@ -128,7 +98,7 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
     );
 
     setStageProgress(job, "downloading", 0);
-    const bytes = await extractVideoBytes(output);
+    const bytes = await extractReplicateMediaBytes(output, "The video generator returned no usable output", "ai-video-no-output");
     setStageProgress(job, "downloading", 1);
 
     setStageProgress(job, "importing", 0);
