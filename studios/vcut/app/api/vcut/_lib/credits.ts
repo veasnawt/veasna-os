@@ -71,7 +71,15 @@ export interface CreditsStatus {
 export async function getCreditsStatus(userId: string): Promise<CreditsStatus> {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("profiles").select("credits_remaining, credits_reset_at").eq("id", userId).maybeSingle();
-  if (error) throw new ApiError(500, "Could not read credits", "credits-read-failed");
+  // Logged before throwing — this was silently swallowed by the caller's own catch-and-fall-back-to-
+  // "free" (see `billing/status/route.ts`'s own comment on why that route no longer lets a failure
+  // here take the correctly-read `plan` down with it), so a real, reported "Pro shows the free-plan
+  // outro branding" bug had NOTHING in the logs explaining why the credits half of that response kept
+  // failing. Same "confirmed swallowed-error bug" category `profiles.ts`'s own `upsertPlanByStripeCustomerId` documents.
+  if (error) {
+    console.error("[vcut] credits: could not read credits for", userId, error);
+    throw new ApiError(500, "Could not read credits", "credits-read-failed");
+  }
   if (!data) return { remaining: 5, resetAt: new Date().toISOString() };
   return { remaining: data.credits_remaining, resetAt: data.credits_reset_at };
 }
