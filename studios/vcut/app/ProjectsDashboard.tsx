@@ -441,7 +441,7 @@ export function ProjectsDashboard() {
         ) : filtered && filtered.length === 0 ? (
           <p className="text-xs text-white/40">No projects match &ldquo;{search}&rdquo;.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 items-start gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {filtered?.map((p) => {
               const portrait = p.height > p.width;
               const url = thumbnailUrl(p.id, p.thumbnail);
@@ -449,11 +449,14 @@ export function ProjectsDashboard() {
                 <div key={p.id} className="group flex flex-col gap-2">
                   <Link
                     href={`/edit?projectId=${encodeURIComponent(p.id)}&projectName=${encodeURIComponent(p.name)}`}
-                    className="relative block aspect-video overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] transition group-hover:border-white/25"
+                    style={{ aspectRatio: `${p.width} / ${p.height}` }}
+                    className="relative block overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] transition group-hover:border-white/25"
                   >
                     {url ? (
                       // A local file served from this app's own API, not something next/image's
-                      // remote-optimization pipeline has any reason to sit in front of.
+                      // remote-optimization pipeline has any reason to sit in front of. `object-cover`
+                      // is harmless now that the box itself is sized to the project's real aspect ratio
+                      // (was previously cropping every portrait project into a fixed 16:9 window).
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={url} alt="" className="h-full w-full object-cover" />
                     ) : (
