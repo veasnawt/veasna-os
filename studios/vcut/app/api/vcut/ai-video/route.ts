@@ -9,25 +9,35 @@ import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** `minimax/video-01` generates up to 6 seconds of 720p/25fps video per run, with no user-configurable
- *  duration (unlike Remove Object's own per-second Replicate billing) — so a flat per-generation cost
- *  is the right SHAPE here, not a per-second rate.
+/** Originally MiniMax's `video-01` — switched to Seedance 2.0 because MiniMax's model (confirmed via
+ *  its `fal-ai/minimax-video` wrapper's own docs, the one part of its schema readable from here) takes
+ *  no aspect-ratio input at all, always rendering at its own fixed default. Seedance 2.0's own README
+ *  confirms a real `aspect_ratio` field with exactly the three ratios `AI_ASPECT_RATIOS` (`client.ts`)
+ *  already offers for AI image gen, so the same picker covers both.
  *
- *  The exact number is an ESTIMATE, not directly confirmed the way `AI_IMAGE_CREDITS_PER_GENERATION`'s
- *  own $0.003/megapixel figure was (Replicate's own pricing page didn't surface a number for this
- *  specific model when checked, and this sandbox's own outbound network is Cloudflare-blocked from
- *  reaching replicate.com's API directly to confirm it empirically either) — derived instead from the
- *  same underlying MiniMax model's confirmed fal.ai price for real speech ($0.045/sec × 6s = $0.27),
- *  since Replicate and fal.ai both resell the same third-party model and typically land close to its
- *  real vendor cost. At this app's own ~60% gross-margin target (~$0.00333 of real cost per credit,
- *  same math `AI_IMAGE_CREDITS_PER_GENERATION`'s own comment walks through), $0.27 ÷ $0.00333 ≈ 81
- *  credits. TODO once real production jobs have run: reconcile this against the actual Replicate
- *  invoice and correct this ONE constant if it's meaningfully off, the same "verify against real
- *  evidence, not just docs" pass `captions/route.ts`'s own pause-detection history went through. */
-const AI_VIDEO_CREDITS_PER_GENERATION = 81;
+ *  Seedance 2.0's Replicate pricing IS directly confirmed (unlike MiniMax's, which had to be estimated
+ *  from a different provider's price for the same underlying model): $0.1028/sec at 480p output,
+ *  billed per second actually generated. `SEEDANCE_DURATION_SECONDS` below is requested explicitly
+ *  rather than left at the model's own "-1 = auto" default specifically so real cost stays predictable
+ *  — credits are spent UPFRONT here (see `POST`'s own `spend()` call), never adjusted after the fact
+ *  to match whatever duration the model happened to pick.
+ *
+ *  $0.1028/sec × 5s = $0.514. At this app's own ~60% gross-margin target (~$0.00333 of real cost per
+ *  credit, same math `AI_IMAGE_CREDITS_PER_GENERATION`'s own comment walks through), $0.514 ÷ $0.00333
+ *  ≈ 154 credits. */
+const AI_VIDEO_CREDITS_PER_GENERATION = 154;
 
-const MINIMAX_VIDEO_OWNER = "minimax";
-const MINIMAX_VIDEO_NAME = "video-01";
+const SEEDANCE_OWNER = "bytedance";
+const SEEDANCE_NAME = "seedance-2.0";
+const SEEDANCE_RESOLUTION = "480p";
+const SEEDANCE_DURATION_SECONDS = 5;
+
+/** Every aspect ratio this route offers — kept in sync with `ai-image/route.ts`'s own three (Seedance
+ *  2.0 actually accepts three more: 4:3, 3:4, 21:9, but exposing only the ones that already match
+ *  `RESOLUTION_PRESETS`, same reasoning as the image route's own comment, keeps one picker meaningful
+ *  for both instead of a wider option set for video alone). */
+const ASPECT_RATIOS = ["9:16", "16:9", "1:1"] as const;
+type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
 type Stage = "predicting" | "downloading" | "importing";
 type JobStatus = "running" | "done" | "failed" | "cancelled";
@@ -82,7 +92,7 @@ function setStageProgress(job: AiVideoJob, stage: Stage, fraction: number) {
   job.notify();
 }
 
-async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: string, ownerId: string | undefined) {
+async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: string, aspectRatio: AspectRatio, ownerId: string | undefined) {
   const paths = ensureProjectDirs(bpProjectId);
   try {
     const token = getReplicateTokenForGeneration();
@@ -93,13 +103,16 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
     // Same "resolve the version explicitly, never trust the bare owner/name shorthand" fix
     // `ai-image/route.ts` needed after its own first production run came back with a null output —
     // see that file's own comment for the full story.
-    const model = await replicate.models.get(MINIMAX_VIDEO_OWNER, MINIMAX_VIDEO_NAME);
+    const model = await replicate.models.get(SEEDANCE_OWNER, SEEDANCE_NAME);
     const version = model.latest_version?.id;
-    if (!version) throw new ApiError(502, "MiniMax video-01 has no runnable version on Replicate", "replicate-model-unavailable");
+    if (!version) throw new ApiError(502, "Seedance 2.0 has no runnable version on Replicate", "replicate-model-unavailable");
 
     const output = await replicate.run(
-      `${MINIMAX_VIDEO_OWNER}/${MINIMAX_VIDEO_NAME}:${version}`,
-      { input: { prompt }, signal: job.abortController.signal },
+      `${SEEDANCE_OWNER}/${SEEDANCE_NAME}:${version}`,
+      {
+        input: { prompt, aspect_ratio: aspectRatio, resolution: SEEDANCE_RESOLUTION, duration: SEEDANCE_DURATION_SECONDS },
+        signal: job.abortController.signal,
+      },
       (prediction) => {
         setStageProgress(job, "predicting", prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
       }
@@ -137,9 +150,10 @@ export const POST = hostedCreditGatedRoute("ai-video", AI_VIDEO_CREDITS_PER_GENE
   const bpProjectId = new URL(req.url).searchParams.get("projectId");
   if (!bpProjectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
 
-  const body = (await req.json().catch(() => null)) as { prompt?: string } | null;
+  const body = (await req.json().catch(() => null)) as { prompt?: string; aspectRatio?: string } | null;
   const prompt = body?.prompt?.trim();
   if (!prompt) throw new ApiError(400, "Enter a prompt first", "missing-prompt");
+  const aspectRatio: AspectRatio = ASPECT_RATIOS.includes(body?.aspectRatio as AspectRatio) ? (body!.aspectRatio as AspectRatio) : "9:16";
 
   if (!getReplicateTokenForGeneration()) throw new ApiError(500, "AI video generation isn't configured on this server", "ai-video-not-configured");
 
@@ -160,7 +174,7 @@ export const POST = hostedCreditGatedRoute("ai-video", AI_VIDEO_CREDITS_PER_GENE
   job.notify = notifier.notify;
   jobs.set(id, job);
 
-  void runAiVideoJob(job, bpProjectId, prompt, user?.id).catch(() => {
+  void runAiVideoJob(job, bpProjectId, prompt, aspectRatio, user?.id).catch(() => {
     // `runAiVideoJob` already handles its own errors internally — this only guarantees an unexpected
     // throw inside it can never become an unhandled rejection.
   });
