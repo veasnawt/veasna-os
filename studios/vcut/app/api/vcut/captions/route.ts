@@ -185,6 +185,28 @@ interface WhisperOutput {
 const KIRI_API_BASE = "https://api.kiritts.com/v1";
 const KIRI_POLL_INTERVAL_MS = 5000;
 
+/** Re-nests Kiri's flat top-level `words` array back into each segment's own `words` field — see
+ *  `transcribeWithKiri`'s own call-site comment for why this exists at all (Kiri's raw response shape
+ *  does NOT nest words inside segments the way WhisperX's does, and every downstream consumer only
+ *  ever reads `segment.words`). Segments are contiguous, non-overlapping ASR spans covering the whole
+ *  file, so assigning each word to whichever segment's `[start, end)` window contains its own `start`
+ *  is a plain interval lookup, not a fuzzy match. Falls back to the LAST segment for a word landing a
+ *  hair past the final segment's own end (encoder/ASR rounding, not a real content gap) — same "clamp
+ *  into the last range rather than drop it" precedent `mapToRealTime` already sets for exactly this
+ *  kind of rounding edge case — rather than ever silently losing a real word's timing. */
+function attachWordsToSegments<S extends { start: number; end: number; text: string }>(
+  segments: S[],
+  words: { word: string; start: number; end: number }[]
+): (S & { words: { word: string; start: number; end: number }[] })[] {
+  const bySegment: { word: string; start: number; end: number }[][] = segments.map(() => []);
+  for (const w of words) {
+    let idx = segments.findIndex((s) => w.start >= s.start && w.start < s.end);
+    if (idx === -1) idx = segments.length - 1;
+    if (idx >= 0) bySegment[idx].push(w);
+  }
+  return segments.map((s, i) => ({ ...s, words: bySegment[i] }));
+}
+
 async function transcribeWithKiri(
   job: CaptionsJob,
   audioPath: string,
@@ -247,7 +269,24 @@ async function transcribeWithKiri(
     signal: job.abortController.signal,
   });
   if (!contentRes.ok) throw new ApiError(502, "Could not download Kiri's finished transcript", "kiri-content-failed");
-  const data = (await contentRes.json()) as { segments?: WhisperOutput["segments"] };
+  // Confirmed live against a real completed job (2026-09-12): UNLIKE WhisperX (`WhisperOutput`'s own
+  // doc comment — `words` nested INSIDE each segment), Kiri returns per-word timing as one FLAT
+  // top-level `words` array, a SIBLING of `segments`, not nested inside any of them — each raw segment
+  // object here carries no `words` field of its own at all. This was silently discarded ever since
+  // Kiri routing shipped: `data.segments` was cast straight to `WhisperOutput["segments"]` and handed
+  // to `chunkSegment`, which only ever reads `segment.words` — so every Kiri-routed (Khmer) job had
+  // ZERO real per-word timing available downstream despite Kiri's raw response genuinely containing
+  // real, well-formed per-word timestamps the entire time. Confirmed as the actual root cause of
+  // "Auto Captions never shows a gap" from a real production job's own diagnostic log line (0 real
+  // inter-word gaps found, despite real speech with a genuine 0.34s pause in it) — no pause-detection
+  // threshold, fixed or adaptive, could ever have fixed a bug in a completely different layer; the real
+  // timing data was being thrown away before chunking ever ran. `attachWordsToSegments` below re-nests
+  // it into the shape every downstream consumer already expects.
+  const raw = (await contentRes.json()) as {
+    segments?: { start: number; end: number; text: string }[];
+    words?: { word: string; start: number; end: number }[];
+  };
+  const data = { segments: attachWordsToSegments(raw.segments ?? [], raw.words ?? []) };
   // Kiri-specific diagnostic — measures the gap BETWEEN Kiri's own ASR segments (as opposed to within
   // one segment's own `words`, which `runCaptionsJob`'s own permanent diagnostic already covers
   // provider-agnostically once `chunkSegment` has run for every segment). Segment boundaries are
