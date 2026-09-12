@@ -23,14 +23,18 @@ export const dynamic = "force-dynamic";
  *  correct shape here, not an approximation of one. */
 const AI_IMAGE_CREDITS_PER_GENERATION = 1;
 
-const FLUX_SCHNELL_MODEL = "black-forest-labs/flux-schnell";
+const FLUX_SCHNELL_OWNER = "black-forest-labs";
+const FLUX_SCHNELL_NAME = "flux-schnell";
 
-/** A first production run of this route came back with `ai-image-no-output` — proof that Replicate's
- *  real output shape for this model doesn't match the single `FileOutput`-with-`.blob()` shape
- *  `inpaint/route.ts`'s own working pattern uses (this sandbox's own outbound network can't reach
- *  replicate.com to have confirmed the real shape before shipping — see this route's own credit-cost
- *  comment). `extractReplicateMediaBytes` (shared with `ai-video/route.ts`, which has the same
- *  uncertainty) tries several real shapes instead of assuming just one. */
+/** A first production run of this route came back with `ai-image-no-output` — `output` itself was
+ *  literally `null`, not just an unrecognized shape (confirmed via `extractReplicateMediaBytes`'s own
+ *  diagnostic logging). The likely cause: this route called `replicate.run()` with the bare
+ *  `"owner/name"` shorthand for an OFFICIAL model, which resolves through a different Replicate API
+ *  path (predictions keyed by `model`, not `version`) than the explicit `owner/name:version` form —
+ *  `inpaint/route.ts`'s own proven-working call NEVER uses the bare shorthand, always resolving
+ *  `models.get()` → `latest_version.id` first, for exactly this reason (see its own comment). Mirrored
+ *  here now: resolve the version explicitly rather than trusting the shorthand path to behave the same
+ *  way this SDK version's official-model path apparently doesn't. */
 
 /** Every aspect ratio this route offers matches one of `RESOLUTION_PRESETS` (`project/types.ts`)
  *  exactly — a user generating an image for THIS project almost always wants it to already fit the
@@ -68,7 +72,11 @@ export const POST = hostedCreditGatedRoute("ai-image", AI_IMAGE_CREDITS_PER_GENE
   // route here follows (see `captions/route.ts`'s own identical reasoning).
   try {
     const replicate = new Replicate({ auth: token });
-    const output = await replicate.run(FLUX_SCHNELL_MODEL, {
+    const model = await replicate.models.get(FLUX_SCHNELL_OWNER, FLUX_SCHNELL_NAME);
+    const version = model.latest_version?.id;
+    if (!version) throw new ApiError(502, "Flux Schnell has no runnable version on Replicate", "replicate-model-unavailable");
+
+    const output = await replicate.run(`${FLUX_SCHNELL_OWNER}/${FLUX_SCHNELL_NAME}:${version}`, {
       input: { prompt, aspect_ratio: aspectRatio, num_outputs: 1, output_format: "png" },
       signal: req.signal,
     });

@@ -26,7 +26,8 @@ export const dynamic = "force-dynamic";
  *  evidence, not just docs" pass `captions/route.ts`'s own pause-detection history went through. */
 const AI_VIDEO_CREDITS_PER_GENERATION = 81;
 
-const MINIMAX_VIDEO_MODEL = "minimax/video-01";
+const MINIMAX_VIDEO_OWNER = "minimax";
+const MINIMAX_VIDEO_NAME = "video-01";
 
 type Stage = "predicting" | "downloading" | "importing";
 type JobStatus = "running" | "done" | "failed" | "cancelled";
@@ -89,8 +90,15 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
 
     setStageProgress(job, "predicting", 0);
     const replicate = new Replicate({ auth: token });
+    // Same "resolve the version explicitly, never trust the bare owner/name shorthand" fix
+    // `ai-image/route.ts` needed after its own first production run came back with a null output —
+    // see that file's own comment for the full story.
+    const model = await replicate.models.get(MINIMAX_VIDEO_OWNER, MINIMAX_VIDEO_NAME);
+    const version = model.latest_version?.id;
+    if (!version) throw new ApiError(502, "MiniMax video-01 has no runnable version on Replicate", "replicate-model-unavailable");
+
     const output = await replicate.run(
-      MINIMAX_VIDEO_MODEL,
+      `${MINIMAX_VIDEO_OWNER}/${MINIMAX_VIDEO_NAME}:${version}`,
       { input: { prompt }, signal: job.abortController.signal },
       (prediction) => {
         setStageProgress(job, "predicting", prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
