@@ -87,11 +87,26 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const [dragActive, setDragActive] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     nameInputRef.current?.focus();
+  }, []);
+
+  // Silently empty (never an error state of its own) for a free user, a local/desktop build, or
+  // simply nobody having saved one yet — a 402 from `/api/vcut/templates` (not Pro) and "zero rows"
+  // both look identical here on purpose: this dialog's PRIMARY job is starting a plain new project,
+  // and that flow should look exactly the same whether templates exist or not, never blocked or even
+  // visually cluttered by an upsell most visits to this dialog have nothing to do with.
+  useEffect(() => {
+    if (!HOSTED) return;
+    authFetch("/api/vcut/templates")
+      .then((res) => (res.ok ? res.json() : { templates: [] }))
+      .then((body: { templates?: { id: string; name: string }[] }) => setTemplates(body.templates ?? []))
+      .catch(() => setTemplates([]));
   }, []);
 
   useEffect(() => {
@@ -110,10 +125,20 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
     setCreating(true);
     setError(null);
     try {
+      // `templateId` (when a template is selected) takes priority over `width`/`height`/`fps` server-
+      // side — see `project/route.ts`'s own POST handler — so sending both is harmless; the preset
+      // fields just go unused in that case. Starting media below still overrides EITHER one with the
+      // file's own real dimensions, same as it always has.
       const res = await authFetch("/api/vcut/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, width: preset.width, height: preset.height, fps: 30 }),
+        body: JSON.stringify({
+          name,
+          width: preset.width,
+          height: preset.height,
+          fps: 30,
+          ...(selectedTemplateId ? { templateId: selectedTemplateId } : null),
+        }),
       });
       if (!res.ok) throw new Error();
       const body = (await res.json()) as { project: Project };
@@ -192,9 +217,51 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           />
         </label>
 
+        {/* Only rendered once there's at least one real template to pick — see the fetch effect's own
+            comment on why a free user or an empty list both just mean this section doesn't exist,
+            never an empty/upsell state cluttering the primary "blank project" flow. Deselecting (tap
+            it again, or pick a different one) hands control back to the Resolution grid below. */}
+        {templates.length > 0 && (
+          <div className="mt-5">
+            <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Start from a template</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateId(null)}
+                aria-pressed={selectedTemplateId === null}
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
+                  selectedTemplateId === null
+                    ? "border-sky-400 bg-sky-500/10 text-white"
+                    : "border-white/10 bg-white/[0.03] text-white/60 hover:border-white/25 hover:bg-white/[0.06]"
+                }`}
+              >
+                Blank project
+              </button>
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => setSelectedTemplateId(template.id)}
+                  aria-pressed={selectedTemplateId === template.id}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
+                    selectedTemplateId === template.id
+                      ? "border-sky-400 bg-sky-500/10 text-white"
+                      : "border-white/10 bg-white/[0.03] text-white/60 hover:border-white/25 hover:bg-white/[0.06]"
+                  }`}
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-5">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Resolution</span>
-          <div className={`grid grid-cols-3 gap-2 transition ${media ? "pointer-events-none opacity-40" : ""}`}>
+          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+            Resolution
+            {selectedTemplateId && <span className="normal-case text-white/25"> (set by the template)</span>}
+          </span>
+          <div className={`grid grid-cols-3 gap-2 transition ${media || selectedTemplateId ? "pointer-events-none opacity-40" : ""}`}>
             {RESOLUTION_PRESETS.map((p) => (
               <button
                 key={p.label}

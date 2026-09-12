@@ -1,9 +1,11 @@
 import fs from "fs";
 import { createProject } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject, serializeProject } from "@veasnawt/vcut/src/project/serialize";
+import { buildProjectFromTemplate } from "@veasnawt/vcut/src/project/template";
 import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { getOwnedTemplate, requirePro } from "../_lib/templates";
 
 /** These routes touch the real filesystem, so they must run on Node — not the Edge runtime, which
  *  has no `fs` and no ability to spawn FFmpeg. */
@@ -58,7 +60,13 @@ export const GET = localRoute(async (req) => {
  *  id", which is what an `<iframe src>` with a `projectId` already baked into its query string needs
  *  — the two aren't redundant, they're create-with-a-name vs. open/create-by-a-given-key. */
 export const POST = localRoute(async (req) => {
-  const body = (await req.json().catch(() => ({}))) as { name?: string; width?: number; height?: number; fps?: number };
+  const body = (await req.json().catch(() => ({}))) as {
+    name?: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    templateId?: string;
+  };
   const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 120) : "Untitled";
 
   // Optional — the home page's resolution picker sends real values; any other caller (or a request
@@ -71,17 +79,32 @@ export const POST = localRoute(async (req) => {
 
   const id = crypto.randomUUID();
   const paths = ensureProjectDirs(id);
-  const project = preset ? createProject(id, name, preset) : createProject(id, name);
+
+  // Re-derived here rather than threaded from below — `templateId` only means anything once a
+  // session exists to own the template being read (see `getOwnedTemplate`'s own ownership check),
+  // and templates don't exist outside hosted mode at all (no "Pro" concept locally) — silently
+  // ignored rather than erroring there, the same "nothing meaningful to gate on" tolerance
+  // `shouldIncludeOutro` (export/route.ts) already gives its own Pro check off the hosted deploy.
+  let hostedUser: Awaited<ReturnType<typeof requireSessionUser>> | null = null;
+  if (VCUT_HOSTED) hostedUser = await requireSessionUser(req);
+
+  let project;
+  if (body.templateId && hostedUser) {
+    await requirePro(hostedUser.id);
+    const template = await getOwnedTemplate(body.templateId, hostedUser.id);
+    project = buildProjectFromTemplate(id, name, template);
+  } else {
+    project = preset ? createProject(id, name, preset) : createProject(id, name);
+  }
 
   // The one place `ownerId` is ever decided: a fresh `crypto.randomUUID()` id, written once, so
   // there's no race to worry about (unlike a save, which could race a concurrent request for the
   // SAME id — creation always mints a brand-new one). `projects_index` gets its row here too, in the
   // same request, so `GET /api/vcut/projects` sees the new project immediately rather than after its
   // first save.
-  if (VCUT_HOSTED) {
-    const user = await requireSessionUser(req);
-    project.ownerId = user.id;
-    await upsertProjectIndex(id, user.id, project.name, project.updatedAt);
+  if (hostedUser) {
+    project.ownerId = hostedUser.id;
+    await upsertProjectIndex(id, hostedUser.id, project.name, project.updatedAt);
   }
   fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
 
