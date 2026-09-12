@@ -21,7 +21,15 @@ export async function getProfile(userId: string): Promise<Profile | null> {
     .select("stripe_customer_id, plan, current_period_end")
     .eq("id", userId)
     .maybeSingle();
-  if (error) throw new ApiError(500, "Could not read billing profile", "profile-read-failed");
+  // Logged before throwing — same "confirmed swallowed-error bug" category `getCreditsStatus`
+  // (`_lib/credits.ts`) and `upsertPlanByStripeCustomerId` (below) both already document: a real
+  // failure here used to reach the client as a generic 500 with nothing in the server logs
+  // explaining WHY the query itself failed (a paused/unreachable Supabase project, a transient
+  // connection error, or a real schema problem all look identical without this).
+  if (error) {
+    console.error("[vcut] profiles: could not read profile for", userId, error);
+    throw new ApiError(500, "Could not read billing profile", "profile-read-failed");
+  }
   if (!data) return null;
   return { stripeCustomerId: data.stripe_customer_id, plan: data.plan as Plan, currentPeriodEnd: data.current_period_end };
 }

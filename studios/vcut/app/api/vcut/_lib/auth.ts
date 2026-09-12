@@ -48,7 +48,15 @@ export interface ProjectIndexRow {
 export async function checkProjectOwnership(userId: string, projectId: string): Promise<void> {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("projects_index").select("owner_id").eq("id", projectId).maybeSingle();
-  if (error) throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
+  // Logged before throwing — same "confirmed swallowed-error bug" category `_lib/profiles.ts`'s own
+  // `getProfile` and `getCreditsStatus` (`_lib/credits.ts`) both already document: this check runs on
+  // nearly every hosted-mode request, so a real Supabase-side failure here (as opposed to a genuine
+  // ownership mismatch) used to look identical to any other 500 with nothing in the logs to tell them
+  // apart.
+  if (error) {
+    console.error("[vcut] auth: could not check project ownership for", projectId, error);
+    throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
+  }
   if (!data || data.owner_id !== userId) throw new ApiError(403, "You don't have access to this project", "forbidden");
 }
 
