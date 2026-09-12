@@ -1,10 +1,9 @@
 import fs from "fs";
 import path from "path";
-import type { Asset } from "@veasnawt/vcut/src/project/types";
-import { generateFilmstrip, generateThumbnail, generateWaveform, probeMedia, remuxForDuration } from "../_lib/ffmpeg";
+import { importMediaBytes } from "../_lib/importMedia";
 import { localRoute } from "../_lib/localOnly";
 import { kindForExtension, SUPPORTED_EXTENSIONS } from "../_lib/mediaFormats";
-import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, resolveWithin } from "../_lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,9 +29,12 @@ export const POST = localRoute(async (req) => {
   const file = form.get("file");
   if (!(file instanceof File)) throw new ApiError(400, "No file was uploaded", "no-file");
 
+  // Pre-checked here (not just left to `importMediaBytes`'s own generic rejection) so this route keeps
+  // its own more helpful "Supported: ..." message — the only piece of the old inline pipeline still
+  // duplicated, deliberately: it's a one-line classification check, not the whole write/probe/thumbnail
+  // sequence `importMediaBytes` now owns.
   const ext = path.extname(file.name).toLowerCase();
-  const kind = kindForExtension(ext);
-  if (!kind) {
+  if (!kindForExtension(ext)) {
     throw new ApiError(
       400,
       `VCut can't import "${ext || file.name}". Supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
@@ -40,81 +42,8 @@ export const POST = localRoute(async (req) => {
     );
   }
 
-  const fileName = uniqueFileName(file.name);
-  const destination = resolveWithin(paths.mediaDir, fileName);
   const bytes = Buffer.from(await file.arrayBuffer());
-  fs.writeFileSync(destination, bytes);
-
-  let probe;
-  try {
-    probe = await probeMedia(destination);
-  } catch (err) {
-    // Don't leave an unreadable file sitting in the project folder if it turned out not to be media.
-    fs.rmSync(destination, { force: true });
-    throw err;
-  }
-
-  // A duration-less probe with a REAL stream present is very often a MediaRecorder-captured voiceover
-  // (see `remuxForDuration`'s own comment for the exact mechanism) rather than a genuinely empty file —
-  // try recovering it with a lossless remux before giving up.
-  if (kind !== "image" && probe.duration <= 0 && (probe.hasAudio || probe.hasVideo)) {
-    const fixed = await remuxForDuration(destination);
-    if (fixed) probe = fixed;
-  }
-
-  // A still image has no duration and no video stream in the usual sense; everything else must have
-  // real content to be worth putting on a timeline.
-  if (kind !== "image" && probe.duration <= 0) {
-    fs.rmSync(destination, { force: true });
-    throw new ApiError(400, "That file contains no playable audio or video", "empty-media");
-  }
-
-  // A "video" EXTENSION (.webm, .mkv, .mov, ...) doesn't guarantee an actual video STREAM — a
-  // MediaRecorder-captured voiceover, for instance, is commonly a .webm container holding only Opus
-  // audio (confirmed live: VoiceoverRecorder's recordings were landing on video tracks with no visible
-  // reason why, until this). The extension is only a first guess; the probe is authoritative, so a
-  // video-extension file that actually has no video stream gets reclassified as audio here, rather
-  // than being stuck as a "video" asset that can only ever go on a track it has nothing to show on.
-  const resolvedKind = kind === "video" && !probe.hasVideo && probe.hasAudio ? "audio" : kind;
-
-  const asset: Asset = {
-    id: `a_${crypto.randomUUID().slice(0, 8)}`,
-    kind: resolvedKind,
-    name: file.name,
-    relPath: fileName,
-    duration: probe.duration,
-    hasAudio: probe.hasAudio,
-    sizeBytes: bytes.byteLength,
-    importedAt: Date.now(),
-    ...(probe.width ? { width: probe.width } : null),
-    ...(probe.height ? { height: probe.height } : null),
-    ...(probe.fps ? { fps: probe.fps } : null),
-  };
-
-  if (resolvedKind === "video") {
-    const thumbName = `${asset.id}.jpg`;
-    // One second in, rather than frame zero — the first frame of a real clip is very often black.
-    const at = Math.min(1, probe.duration / 2);
-    if (await generateThumbnail(destination, resolveWithin(paths.thumbnailsDir, thumbName), at)) {
-      asset.thumbnailRelPath = thumbName;
-    }
-    // A SEPARATE sprite sheet for the Timeline's own filmstrip tiling — see `generateFilmstrip`'s own
-    // comment for why one wider sprite image, not several separate files or a data-model list, is what
-    // lets the frontend reuse its existing single-image tiling CSS unchanged.
-    const filmstripName = `${asset.id}-filmstrip.jpg`;
-    if (await generateFilmstrip(destination, resolveWithin(paths.thumbnailsDir, filmstripName), probe.duration)) {
-      asset.filmstripRelPath = filmstripName;
-    }
-  }
-  if (resolvedKind === "audio") {
-    const waveformName = `${asset.id}-waveform.png`;
-    if (await generateWaveform(destination, resolveWithin(paths.thumbnailsDir, waveformName))) {
-      asset.waveformRelPath = waveformName;
-    }
-  }
-  // An image needs no separate thumbnail — it IS its own preview, and the library renders it
-  // straight from the media folder. Deliberately NOT pointed at via a "../media/..." thumbnail path:
-  // that would have to escape the thumbnails directory, which `resolveWithin` refuses on purpose.
+  const asset = await importMediaBytes(paths, bytes, file.name);
 
   return Response.json({ asset });
 });
