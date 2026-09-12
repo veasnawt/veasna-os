@@ -425,6 +425,9 @@ importers:
       '@fal-ai/client':
         specifier: ^1.10.1
         version: 1.10.1
+      '@fluidinference/fluidvad':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@veasnawt/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -1288,6 +1291,9 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fluidinference/fluidvad@0.2.0':
+    resolution: {integrity: sha512-84UYiCYi8K9LEBK1ARqgpibTHMbyW4R56j3+TRqYbNBZf+OLUSkmHipNfzeX34XUokjfOnrRXLMZRE4aecFiUQ==}
 
   '@gar/promisify@1.1.3':
     resolution: {integrity: sha512-k2Ty1JcVojjJFwrg/ThKi2ujJ7XNLYaFGNB/bWT9wGR+oSMJHMa5w+CUq6p/pVrKeNNgA7pCqEcjSnHVoqJQFw==}
@@ -7599,6 +7605,8 @@ snapshots:
       react-dom: 19.2.4(react@19.2.4)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fluidinference/fluidvad@0.2.0': {}
 
   '@gar/promisify@1.1.3': {}
 

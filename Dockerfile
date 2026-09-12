@@ -118,6 +118,11 @@ COPY --from=builder /repo/studios/vcut/public ./studios/vcut/public
 # depth (not the flattened root) is what makes it consistent with everything above.
 COPY --from=builder /repo/studios/vcut/node_modules/ffmpeg-static ./studios/vcut/node_modules/ffmpeg-static
 COPY --from=builder /repo/studios/vcut/node_modules/ffprobe-static ./studios/vcut/node_modules/ffprobe-static
+# @fluidinference/fluidvad (Auto Captions' real voice-activity detection) reads its embedded .wasm
+# model off disk relative to its own package directory — same class of "resolves a real file next to
+# itself" problem as ffmpeg-static/ffprobe-static above, marked external in next.config.ts for the
+# same reason, fixed the same way here.
+COPY --from=builder /repo/studios/vcut/node_modules/@fluidinference/fluidvad ./studios/vcut/node_modules/@fluidinference/fluidvad
 
 # Verified present and executable here rather than trusted, matching ensureFfmpegBinaries' same
 # reasoning in the desktop build script — better to fail the image build loudly than ship an export
@@ -131,6 +136,8 @@ RUN test -f studios/vcut/node_modules/ffmpeg-static/ffmpeg || \
       (echo "ffmpeg-static binary missing from standalone trace — cannot ship" && exit 1)
 RUN test -f studios/vcut/node_modules/ffprobe-static/bin/linux/x64/ffprobe || \
       (echo "ffprobe-static binary missing from standalone trace — cannot ship (also check this isn't an arm64 build; see comment above)" && exit 1)
+RUN test -f studios/vcut/node_modules/@fluidinference/fluidvad/dist/fluidvad_bg.wasm || \
+      (echo "fluidvad wasm missing from standalone trace — cannot ship" && exit 1)
 RUN chmod +x studios/vcut/node_modules/ffmpeg-static/ffmpeg studios/vcut/node_modules/ffprobe-static/bin/linux/x64/ffprobe
 
 # `ffmpeg-static`'s bundled Linux binary (johnvansickle's static build) is missing the `drawtext`

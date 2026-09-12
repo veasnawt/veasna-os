@@ -23,10 +23,15 @@ const nextConfig: NextConfig = {
   // out wrong at runtime, so they have to stay external — the same problem, and the same fix, as
   // better-sqlite3 in studios/universe/next.config.ts. `serverExternalPackages` alone isn't enough
   // here (it doesn't cover every import path webpack takes), so externals are set directly too.
-  serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+  // `@fluidinference/fluidvad` (captions/route.ts's own real voice-activity detection) has the exact
+  // same shape of problem — it reads its embedded `.wasm` file off disk relative to its own package
+  // directory (confirmed in its own README: "the wasm is read from disk") — so it needs the identical
+  // treatment, plus the matching `COPY`/verification lines in the root Dockerfile's runner stage (see
+  // that file's own comment for why ffmpeg-static/ffprobe-static needed those).
+  serverExternalPackages: ["ffmpeg-static", "ffprobe-static", "@fluidinference/fluidvad"],
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals = [...(config.externals || []), "ffmpeg-static", "ffprobe-static"];
+      config.externals = [...(config.externals || []), "ffmpeg-static", "ffprobe-static", "@fluidinference/fluidvad"];
     }
     return config;
   },

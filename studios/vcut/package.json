@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",
+    "@fluidinference/fluidvad": "^0.2.0",
     "@veasnawt/auth": "workspace:*",
     "@veasnawt/vcut": "workspace:*",
     "@veasnawt/vicons": "workspace:*",

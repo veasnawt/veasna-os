@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
+import { createVad } from "@fluidinference/fluidvad";
 import Replicate from "replicate";
 import { buildAudioOnlyExportPlan } from "@veasnawt/vcut/src/export/buildAudioOnlyExportPlan";
 import { trimProjectToRange } from "@veasnawt/vcut/src/export/trimForExport";
@@ -400,53 +401,82 @@ function computePauseThreshold(segments: { words?: { word: string; start?: numbe
   return Math.max(PAUSE_GAP_FLOOR_SECONDS, median + PAUSE_OUTLIER_MULTIPLIER * spread);
 }
 
-/** ffmpeg never reports a silence run shorter than this (the `d=` param to `silencedetect`) — matches
- *  `PAUSE_GAP_FLOOR_SECONDS` so "a real pause" means the same minimum duration whether it's detected
- *  from per-word timing or from the raw waveform. */
+/** A gap shorter than this is never treated as "a real pause" whether it's found in per-word timing or
+ *  in VAD output — matches `PAUSE_GAP_FLOOR_SECONDS` so both detection paths agree on what counts as a
+ *  pause at all. */
 const MIN_REAL_SILENCE_SECONDS = 0.25;
 
-/** Runs ffmpeg's own `silencedetect` filter directly against the extracted audio — genuine silence
- *  intervals measured from real audio ENERGY, completely independent of whatever the transcription
- *  provider's own per-word timestamps claim.
- *
- *  Exists because of a real, reported failure mode `computePauseThreshold`/`attachWordsToSegments`
- *  alone can't fix: a foreign/out-of-vocabulary word code-switched into the main language (an English
- *  loanword mid-Khmer-sentence — "reflection", the exact case this whole investigation traced back to)
- *  can get its OWN reported END timestamp smeared forward by the aligner to cover trailing silence it
- *  wasn't confident how to place, silently erasing a real, human-confirmed ~1s pause from the per-word
- *  data entirely. No threshold tuned against THAT data could ever recover it — the input number itself
- *  is wrong, not merely under-thresholded. `repairGapsWithRealSilence` below is what actually uses
- *  this to fix a caption's boundary; this function only measures the raw silence intervals.
- *
- *  `-30dB` is a conservative noise floor — a quiet room's own ambient noise typically sits well below
- *  this, and ordinary recorded speech's own quietest phoneme is usually still louder — deliberately
- *  erring toward MISSING a marginal, ambiguous quiet stretch rather than flagging normal quiet speech
- *  as silence (a false "pause" split would be a much more visible, more annoying failure than an
- *  occasionally-missed one). Parses `silencedetect`'s own stderr output directly (`-f null -` discards
- *  the actual transcoded output, only the filter's log lines are wanted) rather than depending on any
- *  library — this is the one and only place in the route that needs it, not worth a dependency for. */
-async function detectSilences(audioPath: string): Promise<{ start: number; end: number }[]> {
-  const stderr = await new Promise<string>((resolve) => {
+/** `@fluidinference/fluidvad`'s Silero-v6-in-WASM VAD, built once per server process (parsing/
+ *  optimizing the embedded model isn't free enough to redo per job — see that package's own doc
+ *  comment: "Build the VAD... do this once") and reused for every job this process ever serves.
+ *  `minSilenceDuration` is set to `MIN_REAL_SILENCE_SECONDS` rather than the library's own 0.75s
+ *  default so "a real pause" means the same minimum duration here as everywhere else in this file. */
+let vadPromise: ReturnType<typeof createVad> | null = null;
+function getVad() {
+  if (!vadPromise) vadPromise = createVad({ threshold: 0.5, minSilenceDuration: MIN_REAL_SILENCE_SECONDS });
+  return vadPromise;
+}
+
+/** Decodes `audioPath` to the exact PCM shape `fluidvad` requires — 16 kHz mono `f32` samples in
+ *  `[-1, 1]` — via ffmpeg, piping raw samples straight off stdout rather than writing a second temp
+ *  file. Reads each sample with `readFloatLE` one at a time rather than casting the returned Buffer's
+ *  own backing `ArrayBuffer` directly to a `Float32Array` view: `execFile`'s buffered stdout isn't
+ *  guaranteed to start at a 4-byte-aligned offset within whatever it's internally concatenated from, and
+ *  a misaligned `Float32Array` view would silently read garbage rather than throw. The extra per-sample
+ *  call is trivial next to a VAD pass this fast (~150x realtime per that package's own benchmarks) on
+ *  audio this short (this route only ever transcribes a handful of clips/one sequence at a time, never
+ *  hours of audio). */
+async function decodeToVadSamples(audioPath: string): Promise<Float32Array> {
+  const pcm = await new Promise<Buffer>((resolve, reject) => {
     execFile(
       ffmpegBinary(),
-      ["-i", audioPath, "-af", `silencedetect=noise=-30dB:d=${MIN_REAL_SILENCE_SECONDS}`, "-f", "null", "-"],
-      { timeout: 60_000 },
-      (_err, _stdout, stderrOutput) => resolve(stderrOutput ?? "")
+      ["-i", audioPath, "-f", "f32le", "-ar", "16000", "-ac", "1", "-"],
+      { timeout: 60_000, maxBuffer: 1024 * 1024 * 256, encoding: "buffer" },
+      (err, stdout) => (err ? reject(err) : resolve(stdout))
     );
   });
+  const floatCount = Math.floor(pcm.length / 4);
+  const samples = new Float32Array(floatCount);
+  for (let i = 0; i < floatCount; i++) samples[i] = pcm.readFloatLE(i * 4);
+  return samples;
+}
+
+/** Finds genuine NO-VOICE intervals in the extracted audio — via real voice activity detection
+ *  (Silero VAD), not a raw loudness threshold — completely independent of whatever the transcription
+ *  provider's own per-word timestamps claim.
+ *
+ *  This REPLACES an earlier version of this function that used ffmpeg's own `silencedetect` (a plain
+ *  dB-threshold filter). That version shipped, then was confirmed live to be the wrong tool for this
+ *  app's actual content: a real production job with genuine background music playing under the whole
+ *  narration reported ZERO detected silences even though a real ~1s SPEECH pause existed right where
+ *  expected — `silencedetect` measures raw loudness, and background music means the audio never goes
+ *  acoustically quiet during a speech pause at all, so no noise-floor threshold could ever have found
+ *  it. A real VAD model distinguishes "no VOICE" from "no SOUND" using speech-specific spectral/
+ *  temporal structure, which is robust to exactly this case — `@fluidinference/fluidvad` is
+ *  benchmarked against the MUSAN corpus (speech mixed with real music/noise) specifically for this,
+ *  not just synthetic silence.
+ *
+ *  Exists in the first place because of a real, reported failure mode `computePauseThreshold`/
+ *  `attachWordsToSegments` alone can't fix: a foreign/out-of-vocabulary word code-switched into the
+ *  main language (an English loanword mid-Khmer-sentence — "reflection", the exact case this whole
+ *  investigation traced back to) can get its OWN reported END timestamp smeared forward by the
+ *  aligner to cover trailing silence it wasn't confident how to place, silently erasing a real,
+ *  human-confirmed pause from the per-word data entirely. No threshold tuned against THAT data could
+ *  ever recover it — the input number itself is wrong, not merely under-thresholded.
+ *  `repairGapsWithRealSilence` below is what actually uses this to fix a caption's boundary; this
+ *  function only measures the raw no-voice intervals, derived as the gaps BETWEEN consecutive detected
+ *  speech regions (`vad.segment`'s own offline-segmentation output) rather than anything before the
+ *  first or after the last — a caption boundary can only ever fall between two speech regions to begin
+ *  with. */
+async function detectSilences(audioPath: string): Promise<{ start: number; end: number }[]> {
+  const samples = await decodeToVadSamples(audioPath);
+  const vad = await getVad();
+  const speechSegments = vad.segment(samples);
   const silences: { start: number; end: number }[] = [];
-  let pendingStart: number | null = null;
-  for (const line of stderr.split("\n")) {
-    const startMatch = line.match(/silence_start:\s*(-?[\d.]+)/);
-    if (startMatch) {
-      pendingStart = parseFloat(startMatch[1]);
-      continue;
-    }
-    const endMatch = line.match(/silence_end:\s*(-?[\d.]+)/);
-    if (endMatch && pendingStart !== null) {
-      silences.push({ start: pendingStart, end: parseFloat(endMatch[1]) });
-      pendingStart = null;
-    }
+  for (let i = 1; i < speechSegments.length; i++) {
+    const gapStart = speechSegments[i - 1].endTime;
+    const gapEnd = speechSegments[i].startTime;
+    if (gapEnd - gapStart >= MIN_REAL_SILENCE_SECONDS) silences.push({ start: gapStart, end: gapEnd });
   }
   return silences;
 }
