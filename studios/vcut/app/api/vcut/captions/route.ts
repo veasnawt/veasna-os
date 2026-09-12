@@ -400,6 +400,113 @@ function computePauseThreshold(segments: { words?: { word: string; start?: numbe
   return Math.max(PAUSE_GAP_FLOOR_SECONDS, median + PAUSE_OUTLIER_MULTIPLIER * spread);
 }
 
+/** ffmpeg never reports a silence run shorter than this (the `d=` param to `silencedetect`) — matches
+ *  `PAUSE_GAP_FLOOR_SECONDS` so "a real pause" means the same minimum duration whether it's detected
+ *  from per-word timing or from the raw waveform. */
+const MIN_REAL_SILENCE_SECONDS = 0.25;
+
+/** Runs ffmpeg's own `silencedetect` filter directly against the extracted audio — genuine silence
+ *  intervals measured from real audio ENERGY, completely independent of whatever the transcription
+ *  provider's own per-word timestamps claim.
+ *
+ *  Exists because of a real, reported failure mode `computePauseThreshold`/`attachWordsToSegments`
+ *  alone can't fix: a foreign/out-of-vocabulary word code-switched into the main language (an English
+ *  loanword mid-Khmer-sentence — "reflection", the exact case this whole investigation traced back to)
+ *  can get its OWN reported END timestamp smeared forward by the aligner to cover trailing silence it
+ *  wasn't confident how to place, silently erasing a real, human-confirmed ~1s pause from the per-word
+ *  data entirely. No threshold tuned against THAT data could ever recover it — the input number itself
+ *  is wrong, not merely under-thresholded. `repairGapsWithRealSilence` below is what actually uses
+ *  this to fix a caption's boundary; this function only measures the raw silence intervals.
+ *
+ *  `-30dB` is a conservative noise floor — a quiet room's own ambient noise typically sits well below
+ *  this, and ordinary recorded speech's own quietest phoneme is usually still louder — deliberately
+ *  erring toward MISSING a marginal, ambiguous quiet stretch rather than flagging normal quiet speech
+ *  as silence (a false "pause" split would be a much more visible, more annoying failure than an
+ *  occasionally-missed one). Parses `silencedetect`'s own stderr output directly (`-f null -` discards
+ *  the actual transcoded output, only the filter's log lines are wanted) rather than depending on any
+ *  library — this is the one and only place in the route that needs it, not worth a dependency for. */
+async function detectSilences(audioPath: string): Promise<{ start: number; end: number }[]> {
+  const stderr = await new Promise<string>((resolve) => {
+    execFile(
+      ffmpegBinary(),
+      ["-i", audioPath, "-af", `silencedetect=noise=-30dB:d=${MIN_REAL_SILENCE_SECONDS}`, "-f", "null", "-"],
+      { timeout: 60_000 },
+      (_err, _stdout, stderrOutput) => resolve(stderrOutput ?? "")
+    );
+  });
+  const silences: { start: number; end: number }[] = [];
+  let pendingStart: number | null = null;
+  for (const line of stderr.split("\n")) {
+    const startMatch = line.match(/silence_start:\s*(-?[\d.]+)/);
+    if (startMatch) {
+      pendingStart = parseFloat(startMatch[1]);
+      continue;
+    }
+    const endMatch = line.match(/silence_end:\s*(-?[\d.]+)/);
+    if (endMatch && pendingStart !== null) {
+      silences.push({ start: pendingStart, end: parseFloat(endMatch[1]) });
+      pendingStart = null;
+    }
+  }
+  return silences;
+}
+
+/** Tightens caption boundaries toward REAL detected silence (see `detectSilences`'s own doc comment
+ *  for why the transcription provider's own timestamps can't always be trusted for this).
+ *
+ *  For each real silence interval, finds the ADJACENT caption pair `(before, after)` whose COMBINED
+ *  span (`before.start` to `after.end`) contains it, and — among however many adjacent pairs happen to
+ *  qualify — picks the TIGHTEST-containing one (smallest combined span), then pulls `before.end` back
+ *  to the silence's own start and pushes `after.start` forward to the silence's own end.
+ *
+ *  A naive "which caption's reported START already precedes this silence" search was tried first and
+ *  is WRONG for exactly the failure mode this exists to fix: when the reported gap between two
+ *  captions has been smeared to (near) zero — a real, reported case, "reflection" immediately followed
+ *  by `next.start` identical to `reflection.end` — `next`'s own reported `start` is ALREADY inside
+ *  where the real silence should be, so a search for "the last caption starting before the silence
+ *  ends" incorrectly picks `next` itself as `before`, moving the WRONG edge and either no-op'ing or
+ *  (worse) collapsing `next` to a zero-length clip. Matching by which PAIR's combined span contains the
+ *  silence, rather than searching by either caption's own individual (possibly wrong) timestamp,
+ *  sidesteps that entirely — `before`/`after` are chosen by their fixed POSITION in the array (`i`,
+ *  `i+1`), never by comparing an unreliable value.
+ *
+ *  Deliberately one-directional: only ever SHRINKS `before`'s end and pushes `after`'s start FORWARD
+ *  toward a real, independently-measured silence, never invents a split the transcription didn't
+ *  already produce as an adjacent pair. Worst case (a false-positive silence detection, or a
+ *  configuration this can't confidently match to one pair) is a no-op, never new corruption — verified
+ *  against both the real reported failure shape and a plausible alternate one (the earlier word's own
+ *  end smeared forward instead) with a standalone harness before shipping either version.
+ *
+ *  Runs on the flattened `captions` array BEFORE `mapToRealTime` — `silences` is measured against the
+ *  same combined-extracted-audio coordinate space the raw segment/word timestamps are still in at that
+ *  point, exactly like `pauseThreshold`. Mutates `captions` in place (a private, freshly-built array at
+ *  every call site — there is no shared/cached copy elsewhere this could surprise). */
+function repairGapsWithRealSilence(
+  captions: { start: number; end: number }[],
+  silences: { start: number; end: number }[]
+): void {
+  for (const silence of silences) {
+    let bestIdx = -1;
+    let bestSpan = Infinity;
+    for (let i = 0; i < captions.length - 1; i++) {
+      const before = captions[i];
+      const after = captions[i + 1];
+      if (before.start <= silence.start && after.end >= silence.end) {
+        const span = after.end - before.start;
+        if (span < bestSpan) {
+          bestSpan = span;
+          bestIdx = i;
+        }
+      }
+    }
+    if (bestIdx === -1) continue;
+    const before = captions[bestIdx];
+    const after = captions[bestIdx + 1];
+    if (silence.start > before.start) before.end = Math.min(before.end, silence.start);
+    if (silence.end < after.end) after.start = Math.max(after.start, silence.end);
+  }
+}
+
 /** Whether any two REAL, consecutive per-word timestamps in `words` are separated by more than
  *  `pauseThreshold` — used to veto `chunkSegment`'s "fits as one chunk" shortcut, which otherwise has no
  *  way to know a segment it would leave whole actually contains a pause worth splitting on (see
@@ -679,6 +786,12 @@ async function runCaptionsJob(
       if (job.abortController.signal.aborted) throw new ApiError(499, "Cancelled", "cancelled");
     }
 
+    // Measured directly off the final combined audio, independent of whichever transcription provider
+    // runs next — see `detectSilences`'s own doc comment for why a provider's own per-word timestamps
+    // can't always be trusted for this, and `repairGapsWithRealSilence`'s own comment for where this
+    // actually gets used once captions are built below.
+    const realSilences = await detectSilences(audioPath);
+
     // Where each range's own audio LANDS in the combined file — the ONE thing that makes it possible
     // to map a caption timestamp (relative to that combined file, which is all Whisper ever sees) back
     // to its correct absolute position on the real timeline once results come back below.
@@ -812,8 +925,13 @@ async function runCaptionsJob(
     // this is what makes pause detection adapt to THIS recording's own pacing instead of one constant
     // shared by every job ever run.
     const pauseThreshold = computePauseThreshold(data.segments ?? []);
-    const captions: CaptionSegment[] = (data.segments ?? [])
-      .flatMap((s) => chunkSegment(s, wordHighlight, pauseThreshold))
+    const rawCaptions = (data.segments ?? []).flatMap((s) => chunkSegment(s, wordHighlight, pauseThreshold));
+    // Still in "combined extracted audio" coordinates, same as `realSilences` — must run BEFORE
+    // `mapToRealTime` below (see `repairGapsWithRealSilence`'s own doc comment for why this exists at
+    // all: the transcription provider's own per-word timing can't always be trusted at a boundary, so
+    // real waveform silence gets the final say on that specific edge).
+    repairGapsWithRealSilence(rawCaptions, realSilences);
+    const captions: CaptionSegment[] = rawCaptions
       // `words` is already clip-relative (see `groupTimedWords`'s own comment on why it doesn't need
       // `mapToRealTime` at all) — passed through as-is, unlike `start`/`end` which are still relative
       // to the combined extracted audio at this point.
@@ -848,8 +966,9 @@ async function runCaptionsJob(
         if (gap > 0.01) gapCount++;
         maxClipGap = Math.max(maxClipGap, gap);
       }
+      const silenceSummary = realSilences.map((s) => `${s.start.toFixed(2)}-${s.end.toFixed(2)}`).join(", ") || "none";
       console.log(
-        `[vcut] captions job ${job.id}: pauseThreshold=${pauseThreshold.toFixed(3)}s from ${interWordGaps.length} real inter-word gap(s) (max=${maxInterWordGap.toFixed(3)}s) -> ${captions.length} caption clip(s), ${gapCount} with a real gap before them, max clip gap=${maxClipGap.toFixed(3)}s`
+        `[vcut] captions job ${job.id}: pauseThreshold=${pauseThreshold.toFixed(3)}s from ${interWordGaps.length} real inter-word gap(s) (max=${maxInterWordGap.toFixed(3)}s), ${realSilences.length} real silence(s) detected [${silenceSummary}] -> ${captions.length} caption clip(s), ${gapCount} with a real gap before them, max clip gap=${maxClipGap.toFixed(3)}s`
       );
     }
 
