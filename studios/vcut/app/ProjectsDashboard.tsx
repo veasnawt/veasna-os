@@ -441,12 +441,12 @@ export function ProjectsDashboard() {
         ) : filtered && filtered.length === 0 ? (
           <p className="text-xs text-white/40">No projects match &ldquo;{search}&rdquo;.</p>
         ) : (
-          <div className="grid grid-cols-2 items-start gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="columns-2 gap-4 sm:columns-3 lg:columns-4 xl:columns-5">
             {filtered?.map((p) => {
               const portrait = p.height > p.width;
               const url = thumbnailUrl(p.id, p.thumbnail);
               return (
-                <div key={p.id} className="group flex flex-col gap-2">
+                <div key={p.id} className="group mb-4 flex break-inside-avoid flex-col gap-2">
                   <Link
                     href={`/edit?projectId=${encodeURIComponent(p.id)}&projectName=${encodeURIComponent(p.name)}`}
                     style={{ aspectRatio: `${p.width} / ${p.height}` }}
