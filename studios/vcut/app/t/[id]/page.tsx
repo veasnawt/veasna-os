@@ -98,7 +98,12 @@ export default function PublicTemplatePage() {
     const nextLiked = !info.viewerHasLiked;
     setInfo({ ...info, viewerHasLiked: nextLiked, likeCount: info.likeCount + (nextLiked ? 1 : -1) });
     try {
-      await authFetch(`/api/vcut/templates/${encodeURIComponent(info.id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
+      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(info.id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
+      if (!res.ok) throw new Error();
+    } catch {
+      // Roll back — same real bug the creator page's Follow button had: a failed write shouldn't go on
+      // looking successful until the next reload.
+      setInfo((prev) => (prev ? { ...prev, viewerHasLiked: !nextLiked, likeCount: prev.likeCount - (nextLiked ? 1 : -1) } : prev));
     } finally {
       setLiking(false);
     }

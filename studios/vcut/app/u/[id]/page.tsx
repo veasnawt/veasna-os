@@ -60,7 +60,15 @@ export default function CreatorPage() {
     const nextFollowing = !info.viewerIsFollowing;
     setInfo({ ...info, viewerIsFollowing: nextFollowing, followerCount: info.followerCount + (nextFollowing ? 1 : -1) });
     try {
-      await authFetch(`/api/vcut/creators/${encodeURIComponent(info.id)}/follow`, { method: nextFollowing ? "POST" : "DELETE" });
+      const res = await authFetch(`/api/vcut/creators/${encodeURIComponent(info.id)}/follow`, {
+        method: nextFollowing ? "POST" : "DELETE",
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      // Roll back the optimistic update — a real, reported bug otherwise: a failed write (the server
+      // down, a schema-cache miss, a network hiccup) still LOOKED like it worked until the next reload
+      // showed the true, unchanged state.
+      setInfo((prev) => (prev ? { ...prev, viewerIsFollowing: !nextFollowing, followerCount: prev.followerCount - (nextFollowing ? 1 : -1) } : prev));
     } finally {
       setFollowBusy(false);
     }

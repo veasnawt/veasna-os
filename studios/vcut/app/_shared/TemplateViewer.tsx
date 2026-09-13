@@ -220,10 +220,22 @@ export function TemplateViewer({
       return next;
     });
     try {
-      await authFetch(`/api/vcut/templates/${encodeURIComponent(id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
+      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
+      if (!res.ok) throw new Error();
     } catch {
-      // Left optimistic on a network hiccup — same tolerance the Bookmark toggle already has for its
-      // own (local-only) write; a stale count self-corrects the next time this section becomes active.
+      // Roll back — a real, reported bug otherwise: a failed write (the server down, a transient
+      // error) still LOOKED like it worked, and — since `social.has(id)` was already true from the
+      // optimistic update above — the lazy refetch effect never ran again to correct it either.
+      setSocial((prev) => {
+        const next = new Map(prev);
+        next.set(id, {
+          creatorDisplayName: current?.creatorDisplayName ?? null,
+          commentCount: current?.commentCount ?? 0,
+          likeCount: current?.likeCount ?? 0,
+          viewerHasLiked: current?.viewerHasLiked ?? false,
+        });
+        return next;
+      });
     }
   }
 
