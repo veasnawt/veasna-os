@@ -57,7 +57,21 @@ export async function checkProjectOwnership(userId: string, projectId: string): 
     console.error("[vcut] auth: could not check project ownership for", projectId, error);
     throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
   }
-  if (!data || data.owner_id !== userId) throw new ApiError(403, "You don't have access to this project", "forbidden");
+  if (!data || data.owner_id !== userId) {
+    // Logged (unlike the response itself, which stays a generic 403 either way — see this function's
+    // own doc comment on why the CLIENT never learns which case it hit) so a real, reported "can't
+    // open a project I just created" complaint is diagnosable from the server side instead of a dead
+    // end: was there really no row at all (the index write never landed/committed), or a row that
+    // names a DIFFERENT owner (the session making this request isn't who created it)?
+    console.error(
+      "[vcut] auth: ownership check failed for project",
+      projectId,
+      "requesting user",
+      userId,
+      data ? `row exists, owned by ${data.owner_id}` : "no projects_index row found at all"
+    );
+    throw new ApiError(403, "You don't have access to this project", "forbidden");
+  }
 }
 
 /** Called once, from `project/route.ts`'s `POST`, right after a new project is created — the only
