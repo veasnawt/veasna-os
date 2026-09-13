@@ -30,6 +30,7 @@ import { localRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
+import { sfxAssetPath } from "../_lib/sfx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -673,6 +674,10 @@ async function runExportJob(
       inputPathFor: (assetId) => {
         const asset = project.assets.find((a) => a.id === assetId);
         if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
+        // A bundled catalog SFX (`Asset.bundledSfx`) was never copied anywhere — its real file is the
+        // SAME shared, immutable one every user's export of the same sound reads, resolved the exact
+        // same way the browser-serving `sfx/[file]/route.ts` already does.
+        if (asset.bundledSfx) return sfxAssetPath(asset.relPath);
         return scaledImagePaths.get(assetId) ?? resolveWithin(assetSourceDir(paths, libraryMediaDir, asset), asset.relPath);
       },
       outputPath: mainOutputPath,

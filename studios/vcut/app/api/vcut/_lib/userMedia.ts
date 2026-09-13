@@ -35,6 +35,13 @@ export interface UserMediaRow {
   hasAudio: boolean;
   sizeBytes: number;
   aiGeneration: { prompt: string; aspectRatio: string; model?: string } | null;
+  /** True for a stock sound effect or voiceover take placed on a project's timeline — real disk space
+   *  (still charged against quota, see `getStorageUsageBytes`'s own doc comment on why that query
+   *  doesn't filter on this) but not something the user chose to import as their own media, so it's
+   *  excluded from `listUserMedia`'s own query rather than the "All my media" UI having to know to
+   *  filter it back out. Never set for an AI generation or stock download — see this column's own
+   *  migration comment for why those are narrower than `Asset.hiddenFromLibrary` suggests. */
+  hidden: boolean;
   createdAt: string;
 }
 
@@ -54,13 +61,23 @@ function rowFromDb(row: Record<string, unknown>): UserMediaRow {
     hasAudio: Boolean(row.has_audio),
     sizeBytes: Number(row.size_bytes) || 0,
     aiGeneration: (row.ai_generation as UserMediaRow["aiGeneration"]) ?? null,
+    hidden: Boolean(row.hidden),
     createdAt: row.created_at as string,
   };
 }
 
+/** The "All my media" listing (`media/library/route.ts`'s own GET) — excludes `hidden` rows (a stock
+ *  SFX or voiceover take, never something the user chose to import as their own media; see
+ *  `UserMediaRow.hidden`'s own doc comment) so they never surface in this account-wide browse view,
+ *  even though the file itself is real and still counted by `getStorageUsageBytes` below. */
 export async function listUserMedia(ownerId: string): Promise<UserMediaRow[]> {
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("user_media").select("*").eq("owner_id", ownerId).order("created_at", { ascending: false });
+  const { data, error } = await supabase
+    .from("user_media")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .eq("hidden", false)
+    .order("created_at", { ascending: false });
   if (error) {
     console.error("[vcut] user_media: could not list media for", ownerId, error);
     throw new ApiError(500, "Could not list your media library", "user-media-list-failed");
@@ -128,6 +145,7 @@ export async function insertUserMedia(ownerId: string, row: Omit<UserMediaRow, "
     has_audio: row.hasAudio,
     size_bytes: row.sizeBytes,
     ai_generation: row.aiGeneration,
+    hidden: row.hidden,
   });
   if (error) {
     console.error("[vcut] user_media: could not insert", row.id, error);

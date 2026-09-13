@@ -152,6 +152,10 @@ export const POST = hostedCreditGatedRoute("ai-image", MODELS[DEFAULT_MODEL].cre
         hasAudio: asset.hasAudio,
         sizeBytes: asset.sizeBytes,
         aiGeneration,
+        // Not `Asset.hiddenFromLibrary`'s equivalent here — a generation belongs in "All my
+        // generations" (see `useLibraryMedia.ts`'s own doc comment), which reads off this SAME table,
+        // just filtered to `aiGeneration != null`; hiding it here would remove it from that view too.
+        hidden: false,
       });
       // `aiGeneration` is NOT stamped onto the returned asset here — editorStore.ts's own
       // `generateAiImage` already unconditionally sets it (and `hiddenFromLibrary`) on whatever asset

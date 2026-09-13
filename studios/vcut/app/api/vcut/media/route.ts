@@ -34,6 +34,13 @@ export const POST = localRoute(async (req) => {
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) throw new ApiError(400, "No file was uploaded", "no-file");
+  // Set only for a stock sound effect or voiceover take (`client.ts`'s own `importMedia` — see its doc
+  // comment) — a plain user upload never sends this, so it always lands in "All my media" like any
+  // other import. See `UserMediaRow.hidden`'s own doc comment for why this needs to be a SEPARATE
+  // server-side flag rather than reusing `Asset.hiddenFromLibrary` further down the pipeline: by the
+  // time an asset reaches `insertUserMedia`, there's no field on it left to read that intent back off
+  // of (`hiddenFromLibrary` is stamped onto the returned asset CLIENT-side, after this response).
+  const hidden = form.get("hidden") === "1";
 
   // Pre-checked here (not just left to `importMediaBytes`'s own generic rejection) so this route keeps
   // its own more helpful "Supported: ..." message — the only piece of the old inline pipeline still
@@ -80,6 +87,7 @@ export const POST = localRoute(async (req) => {
       hasAudio: asset.hasAudio,
       sizeBytes: asset.sizeBytes,
       aiGeneration: null,
+      hidden,
     });
     // Marks this Asset as library-backed for every other consumer (media/raw's own file resolution,
     // MediaLibrary's own "remove from project vs. delete from library" distinction) — see

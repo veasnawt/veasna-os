@@ -96,6 +96,10 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
         hasAudio: fresh.hasAudio,
         sizeBytes: fresh.sizeBytes,
         aiGeneration: null,
+        // Deliberately visible in "All my media" — see this function's own doc comment: landing it in
+        // the library at all (not just the project) is what makes it count as something the new owner
+        // genuinely owns, the same as any other library item.
+        hidden: false,
       });
       fresh.libraryMediaId = fresh.id;
       return fresh;

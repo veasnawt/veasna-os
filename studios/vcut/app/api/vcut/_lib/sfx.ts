@@ -2,13 +2,12 @@ import fs from "fs";
 import path from "path";
 import { ApiError } from "./paths";
 
-// Deliberately its own file, not folded into ffmpeg.ts alongside `resolveFontsDir`/`textFontPath`:
-// nothing in the FFmpeg export path ever touches an SFX file server-side by path — a placed SFX clip
-// is, by the time export runs, a completely ordinary imported `Asset` referenced by its own copied
-// `relPath` under the project's media directory, same as any dragged-in audio file (see
-// `packages/vcut/src/project/sfx.ts`'s own doc comment). The ONLY server-side consumer of this
-// bundled folder is the browser-serving route below — `[file]/route.ts` — so keeping this separate
-// from ffmpeg.ts keeps that file's own scope (things FFmpeg/export actually read) honest.
+// Deliberately its own file, not folded into ffmpeg.ts alongside `resolveFontsDir`/`textFontPath`,
+// even though `export/route.ts`'s own `inputPathFor` DOES call `sfxAssetPath` below now (a bundled
+// catalog SFX clip — `Asset.bundledSfx` — is never copied anywhere; export reads the exact same
+// shared file the browser-serving route below does) — this stays separate because it's fundamentally
+// about ONE bundled asset kind (SFX), the same way outroAssets.ts is its own file for its own two
+// bundled images, rather than because export never touches it.
 
 let sfxDir: string | null = null;
 

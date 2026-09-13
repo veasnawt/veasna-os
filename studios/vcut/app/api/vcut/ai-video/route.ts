@@ -159,6 +159,9 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
               // No `model` — Seedance 2.0 is this route's only model, unlike ai-image/route.ts's
               // three-way choice.
               aiGeneration: { prompt, aspectRatio },
+              // See ai-image/route.ts's own identical comment: a generation belongs in "All my
+              // generations", which reads off this same table.
+              hidden: false,
             });
             // `aiGeneration` itself is NOT stamped here — see ai-image/route.ts's own identical
             // comment: editorStore.ts's `startAiVideoGeneration` already sets it client-side

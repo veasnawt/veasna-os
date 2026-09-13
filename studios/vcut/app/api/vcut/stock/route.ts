@@ -241,6 +241,9 @@ export const POST = localRoute(async (req) => {
       hasAudio: asset.hasAudio,
       sizeBytes: asset.sizeBytes,
       aiGeneration: null,
+      // A stock download is just as much "the user's own media" as an upload — visible in "All my
+      // media" like any other library item, unlike a stock SFX/voiceover take.
+      hidden: false,
     });
     asset.libraryMediaId = asset.id;
     return Response.json({ asset });
