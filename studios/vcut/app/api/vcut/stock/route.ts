@@ -66,7 +66,6 @@ interface PexelsPhotoSearchResponse {
 }
 
 interface PexelsVideoFile {
-  quality: "hd" | "sd" | "hls" | string;
   file_type: string;
   width: number;
   height: number;
@@ -90,19 +89,26 @@ interface PexelsVideoSearchResponse {
 }
 
 /** Picks which of a video's several `video_files` entries to actually download — Pexels offers the
- *  same clip at multiple resolutions (`hd`/`sd`, each in turn at several widths), unlike Commons'
- *  Wikipedia-hosted files, which had exactly one. Prefers `hd` (rather than the outright largest file
- *  available, which can run to 4K) specifically BECAUSE library storage is now capped per plan
- *  (`STORAGE_CAP_BYTES` in `_lib/userMedia.ts`) — a single 4K stock clip could otherwise burn a real
- *  fraction of a Free plan's whole 1GB on one download. Only ever `video/mp4` (never `hls`, a
- *  streaming-manifest format FFmpeg's own import/probe pipeline can't treat as a plain downloadable
- *  file the way `downloadMediaUrl` needs). */
+ *  same clip at multiple resolutions (a real ladder confirmed live: 360/540/720/1080/1440/2160px
+ *  wide), unlike Commons' Wikipedia-hosted files, which had exactly one. Pexels' own docs describe a
+ *  `quality` field ('hd'/'sd'/'hls') for picking among them, but every real response returns
+ *  `quality: null` on every entry regardless (confirmed live against the actual API, not assumed from
+ *  the docs — the same "verify, don't just trust the written spec" lesson `ai-image/route.ts`'s own
+ *  Flux Schnell history already taught this app once) — so this keys off `width` directly instead.
+ *  Caps at `MAX_VIDEO_FILE_WIDTH` rather than grabbing the outright largest file available (which can
+ *  run past 4K) specifically BECAUSE library storage is now capped per plan (`STORAGE_CAP_BYTES` in
+ *  `_lib/userMedia.ts`) — a single 4K stock clip could otherwise burn a real fraction of a Free plan's
+ *  whole 1GB on one download. Falls back to the SMALLEST available file on the rare source clip that
+ *  never reaches the cap at all, staying storage-conscious rather than reaching for "biggest" as the
+ *  tiebreak. Only ever `video/mp4` (never `hls`, a streaming-manifest format FFmpeg's own import/probe
+ *  pipeline can't treat as a plain downloadable file the way `downloadMediaUrl` needs). */
+const MAX_VIDEO_FILE_WIDTH = 1920;
 function bestVideoFile(files: PexelsVideoFile[]): PexelsVideoFile | null {
   const mp4Files = files.filter((f) => f.file_type === "video/mp4");
   if (mp4Files.length === 0) return null;
-  const hdFiles = mp4Files.filter((f) => f.quality === "hd");
-  const pool = hdFiles.length > 0 ? hdFiles : mp4Files;
-  return pool.reduce((best, f) => (f.width > best.width ? f : best), pool[0]);
+  const withinCap = mp4Files.filter((f) => f.width <= MAX_VIDEO_FILE_WIDTH);
+  if (withinCap.length > 0) return withinCap.reduce((best, f) => (f.width > best.width ? f : best), withinCap[0]);
+  return mp4Files.reduce((best, f) => (f.width < best.width ? f : best), mp4Files[0]);
 }
 
 const RESULTS_PER_PAGE = 24;
@@ -191,16 +197,17 @@ export const POST = localRoute(async (req) => {
   // Only ever a URL THIS server's own search just returned, never an arbitrary caller-supplied host —
   // this route exists to download a known-good search result, not as a general-purpose URL fetcher an
   // authenticated user could point at an internal address (SSRF). `images.pexels.com` serves photo
-  // files directly; a video's `video_files[].link` instead points at Pexels' own Vimeo-hosted delivery
-  // infrastructure (`player.vimeo.com`) — confirmed against Pexels' own API docs, not assumed from a
-  // guess that video would be served the same way photos are.
+  // files and `videos.pexels.com` serves video files — confirmed live against real search results, not
+  // assumed from Pexels' own docs (which describe a Vimeo-hosted `player.vimeo.com` delivery path for
+  // video that real responses simply don't use — the same "verify, don't just trust the written spec"
+  // lesson `bestVideoFile`'s own comment documents for the `quality` field).
   let parsed: URL;
   try {
     parsed = new URL(sourceUrl);
   } catch {
     throw new ApiError(400, "Invalid url", "invalid-url");
   }
-  if (!/(^|\.)pexels\.com$/.test(parsed.hostname) && parsed.hostname !== "player.vimeo.com") {
+  if (!/(^|\.)pexels\.com$/.test(parsed.hostname)) {
     throw new ApiError(400, "That url isn't a recognized stock media source", "invalid-source");
   }
 
