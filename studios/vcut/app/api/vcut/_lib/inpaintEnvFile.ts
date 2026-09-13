@@ -19,6 +19,15 @@ const HOSTED_REPLICATE_TOKEN_ENV_VAR = "VCUT_HOSTED_REPLICATE_API_TOKEN";
  *  this var in hosted, so Khmer users (self-serve or hosted) never touch a key either way. */
 const HOSTED_KIRI_TOKEN_ENV_VAR = "VCUT_HOSTED_KIRI_API_TOKEN";
 
+/** Hosted mode's own server-owned Pexels key — same "founder-owned, no self-serve UI anywhere" shape as
+ *  `HOSTED_KIRI_TOKEN_ENV_VAR` above, set once as a Railway variable. `stock/route.ts`'s search/download
+ *  is a convenience feature this app pays for on the user's behalf, not a BYOK integration — there was
+ *  never a real reason to expose a per-user key field for it, same reasoning Kiri's own comment gives.
+ *  Replaced Wikimedia Commons (which needed no key at all) once Commons' encyclopedia-oriented media
+ *  turned out to be a poor fit for the polished "b-roll" look people expect from a video editor's own
+ *  stock picker — see `stock/route.ts`'s own doc comment. */
+const HOSTED_PEXELS_API_KEY_ENV_VAR = "VCUT_HOSTED_PEXELS_API_KEY";
+
 /** Documents/Veasna OS/vcut.env in the packaged desktop app (`VEASNA_WORKSPACE_ROOT` set there);
  *  a gitignored file inside this checkout when running via `pnpm dev` instead (no
  *  `VEASNA_WORKSPACE_ROOT` there) — same "read fresh on every request, no restart needed" behavior
@@ -154,4 +163,16 @@ const KIRI_LOCAL_ENV_VAR = "KIRI_API_TOKEN";
 export function getKiriToken(): string | null {
   if (VCUT_HOSTED) return process.env[HOSTED_KIRI_TOKEN_ENV_VAR]?.trim() || null;
   return loadVstudioEnv()[KIRI_LOCAL_ENV_VAR]?.trim() || null;
+}
+
+/** Same `.env.vcut` file, under its own `PEXELS_API_KEY` key — same "founder hand-edits this for local
+ *  dev, no Inspector UI anywhere" shape as `KIRI_LOCAL_ENV_VAR` above, for the same reason
+ *  (`HOSTED_PEXELS_API_KEY_ENV_VAR`'s own doc comment). `stock/route.ts` treats a `null` return as
+ *  "stock search is unavailable" (its own `HEAD` reports this), not a hard startup failure — local dev
+ *  without a key configured simply doesn't get stock search, same as AI generation already doesn't. */
+const PEXELS_LOCAL_ENV_VAR = "PEXELS_API_KEY";
+
+export function getPexelsApiKey(): string | null {
+  if (VCUT_HOSTED) return process.env[HOSTED_PEXELS_API_KEY_ENV_VAR]?.trim() || null;
+  return loadVstudioEnv()[PEXELS_LOCAL_ENV_VAR]?.trim() || null;
 }
