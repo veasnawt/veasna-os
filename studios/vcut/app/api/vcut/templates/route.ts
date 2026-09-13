@@ -23,8 +23,9 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
 });
 
 /** `{ name, projectId }` — sanitizes the given project (see `sanitizeProjectForTemplate`'s own doc
- *  comment: structure only, every real-media clip dropped) and saves the result as a new template
- *  row. `checkProjectOwnership` is the same ownership check `localRoute`'s own generic `?projectId=`
+ *  comment: every clip's timing/effects/transitions survive, but a video/audio/image clip's real file
+ *  is replaced with a fillable placeholder) and saves the result as a new template row.
+ *  `checkProjectOwnership` is the same ownership check `localRoute`'s own generic `?projectId=`
  *  gate would give for free — done explicitly here since this route isn't wrapped in `localRoute` at
  *  all (Pro-gating needs to run first, and `hostedOnlyRoute` has no project-ownership concept of its
  *  own to layer that on top of). */

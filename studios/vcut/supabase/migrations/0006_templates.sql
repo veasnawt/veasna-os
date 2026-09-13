@@ -1,15 +1,19 @@
--- templates: Pro users' saved project structures, reusable as a starting point for a new project.
+-- templates: Pro users' saved edits, reusable as a starting point for a new project.
 --
--- A template is deliberately STRUCTURE only — sequence dimensions/fps, tracks, and any text/color-
--- matte clips as-is, with every clip referencing real media (video/audio/image) dropped. There's no
--- real footage to carry forward into someone's next project the way there is for `projects_index`'s
--- own full project.json (see that table's own doc comment on why THAT one stores only an index, not
--- content) — a template's own content is small and self-contained enough to store directly here as
--- JSONB, rather than needing a companion file on disk the way a real project's assets do.
+-- A template keeps the WHOLE edit — sequence dimensions/fps, every track, every clip's own timing/
+-- transform/effects/color-grading/keyframes/transitions, and any text or music — just with a video/
+-- audio/image clip's real FILE replaced by a fillable placeholder (`Asset.templatePlaceholder`):
+-- there's no real footage to carry forward into a stranger's next project the way there is for
+-- `projects_index`'s own full project.json (see that table's own doc comment on why THAT one stores
+-- only an index, not content) — a template's own content is small and self-contained enough to store
+-- directly here as JSONB, rather than needing a companion file on disk the way a real project's
+-- assets do.
 --
--- `project` holds the already-sanitized shape `_lib/templates.ts`'s `sanitizeProjectForTemplate`
+-- `project` holds the already-sanitized shape `project/template.ts`'s `sanitizeProjectForTemplate`
 -- produces (`{ width, height, fps, tracks, assets }`), not a full `Project` — see that function's own
--- doc comment for exactly what's kept and why.
+-- doc comment for exactly what's kept and why. `project/template.ts`'s `templateSlots`/
+-- `fillTemplateSlot` are what a new project built from one of these actually does with those
+-- placeholders once someone picks their own media to fill them in.
 --
 -- Same `id text primary key` / `owner_id uuid ... references auth.users` / RLS shape as
 -- `projects_index` (0001) — a template is user-owned and mutable the same way a project is, not
