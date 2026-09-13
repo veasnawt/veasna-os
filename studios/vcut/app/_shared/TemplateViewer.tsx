@@ -43,22 +43,28 @@ function writeFavorites(ids: Set<string>): void {
  *  unmute tap (applied to whichever section is current, persisted for the rest of THIS viewing
  *  session) is the only approach that behaves consistently across every video, not just the first.
  *
- *  Phase 1 scope: the action rail is "Use this template" (primary — starts a new project from it, the
- *  exact same `templateId` flow `ProjectsDashboard.tsx`'s own New Project dialog already uses), Delete,
- *  and a personal, LOCAL-ONLY (`localStorage`, not synced anywhere) Bookmark toggle — Like/Comment/Share
- *  need another person on the other end to mean anything, which needs Phase 2/3's public-sharing layer
- *  first (see this whole feature's own scoping discussion). Rename is deferred too — no update endpoint
- *  exists yet for a saved template's name; `templates/route.ts` only has create/list/delete today. */
+ *  The action rail is "Use this template" (primary — starts a new project from it, the exact same
+ *  `templateId` flow `ProjectsDashboard.tsx`'s own New Project dialog already uses) plus a personal,
+ *  LOCAL-ONLY (`localStorage`, not synced anywhere) Bookmark toggle in BOTH feeds. `mode === "mine"`
+ *  additionally shows Publish/Unpublish (Phase 2's opt-in sharing — `PATCH /api/vcut/templates/[id]`)
+ *  and Delete — neither makes sense in `mode === "discover"`, since that content isn't yours to manage.
+ *  Like/Comment/Share still don't exist even for a published template — those need a real creator-
+ *  profile system to attribute them to (Phase 3), not just public visibility. Rename is deferred too —
+ *  no update endpoint exists for a template's own NAME yet, only its public/private state. */
 export function TemplateViewer({
   templates,
   startIndex,
+  mode,
   onClose,
   onDeleted,
+  onPublicChanged,
 }: {
   templates: TemplateRow[];
   startIndex: number;
+  mode: "mine" | "discover";
   onClose: () => void;
   onDeleted: (id: string) => void;
+  onPublicChanged: (id: string, isPublic: boolean) => void;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,6 +75,7 @@ export function TemplateViewer({
   const [pendingDelete, setPendingDelete] = useState<TemplateRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
 
   // Jump to the tapped tile's own section instantly (no animated scroll) — this is "open at this
   // one," not "scroll the user there."
@@ -141,6 +148,23 @@ export function TemplateViewer({
     }
   }
 
+  async function togglePublic(template: TemplateRow) {
+    if (publishingId) return;
+    setPublishingId(template.id);
+    try {
+      const nextValue = !template.isPublic;
+      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(template.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: nextValue }),
+      });
+      if (!res.ok) throw new Error();
+      onPublicChanged(template.id, nextValue);
+    } finally {
+      setPublishingId(null);
+    }
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black">
       <button
@@ -181,13 +205,16 @@ export function TemplateViewer({
               else sectionRefs.current.delete(template.id);
             }}
             template={template}
+            mode={mode}
             active={activeId === template.id}
             muted={muted}
             favorited={favorites.has(template.id)}
             creating={creating}
+            publishing={publishingId === template.id}
             onUseTemplate={() => void useTemplate(template)}
             onToggleFavorite={() => toggleFavorite(template.id)}
             onDelete={() => setPendingDelete(template)}
+            onTogglePublic={() => void togglePublic(template)}
           />
         ))}
       </div>
@@ -208,25 +235,31 @@ export function TemplateViewer({
 
 interface TemplateSectionProps {
   template: TemplateRow;
+  mode: "mine" | "discover";
   active: boolean;
   muted: boolean;
   favorited: boolean;
   creating: boolean;
+  publishing: boolean;
   onUseTemplate: () => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
+  onTogglePublic: () => void;
 }
 
 function TemplateSection({
   ref,
   template,
+  mode,
   active,
   muted,
   favorited,
   creating,
+  publishing,
   onUseTemplate,
   onToggleFavorite,
   onDelete,
+  onTogglePublic,
 }: TemplateSectionProps & { ref: (el: HTMLDivElement | null) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -257,13 +290,32 @@ function TemplateSection({
           </span>
         </button>
 
-        <button onClick={onDelete} aria-label="Delete template" className="flex flex-col items-center gap-1 text-white">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
-            </svg>
-          </span>
-        </button>
+        {mode === "mine" && (
+          <>
+            <button
+              onClick={onTogglePublic}
+              disabled={publishing}
+              aria-label={template.isPublic ? "Unpublish template" : "Publish template"}
+              title={template.isPublic ? "Public — visible in Discover" : "Private — only you can see this"}
+              className="flex flex-col items-center gap-1 text-white disabled:opacity-50"
+            >
+              <span className={`flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm ${template.isPublic ? "text-sky-400" : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" />
+                </svg>
+              </span>
+            </button>
+
+            <button onClick={onDelete} aria-label="Delete template" className="flex flex-col items-center gap-1 text-white">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
+                </svg>
+              </span>
+            </button>
+          </>
+        )}
       </div>
 
       <button

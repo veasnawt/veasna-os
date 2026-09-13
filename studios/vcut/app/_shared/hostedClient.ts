@@ -81,4 +81,10 @@ export interface TemplateRow {
   id: string;
   name: string;
   updatedAt: string;
+  /** Phase 2's opt-in public sharing — see the `is_public` column's own migration comment. Always
+   *  `false` for a row from the "Discover" feed's own perspective doesn't matter (Discover already
+   *  only ever returns public rows, `listPublicTemplates` excludes your own) — this field's real job
+   *  is telling "My Templates" which of YOUR OWN templates are currently published, so the grid/viewer
+   *  can show the right toggle state. */
+  isPublic: boolean;
 }

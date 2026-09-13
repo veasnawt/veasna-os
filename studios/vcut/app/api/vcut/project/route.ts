@@ -5,7 +5,7 @@ import { buildProjectFromTemplate } from "@veasnawt/vcut/src/project/template";
 import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
-import { getOwnedTemplate, requirePro, resolveTemplateBundledAudio } from "../_lib/templates";
+import { getViewableTemplate, requirePro, resolveTemplateBundledAudio } from "../_lib/templates";
 
 /** These routes touch the real filesystem, so they must run on Node — not the Edge runtime, which
  *  has no `fs` and no ability to spawn FFmpeg. */
@@ -81,18 +81,22 @@ export const POST = localRoute(async (req) => {
   const paths = ensureProjectDirs(id);
 
   // Re-derived here rather than threaded from below — `templateId` only means anything once a
-  // session exists to own the template being read (see `getOwnedTemplate`'s own ownership check),
-  // and templates don't exist outside hosted mode at all (no "Pro" concept locally) — silently
-  // ignored rather than erroring there, the same "nothing meaningful to gate on" tolerance
-  // `shouldIncludeOutro` (export/route.ts) already gives its own Pro check off the hosted deploy.
+  // session exists to own (or view — see `getViewableTemplate`'s own doc comment on Phase 2's
+  // opt-in public sharing) the template being read, and templates don't exist outside hosted mode at
+  // all (no "Pro" concept locally) — silently ignored rather than erroring there, the same "nothing
+  // meaningful to gate on" tolerance `shouldIncludeOutro` (export/route.ts) already gives its own Pro
+  // check off the hosted deploy.
   let hostedUser: Awaited<ReturnType<typeof requireSessionUser>> | null = null;
   if (VCUT_HOSTED) hostedUser = await requireSessionUser(req);
 
   let project;
   if (body.templateId && hostedUser) {
-    await requirePro(hostedUser.id);
-    const template = await getOwnedTemplate(body.templateId, hostedUser.id);
-    project = buildProjectFromTemplate(id, name, template);
+    const template = await getViewableTemplate(body.templateId, hostedUser.id);
+    // Pro-gated only for the template's own OWNER starting ANOTHER project from it — using a template
+    // someone ELSE published is Free-plan-friendly by deliberate design (see `getViewableTemplate`'s
+    // own doc comment); only publishing your own stays Pro-only.
+    if (template.ownerId === hostedUser.id) await requirePro(hostedUser.id);
+    project = buildProjectFromTemplate(id, name, template.project);
     // Copies each bundled-audio asset's real file out of the TEMPLATE's own storage and into the new
     // owner's own account-wide library — see `resolveTemplateBundledAudio`'s own doc comment. Every
     // other asset (a placeholder, or text/color) passes through unchanged.

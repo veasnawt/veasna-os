@@ -211,30 +211,106 @@ export interface TemplateRow {
   name: string;
   project: TemplateProjectData;
   updatedAt: string;
+  isPublic: boolean;
 }
 
 /** Every template a user owns, newest-edited first — same ordering `listProjectsForOwner` already
- *  gives for projects, via the same `(owner_id, updated_at desc)` index the migration adds. */
+ *  gives for projects, via the same `(owner_id, updated_at desc)` index the migration adds. Includes
+ *  BOTH private and public templates — "My Templates" is every one of your own regardless of
+ *  visibility; `listPublicTemplates` below is the separate "Discover" feed. */
 export async function listTemplatesForOwner(ownerId: string): Promise<TemplateRow[]> {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at")
+    .select("id, name, project, updated_at, is_public")
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false });
   if (error) throw new ApiError(500, "Could not list templates", "templates-list-failed");
-  return (data ?? []).map((row) => ({ id: row.id, name: row.name, project: row.project as TemplateProjectData, updatedAt: row.updated_at }));
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    project: row.project as TemplateProjectData,
+    updatedAt: row.updated_at,
+    isPublic: row.is_public,
+  }));
+}
+
+/** Every PUBLICLY published template, EXCLUDING the viewer's own (their own public templates already
+ *  show in "My Templates" — mixing them into "Discover" too would mean seeing your own content while
+ *  browsing what other people made, the same convention most real discovery feeds already follow),
+ *  newest-published first (`published_at`, not `updated_at` — see that column's own migration comment
+ *  for why the two need to differ). No pagination yet — capped at a flat `limit`; worth revisiting once
+ *  real usage makes a flat cap actually matter. */
+export async function listPublicTemplates(viewerId: string, limit = 60): Promise<TemplateRow[]> {
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("templates")
+    .select("id, name, project, updated_at, is_public")
+    .eq("is_public", true)
+    .neq("owner_id", viewerId)
+    .order("published_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new ApiError(500, "Could not list public templates", "templates-discover-failed");
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    project: row.project as TemplateProjectData,
+    updatedAt: row.updated_at,
+    isPublic: row.is_public,
+  }));
 }
 
 /** Throws unless `ownerId` actually owns `templateId` — same "doesn't exist" and "exists but belongs
  *  to someone else" collapsed into one 403 that `checkProjectOwnership` already gives for projects,
- *  so a prober can't tell the two apart by response. */
+ *  so a prober can't tell the two apart by response. Strict owner-only — used where that's genuinely
+ *  required (the publish/unpublish toggle below): see `getViewableTemplate` for the looser
+ *  owner-OR-public check reading a template's own preview/using it as a new project's starting point
+ *  need instead. */
 export async function getOwnedTemplate(templateId: string, ownerId: string): Promise<TemplateProjectData> {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("templates").select("owner_id, project").eq("id", templateId).maybeSingle();
   if (error) throw new ApiError(500, "Could not read that template", "template-read-failed");
   if (!data || data.owner_id !== ownerId) throw new ApiError(403, "You don't have access to that template", "forbidden");
   return data.project as TemplateProjectData;
+}
+
+export interface ViewableTemplate {
+  ownerId: string;
+  isPublic: boolean;
+  project: TemplateProjectData;
+}
+
+/** Looser than `getOwnedTemplate` — allows either the OWNER or ANY signed-in viewer when the template
+ *  is public (`is_public`, see that column's own migration comment: Phase 2's opt-in sharing). Returns
+ *  `ownerId`/`isPublic` alongside the project data so callers can layer their OWN Pro-gating on top —
+ *  `templates/[id]/preview/route.ts` and `project/route.ts`'s create-from-template flow both only
+ *  require Pro of the OWNER, per the deliberate "Free can browse/use a published template; only
+ *  publishing your own stays Pro-only" product decision. This function itself has no opinion on Pro at
+ *  all, the same authorization-vs-entitlement split `checkProjectOwnership` already keeps for
+ *  projects. Same "doesn't exist" / "exists but neither yours nor public" 403 collapse `getOwnedTemplate`
+ *  already uses. */
+export async function getViewableTemplate(templateId: string, viewerId: string): Promise<ViewableTemplate> {
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase.from("templates").select("owner_id, is_public, project").eq("id", templateId).maybeSingle();
+  if (error) throw new ApiError(500, "Could not read that template", "template-read-failed");
+  if (!data || (data.owner_id !== viewerId && !data.is_public)) {
+    throw new ApiError(403, "You don't have access to that template", "forbidden");
+  }
+  return { ownerId: data.owner_id, isPublic: data.is_public, project: data.project as TemplateProjectData };
+}
+
+/** Toggles a template's own public-visibility flag — owner-only, scoped in the query itself (matching
+ *  `deleteOwnedTemplate`'s own "don't leak which ids are real" reasoning: a mismatched owner_id just
+ *  matches zero rows rather than a distinguishable 403, surfaced here as the same generic 403 either
+ *  way). Sets `published_at` the moment `isPublic` first flips true; left untouched on an unpublish
+ *  (see the migration's own comment on that column for why). */
+export async function setTemplatePublic(templateId: string, ownerId: string, isPublic: boolean): Promise<void> {
+  const supabase = getSupabaseAdminClient();
+  const update: Record<string, unknown> = { is_public: isPublic };
+  if (isPublic) update.published_at = new Date().toISOString();
+  const { data, error } = await supabase.from("templates").update(update).eq("id", templateId).eq("owner_id", ownerId).select("id");
+  if (error) throw new ApiError(500, "Could not update that template", "template-update-failed");
+  if (!data || data.length === 0) throw new ApiError(403, "You don't have access to that template", "forbidden");
 }
 
 export async function insertTemplate(id: string, ownerId: string, name: string, project: TemplateProjectData): Promise<void> {
