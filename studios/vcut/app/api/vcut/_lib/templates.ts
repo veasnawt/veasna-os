@@ -279,6 +279,31 @@ export async function listPublicTemplates(viewerId: string, limit = 60): Promise
   }));
 }
 
+/** A specific set of templates by id, in NO particular order of its own -- callers that care about
+ *  order (e.g. `/u/[id]`'s own "Liked content" tab, ordered by WHEN the creator liked each one, not by
+ *  the templates' own `updated_at`) re-sort the result themselves against their own ordered id list.
+ *  Only ever returns PUBLIC rows -- this exists for read surfaces where every id passed in is already
+ *  known-public (`listLikedPublicTemplates` only ever returns ids it already filtered to `is_public`),
+ *  so this is a second, cheap belt-and-suspenders filter, not the only one. */
+export async function getTemplatesByIds(ids: string[]): Promise<TemplateRow[]> {
+  if (ids.length === 0) return [];
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("templates")
+    .select("id, name, project, updated_at, is_public, owner_id")
+    .in("id", ids)
+    .eq("is_public", true);
+  if (error) throw new ApiError(500, "Could not load those templates", "templates-by-ids-failed");
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    project: row.project as TemplateProjectData,
+    updatedAt: row.updated_at,
+    isPublic: row.is_public,
+    ownerId: row.owner_id,
+  }));
+}
+
 /** Every PUBLIC template belonging to one specific creator, newest-published first — `/u/[id]`'s own
  *  creator page (Phase 3), reachable by tapping a name in Discover or the viewer's action rail. Never
  *  includes a private template, regardless of who's asking (even the creator themselves viewing their

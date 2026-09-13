@@ -64,6 +64,72 @@ export async function unlikeTemplate(templateId: string, userId: string): Promis
   if (error) throw new ApiError(500, "Could not remove your like", "template-unlike-failed");
 }
 
+/** The "Likes" stat on `/u/[id]`'s own profile header -- the sum of likes across every template this
+ *  creator has PUBLISHED (never a private one, even for the creator's own view of their own page --
+ *  same "the public-facing profile shows exactly what anyone else would see" rule `listPublicTemplatesByOwner`
+ *  already follows). Two queries (their own template ids, then a count of likes against those) rather
+ *  than a single joined one -- `template_likes`/`templates` have no FK relationship PostgREST could
+ *  embed across, same reasoning `listComments`'s own doc comment already gives for not embedding there
+ *  either. */
+export async function getTotalLikesForOwner(ownerId: string): Promise<number> {
+  const supabase = getSupabaseAdminClient();
+  const { data: templateRows, error: templatesError } = await supabase
+    .from("templates")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .eq("is_public", true);
+  if (templatesError) {
+    console.error("[vcut] templateSocial: could not list templates for total-likes", ownerId, templatesError);
+    return 0;
+  }
+  const ids = (templateRows ?? []).map((r) => r.id);
+  if (ids.length === 0) return 0;
+  const { count, error } = await supabase
+    .from("template_likes")
+    .select("*", { count: "exact", head: true })
+    .in("template_id", ids);
+  if (error) {
+    console.error("[vcut] templateSocial: could not count total likes for", ownerId, error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+/** The "Liked content" tab on `/u/[id]` -- every PUBLIC template this creator has liked, newest-liked
+ *  first. Never a private one (this creator liking their own unpublished draft, or a template that's
+ *  since been unpublished or deleted) -- a like on something nobody else can see would leak the
+ *  existence of content that isn't meant to be visible at all. Two plain queries (this liker's own
+ *  liked ids, newest first, then which of those are still public templates) rather than an embedded
+ *  PostgREST join -- same "no declared cross-table relationship to lean on" caution `listComments`'s
+ *  own doc comment already takes, kept simple and easy to reason about over a nested-filter join this
+ *  file has no other precedent for. */
+export async function listLikedPublicTemplates(likerUserId: string, limit = 60): Promise<string[]> {
+  const supabase = getSupabaseAdminClient();
+  const { data: likedRows, error: likedError } = await supabase
+    .from("template_likes")
+    .select("template_id")
+    .eq("user_id", likerUserId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (likedError) {
+    console.error("[vcut] templateSocial: could not list liked template ids for", likerUserId, likedError);
+    return [];
+  }
+  const orderedIds = (likedRows ?? []).map((r) => r.template_id);
+  if (orderedIds.length === 0) return [];
+  const { data: publicRows, error: publicError } = await supabase
+    .from("templates")
+    .select("id")
+    .in("id", orderedIds)
+    .eq("is_public", true);
+  if (publicError) {
+    console.error("[vcut] templateSocial: could not filter liked templates to public for", likerUserId, publicError);
+    return [];
+  }
+  const stillPublic = new Set((publicRows ?? []).map((r) => r.id));
+  return orderedIds.filter((id) => stillPublic.has(id));
+}
+
 export interface CommentRow {
   id: string;
   templateId: string;
