@@ -582,6 +582,14 @@ function TemplateSection({
           {social !== undefined && <span className="text-[10px] text-white/70">{social.commentCount}</span>}
         </button>
 
+        <button onClick={onToggleFavorite} aria-label="Bookmark" className="flex flex-col items-center gap-1 text-white">
+          <span className={`flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm ${favorited ? "text-amber-400" : ""}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={favorited ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
+              <path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4-7 4V4.5a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </button>
+
         <button onClick={onShare} aria-label="Share" className="flex flex-col items-center gap-1 text-white">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -589,14 +597,6 @@ function TemplateSection({
               <circle cx="6" cy="12" r="2.5" />
               <circle cx="18" cy="19" r="2.5" />
               <path d="m8.2 10.8 7.6-4.6M8.2 13.2l7.6 4.6" />
-            </svg>
-          </span>
-        </button>
-
-        <button onClick={onToggleFavorite} aria-label="Bookmark" className="flex flex-col items-center gap-1 text-white">
-          <span className={`flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm ${favorited ? "text-amber-400" : ""}`}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={favorited ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
-              <path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4-7 4V4.5a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
             </svg>
           </span>
         </button>
