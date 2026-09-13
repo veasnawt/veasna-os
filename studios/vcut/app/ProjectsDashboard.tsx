@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "@veasnawt/vcut/src/ui/ConfirmDialog";
 import { RESOLUTION_PRESETS, type Asset, type Project } from "@veasnawt/vcut/src/project/types";
+import { addClip, trackKindForAsset } from "@veasnawt/vcut/src/timeline/operations";
 import { getAccessToken, getCachedAccessToken, useSupabaseSession } from "@veasnawt/auth";
 
 /** This page talks to `/api/vcut/*` directly (`NewProjectDialog` included, below) rather than through
@@ -173,6 +174,15 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             fps: asset.fps ?? project.exportSettings.fps,
           },
         };
+
+        // Reported directly: a starting file used to just sit in the Media library, needing a manual
+        // drag/double-click before it actually showed up anywhere — landing in the editor with nothing
+        // on the timeline yet even though you just told it what to start FROM. This is a brand-new,
+        // otherwise-empty project, so placing it at time 0 can never overlap or need the fuller
+        // overlap-avoidance `addAssetAtPlayhead` (the in-editor equivalent) handles for an
+        // already-populated timeline.
+        const targetTrack = project.sequence.tracks.find((t) => t.kind === trackKindForAsset(asset));
+        if (targetTrack) project = addClip(project, targetTrack.id, asset.id, 0);
 
         const saveRes = await authFetch(`/api/vcut/project?projectId=${encodeURIComponent(project.bpProjectId)}`, {
           method: "PUT",
@@ -546,7 +556,15 @@ export function ProjectsDashboard() {
                       }}
                       aria-label={`Delete ${p.name}`}
                       title="Delete project"
-                      className="absolute right-1.5 top-1.5 rounded-md bg-black/60 p-1.5 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-rose-500/80 hover:text-white group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100"
+                      // Hover-reveal only at real desktop widths (`lg`, a mouse can actually hover) —
+                      // always visible below that, same "touch has no persistent hover state to reveal
+                      // it from" convention every other hover-only control in this app already follows
+                      // (see e.g. MediaLibrary.tsx's own remove button). Previously gated at `sm`
+                      // (640px) instead of `lg` — a real, reported bug: a tablet, or even just a large
+                      // phone, falls in the gap between the two, where this button was invisible with
+                      // no way to trigger it at all (no mouse to hover with, and not narrow enough for
+                      // the old always-visible fallback to kick in).
+                      className="absolute right-1.5 top-1.5 rounded-md bg-black/60 p-1.5 text-white/70 opacity-100 backdrop-blur-sm transition hover:bg-rose-500/80 hover:text-white focus-visible:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
