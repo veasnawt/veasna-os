@@ -35,13 +35,16 @@ export async function requirePro(userId: string): Promise<void> {
  *  bundled copy is a fully-formed asset, not a bare file. Called once, right after
  *  `sanitizeProjectForTemplate`, from `templates/route.ts`'s own POST handler.
  *
- *  `asset.libraryMediaId` set means the real file actually lives in the OWNER's own account-wide
- *  library (`users/<ownerId>/media`, via `media/route.ts`'s own hosted-mode upload path — see
- *  `Asset.libraryMediaId`'s own doc comment), not this project's own `mediaDir` — a real, reported bug
- *  otherwise: a bundled SFX/music clip placed on the timeline goes through the exact same account-wide
- *  import path as any other upload, so treating every bundled-audio asset as project-local threw a
- *  plain "no such file" the moment someone tried to save a template containing one. Any OTHER asset (a
- *  placeholder, or text/color) passes through unchanged either way. */
+ *  Resolves the real source file via the SAME shared `resolveAssetInputPath` export/route.ts and
+ *  `renderTemplatePreview` above already use — not its own separate copy of that logic, which is
+ *  exactly what caused a real, reported `ENOENT` here: this function's own resolution used to check
+ *  ONLY `asset.libraryMediaId` (the account-wide library case), predating `Asset.bundledSfx` (the
+ *  zero-copy bundled SFX catalog, added later) entirely — a bundled-catalog sound effect placed on the
+ *  timeline is neither project-local nor library-backed, so the old two-way check fell through to
+ *  "this project's own mediaDir" for a file that was never copied there at all, the moment someone
+ *  saved a template containing one. Three storage locations now (project-local, library, bundled
+ *  catalog) is exactly the kind of drift a SHARED resolver exists to prevent — see that function's own
+ *  doc comment. */
 export async function bundleTemplateAudio(
   templateId: string,
   ownerId: string,
@@ -49,11 +52,11 @@ export async function bundleTemplateAudio(
   assets: Asset[]
 ): Promise<Asset[]> {
   const audioDirs = ensureTemplateAudioDirs(templateId);
+  const libraryMediaDir = userMediaPaths(ownerId).mediaDir;
   return Promise.all(
     assets.map(async (asset) => {
       if (!asset.templateBundledAudio) return asset;
-      const sourceDir = asset.libraryMediaId ? userMediaPaths(ownerId).mediaDir : sourceProjectPaths.mediaDir;
-      const bytes = fs.readFileSync(resolveWithin(sourceDir, asset.relPath));
+      const bytes = fs.readFileSync(resolveAssetInputPath(sourceProjectPaths, libraryMediaDir, asset));
       const fresh = await importMediaBytes(audioDirs, bytes, asset.name);
       return { ...fresh, id: asset.id, templateBundledAudio: true as const };
     })

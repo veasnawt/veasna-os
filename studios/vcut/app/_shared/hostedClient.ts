@@ -8,13 +8,29 @@ import { getAccessToken, getCachedAccessToken } from "@veasnawt/auth";
  *  git history on `ProjectsDashboard.tsx` for the original inline versions of everything below). */
 export const HOSTED = process.env.NEXT_PUBLIC_VCUT_HOSTED === "true";
 
+/** Same 401-retry `packages/vcut/src/api/client.ts`'s own `apiFetch` already has — copied here rather
+ *  than shared code across the package boundary (see this file's own top comment on why dashboard-level
+ *  pages stay independent of that package). A 401 isn't necessarily a genuinely dead session — it can
+ *  also be a stale-but-still-refreshable access token (e.g. right after this tab sat backgrounded for a
+ *  while — Supabase's own auto-refresh ticker pauses while hidden). `getAccessToken()` re-checks real
+ *  expiry and refreshes through Supabase's own logic if the refresh token is still valid; one retry
+ *  with whatever that returns costs nothing when the session really IS dead, but silently recovers the
+ *  far more common case where it wasn't, instead of surfacing "session expired" to someone who was
+ *  still actively using the app moments earlier. This file's own copy had drifted behind `apiFetch`'s
+ *  — missing this exact fix — until now; a real, reported gap, not theoretical. */
 export async function authFetch(input: string, init?: RequestInit): Promise<Response> {
   if (!HOSTED) return fetch(input, init);
   const token = await getAccessToken();
   if (!token) return fetch(input, init);
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
+  const response = await fetch(input, { ...init, headers });
+  if (response.status !== 401) return response;
+  const freshToken = await getAccessToken();
+  if (!freshToken || freshToken === token) return response;
+  const retryHeaders = new Headers(init?.headers);
+  retryHeaders.set("Authorization", `Bearer ${freshToken}`);
+  return fetch(input, { ...init, headers: retryHeaders });
 }
 
 export interface ProjectSummary {
