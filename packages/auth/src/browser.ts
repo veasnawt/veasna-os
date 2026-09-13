@@ -31,6 +31,22 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
   cached.auth.onAuthStateChange((_event, session) => {
     cachedAccessToken = session?.access_token ?? null;
   });
+  // Confirmed a real, reported bug: Supabase's own client stops its auto-refresh ticker while the tab
+  // is hidden (`visibilitychange`), so `cachedAccessToken` can sit stale for however long the tab spent
+  // backgrounded — a real video editor left open in another tab for a while, easily past the access
+  // token's own real lifetime. The FIRST render after switching back (a thumbnail's `<img src>`, an
+  // export's `EventSource` reconnecting) would otherwise fire with that stale value immediately,
+  // producing a genuine 401 the user sees as "session expired" despite having just been actively using
+  // the tab moments before switching away. `getSession()` checks real expiry and refreshes through
+  // Supabase's own logic if needed (see `getAccessToken`'s own doc comment) — its result isn't used
+  // directly here; the point is only to update `cachedAccessToken` (via the `onAuthStateChange` this
+  // triggers on an actual refresh) BEFORE anything else on this now-visible tab gets a chance to build
+  // a URL with the stale one still sitting there.
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void cached?.auth.getSession();
+    });
+  }
   return cached;
 }
 
