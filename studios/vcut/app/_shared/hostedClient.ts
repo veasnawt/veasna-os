@@ -74,6 +74,47 @@ export function templatePreviewUrl(templateId: string): string {
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
+/** A small, fixed palette (not an arbitrary HSL-from-hash) — picking from real, pre-tuned colors avoids
+ *  the muddy/illegible combinations a raw hash-to-hue formula can land on (a pale yellow on white text,
+ *  for instance), the actual reason Phase 3's own scoping picked "auto-generated, no upload" avatars in
+ *  the first place (skips needing any new storage at all — see migration 0010's own comment on
+ *  `display_name`) without looking cheap. */
+const AVATAR_COLORS = ["#f97316", "#ef4444", "#ec4899", "#a855f7", "#6366f1", "#0ea5e9", "#14b8a6", "#22c55e", "#84cc16", "#eab308"];
+
+/** Deterministic per-user color — the SAME `seed` (a user id) always picks the same color, so one
+ *  creator's initial looks consistent everywhere it appears (Discover tiles, the viewer's action rail,
+ *  `/u/[id]`), without storing a color anywhere. */
+export function avatarColor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+/** The single letter shown in a generated avatar — the display name's own first letter when set,
+ *  otherwise a generic fallback (never a raw user id fragment, which would look like a bug rather than
+ *  a deliberate placeholder). */
+export function avatarInitial(displayName: string | null | undefined): string {
+  const trimmed = displayName?.trim();
+  return trimmed ? trimmed[0].toUpperCase() : "V";
+}
+
+/** What Discover tiles/the viewer show under a creator's name when they've never set one — never a raw
+ *  user id, which would read as a bug rather than "this person hasn't customized their profile yet". */
+export function displayNameOrFallback(displayName: string | null | undefined): string {
+  return displayName?.trim() || "A VCut creator";
+}
+
+/** One row from `GET /api/vcut/templates/[id]/comments` — the full-screen viewer's own Comments panel
+ *  and the public `/t/[id]` share page both render the same shape. */
+export interface CommentRow {
+  id: string;
+  templateId: string;
+  userId: string;
+  authorDisplayName: string | null;
+  body: string;
+  createdAt: string;
+}
+
 export function formatUpdatedAt(ms: number): string {
   const diffMinutes = Math.round((Date.now() - ms) / 60000);
   if (diffMinutes < 1) return "just now";
@@ -103,4 +144,15 @@ export interface TemplateRow {
    *  is telling "My Templates" which of YOUR OWN templates are currently published, so the grid/viewer
    *  can show the right toggle state. */
   isPublic: boolean;
+  ownerId: string;
+  /** The four fields below only ever come from `GET /api/vcut/templates/discover` (batched there — see
+   *  that route's own doc comment) — a "My Templates" row never carries them (`undefined`), since
+   *  `TemplateViewer.tsx`'s own action rail only shows Like/Comment counts in `mode === "discover"`
+   *  anyway. Optional rather than a second, near-duplicate interface — keeping ONE `TemplateRow` shape
+   *  both feeds return avoids a `DiscoverTemplateRow` that would need its own plumbing through
+   *  `TemplateViewer`/`TemplateGridTile` for what's really the same row with a few extra properties. */
+  creatorDisplayName?: string | null;
+  likeCount?: number;
+  commentCount?: number;
+  viewerHasLiked?: boolean;
 }

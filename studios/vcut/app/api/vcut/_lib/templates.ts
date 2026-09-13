@@ -224,6 +224,11 @@ export interface TemplateRow {
   project: TemplateProjectData;
   updatedAt: string;
   isPublic: boolean;
+  /** Phase 3's own creator attribution needs this on every row — Discover tiles and the viewer's action
+   *  rail both look up the owner's `PublicProfile` (`getPublicProfiles`) by it. Present on "My Templates"
+   *  rows too (always the caller's own id there) for a uniform shape, even though those callers never
+   *  need to look anything up for it. */
+  ownerId: string;
 }
 
 /** Every template a user owns, newest-edited first — same ordering `listProjectsForOwner` already
@@ -234,7 +239,7 @@ export async function listTemplatesForOwner(ownerId: string): Promise<TemplateRo
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public")
+    .select("id, name, project, updated_at, is_public, owner_id")
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false });
   if (error) throw new ApiError(500, "Could not list templates", "templates-list-failed");
@@ -244,6 +249,7 @@ export async function listTemplatesForOwner(ownerId: string): Promise<TemplateRo
     project: row.project as TemplateProjectData,
     updatedAt: row.updated_at,
     isPublic: row.is_public,
+    ownerId: row.owner_id,
   }));
 }
 
@@ -257,7 +263,7 @@ export async function listPublicTemplates(viewerId: string, limit = 60): Promise
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public")
+    .select("id, name, project, updated_at, is_public, owner_id")
     .eq("is_public", true)
     .neq("owner_id", viewerId)
     .order("published_at", { ascending: false })
@@ -269,6 +275,32 @@ export async function listPublicTemplates(viewerId: string, limit = 60): Promise
     project: row.project as TemplateProjectData,
     updatedAt: row.updated_at,
     isPublic: row.is_public,
+    ownerId: row.owner_id,
+  }));
+}
+
+/** Every PUBLIC template belonging to one specific creator, newest-published first — `/u/[id]`'s own
+ *  creator page (Phase 3), reachable by tapping a name in Discover or the viewer's action rail. Never
+ *  includes a private template, regardless of who's asking (even the creator themselves viewing their
+ *  own `/u/[id]` page sees exactly what anyone else would) — this is the PUBLIC-facing grid, "My
+ *  Templates" already covers the owner's own full view including private ones. */
+export async function listPublicTemplatesByOwner(ownerId: string, limit = 60): Promise<TemplateRow[]> {
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("templates")
+    .select("id, name, project, updated_at, is_public, owner_id")
+    .eq("owner_id", ownerId)
+    .eq("is_public", true)
+    .order("published_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new ApiError(500, "Could not list that creator's templates", "templates-creator-failed");
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    project: row.project as TemplateProjectData,
+    updatedAt: row.updated_at,
+    isPublic: row.is_public,
+    ownerId: row.owner_id,
   }));
 }
 
@@ -289,6 +321,7 @@ export async function getOwnedTemplate(templateId: string, ownerId: string): Pro
 export interface ViewableTemplate {
   ownerId: string;
   isPublic: boolean;
+  name: string;
   project: TemplateProjectData;
 }
 
@@ -303,12 +336,12 @@ export interface ViewableTemplate {
  *  already uses. */
 export async function getViewableTemplate(templateId: string, viewerId: string): Promise<ViewableTemplate> {
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("templates").select("owner_id, is_public, project").eq("id", templateId).maybeSingle();
+  const { data, error } = await supabase.from("templates").select("owner_id, is_public, name, project").eq("id", templateId).maybeSingle();
   if (error) throw new ApiError(500, "Could not read that template", "template-read-failed");
   if (!data || (data.owner_id !== viewerId && !data.is_public)) {
     throw new ApiError(403, "You don't have access to that template", "forbidden");
   }
-  return { ownerId: data.owner_id, isPublic: data.is_public, project: data.project as TemplateProjectData };
+  return { ownerId: data.owner_id, isPublic: data.is_public, name: data.name, project: data.project as TemplateProjectData };
 }
 
 /** Toggles a template's own public-visibility flag — owner-only, scoped in the query itself (matching

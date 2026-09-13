@@ -233,6 +233,41 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+/** Genuinely public — unlike `hostedSessionRoute` below (whose `user` is only ever `null` in
+ *  NON-hosted local/desktop mode; in hosted mode it still calls `requireSessionUser`, which THROWS a
+ *  401 on a missing/invalid token, making that route unusable for an actual anonymous visitor), this
+ *  wrapper treats "no token, or an invalid one" as a completely normal, expected case in hosted mode
+ *  too — `user` comes back `null` instead of failing the request. Exists for Phase 3's public template
+ *  surface specifically (`/t/[id]`'s own share page, and the API routes it calls: a template's own
+ *  info, its preview video, its comment list) — a signed-out visitor following a shared link is the
+ *  whole point of that feature, not an error case. Still runs `localRoute`'s own IP gate in non-hosted
+ *  mode (unchanged from every other route here) — this only widens who's allowed through in HOSTED
+ *  mode, where there was never an IP concept to begin with. A route using this must do its OWN
+ *  visibility check against real data (e.g. `getViewableTemplate`'s own "public, or you own it" rule)
+ *  — this wrapper only decides who COUNTS as signed in, never what a signed-out (or signed-in, non-
+ *  owner) visitor is allowed to see. */
+export function publicSessionRoute<T extends unknown[]>(
+  handler: (req: Request, user: SessionUser | null, ...rest: T) => Promise<Response>
+): (req: Request, ...rest: T) => Promise<Response> {
+  return async (req: Request, ...rest: T) => {
+    let user: SessionUser | null = null;
+    if (VCUT_HOSTED) {
+      try {
+        user = await requireSessionUser(req);
+      } catch {
+        user = null;
+      }
+    } else if (!isLocalRequest(req)) {
+      return localOnlyResponse();
+    }
+    try {
+      return await handler(req, user, ...rest);
+    } catch (err) {
+      return errorResponse(err);
+    }
+  };
+}
+
 /** For a centrally-funded feature (Auto Captions, Remove Object — VCut pays ONE provider account,
  *  not each user their own key) whose POST actually incurs real cost. Same "IP check locally, real
  *  auth hosted" split as `localRoute`. Deliberately does NOT spend credits itself before the handler

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { hostedOnlyRoute } from "../../../_lib/localOnly";
+import { publicSessionRoute } from "../../../_lib/localOnly";
 import { ApiError, templateAudioPaths } from "../../../_lib/paths";
 import { serveFileWithRange } from "../../../_lib/serveFile";
 import { getViewableTemplate, requirePro } from "../../../_lib/templates";
@@ -23,11 +23,18 @@ export const dynamic = "force-dynamic";
  *  preview rendering existed, or a best-effort render that failed — see `renderTemplatePreview`'s own
  *  doc comment) 404s with a distinct code so the client can show a generic placeholder tile instead of
  *  a broken video, same "Media Offline" pattern `media/raw/route.ts` already establishes for a missing
- *  project file. */
-export const GET = hostedOnlyRoute(async (req, user, context: { params: Promise<{ id: string }> }) => {
+ *  project file.
+ *
+ *  `publicSessionRoute` (genuinely optional auth, see its own doc comment), not `hostedOnlyRoute` —
+ *  Phase 3's public `/t/[id]` share page needs this same video reachable by a signed-out visitor when
+ *  the template is public (its own scoping decision: "a public preview page, no sign-in required"). An
+ *  anonymous request passes `""` as the viewer id to `getViewableTemplate`, which can never match a
+ *  real `owner_id`, so it naturally degrades to exactly "must be public" — the same check a signed-in
+ *  non-owner already gets. */
+export const GET = publicSessionRoute(async (req, user, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
-  const template = await getViewableTemplate(id, user.id);
-  if (template.ownerId === user.id) await requirePro(user.id);
+  const template = await getViewableTemplate(id, user?.id ?? "");
+  if (user && template.ownerId === user.id) await requirePro(user.id);
 
   const filePath = path.join(templateAudioPaths(id).dir, "preview.mp4");
   if (!fs.existsSync(filePath)) {

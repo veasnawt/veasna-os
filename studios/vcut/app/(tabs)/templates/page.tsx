@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { authFetch, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
+import { Avatar } from "../../_shared/Avatar";
+import { authFetch, displayNameOrFallback, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 import { TemplateViewer } from "../../_shared/TemplateViewer";
 
 type FeedMode = "mine" | "discover";
@@ -148,8 +149,22 @@ function TemplateGridTile({
             Public
           </span>
         )}
+        {template.likeCount !== undefined && (
+          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white/80">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 21s-7.5-4.6-10-9.3C.4 8.2 2.3 4.8 5.7 4.3c2-.3 3.9.6 5 2.2a5.5 5.5 0 0 1 5-2.2c3.4.5 5.3 3.9 3.7 7.4C19.5 16.4 12 21 12 21Z" />
+            </svg>
+            {template.likeCount}
+          </span>
+        )}
       </div>
       <p className="truncate px-2 py-1.5 text-xs text-white/80">{template.name}</p>
+      {template.creatorDisplayName !== undefined && (
+        <div className="flex items-center gap-1 px-2 pb-1.5">
+          <Avatar seed={template.ownerId} displayName={template.creatorDisplayName} size={14} />
+          <span className="truncate text-[10px] text-white/40">{displayNameOrFallback(template.creatorDisplayName)}</span>
+        </div>
+      )}
     </button>
   );
 }

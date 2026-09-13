@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { getBillingStatus, openBillingPortal, startCheckout, type BillingStatus } from "@veasnawt/vcut/src/api/billing";
+import { Avatar } from "../../_shared/Avatar";
 import { authFetch, formatFileSize, HOSTED } from "../../_shared/hostedClient";
 
 /** Same key `packages/vcut/src/store/editorStore.ts` reads/writes for the in-editor language toggle —
@@ -29,6 +30,9 @@ export default function MePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<"en" | "km">("en");
+  const [displayName, setDisplayName] = useState("");
+  const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     setLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === "km" ? "km" : "en");
@@ -43,7 +47,35 @@ export default function MePage() {
         if (body) setUsage({ usedBytes: body.usedBytes, capBytes: body.capBytes });
       })
       .catch(() => {});
+    authFetch("/api/vcut/profile")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { displayName: string | null } | null) => {
+        if (body) {
+          setDisplayName(body.displayName ?? "");
+          setSavedDisplayName(body.displayName);
+        }
+      })
+      .catch(() => {});
   }, [user]);
+
+  async function saveDisplayName() {
+    setSavingName(true);
+    try {
+      const res = await authFetch("/api/vcut/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName }),
+      });
+      if (!res.ok) throw new Error();
+      const body = (await res.json()) as { displayName: string | null };
+      setDisplayName(body.displayName ?? "");
+      setSavedDisplayName(body.displayName);
+    } catch {
+      setError("Couldn't save your name — try again in a moment.");
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   function changeLanguage(next: "en" | "km") {
     setLanguage(next);
@@ -81,6 +113,32 @@ export default function MePage() {
 
       {HOSTED && user && (
         <p className="mt-1.5 text-xs text-white/40">{user.email}</p>
+      )}
+
+      {HOSTED && user && (
+        <div className="mt-6 flex items-center gap-3">
+          <Avatar seed={user.id} displayName={displayName} size={40} />
+          <div className="flex flex-1 gap-2">
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Your creator name"
+              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30"
+            />
+            {displayName.trim() !== (savedDisplayName ?? "") && (
+              <button
+                onClick={() => void saveDisplayName()}
+                disabled={savingName}
+                className="shrink-0 rounded-md bg-white/10 px-3 py-2 text-xs font-medium text-white disabled:opacity-40"
+              >
+                {savingName ? "…" : "Save"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {HOSTED && user && (
+        <p className="mt-1.5 text-[11px] text-white/35">Shown on any template you publish — Discover, comments, and your own creator page.</p>
       )}
 
       {HOSTED && !status && <p className="mt-8 text-center text-xs text-white/40">Loading…</p>}

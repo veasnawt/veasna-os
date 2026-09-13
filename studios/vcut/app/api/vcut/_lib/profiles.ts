@@ -10,6 +10,17 @@ export interface Profile {
   currentPeriodEnd: string | null;
 }
 
+/** A short, non-billing slice of `profiles` safe to hand to ANY viewer — Phase 3's creator identity
+ *  (Discover tiles, the full-screen viewer's action rail, the public `/t/[id]` share page, `/u/[id]`'s
+ *  own creator page). Deliberately excludes everything `getProfile` exposes (`plan`, Stripe ids) — those
+ *  are the OWNER's own business, never another viewer's. `displayName` is `null` for anyone who's never
+ *  set one — every caller falls back to a generic label ("A VCut creator") rather than showing a raw
+ *  user id, the same "absent is a normal, handled state" the column's own migration comment expects. */
+export interface PublicProfile {
+  id: string;
+  displayName: string | null;
+}
+
 /** `null` means no row exists yet — a user who has never started a checkout. Treated identically to
  *  `{plan: "free", ...}` by every caller (see `status/route.ts`): a `profiles` row is only ever
  *  created by `setStripeCustomerId` below, the first time someone actually starts a checkout, not
@@ -39,6 +50,43 @@ export async function getProfile(userId: string): Promise<Profile | null> {
  *  already set from a PRIOR subscription that later lapsed back to free; this must never clobber
  *  that, only fill in the customer id. `plan` deliberately isn't touched here — see this table's own
  *  migration comment on why only the webhook is allowed to change it. */
+/** Batch lookup for a set of template owners at once — Discover's own feed and a template's info route
+ *  both need "whose name goes under this tile" for potentially dozens of rows in one request; a
+ *  `.select().eq()` per row would be dozens of round trips for what a single `.in()` query answers in
+ *  one. A user id missing from the result (never having touched `profiles` at all — see `getProfile`'s
+ *  own doc comment on why that row is created lazily, not eagerly) just means `displayName: null`, the
+ *  same "not set yet" case any other row already returns via this shape. */
+export async function getPublicProfiles(userIds: string[]): Promise<Map<string, PublicProfile>> {
+  const unique = [...new Set(userIds)];
+  const result = new Map<string, PublicProfile>();
+  if (unique.length === 0) return result;
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase.from("profiles").select("id, display_name").in("id", unique);
+  if (error) {
+    console.error("[vcut] profiles: could not batch-read display names for", unique, error);
+    return result;
+  }
+  for (const row of data ?? []) result.set(row.id, { id: row.id, displayName: row.display_name });
+  return result;
+}
+
+export async function getPublicProfile(userId: string): Promise<PublicProfile> {
+  const profiles = await getPublicProfiles([userId]);
+  return profiles.get(userId) ?? { id: userId, displayName: null };
+}
+
+/** The one write path for a user's own display name — a plain upsert (not `setStripeCustomerId`'s own
+ *  "must never clobber a plan a webhook already set" concern; nothing else in `profiles` depends on
+ *  when this row first appears). Called from `profile/route.ts`'s own PATCH, itself the only thing
+ *  allowed to set this: `profiles` still has NO client-facing update RLS policy at all — same posture
+ *  the table's own original migration comment established for `plan` — enforced here by going through
+ *  the service-role client from a route that itself requires a real session, not by loosening RLS. */
+export async function setDisplayName(userId: string, displayName: string | null): Promise<void> {
+  const supabase = getSupabaseAdminClient();
+  const { error } = await supabase.from("profiles").upsert({ id: userId, display_name: displayName }, { onConflict: "id" });
+  if (error) throw new ApiError(500, "Could not save your name", "profile-write-failed");
+}
+
 export async function setStripeCustomerId(userId: string, stripeCustomerId: string): Promise<void> {
   const supabase = getSupabaseAdminClient();
   const { error } = await supabase.from("profiles").upsert({ id: userId, stripe_customer_id: stripeCustomerId }, { onConflict: "id" });
