@@ -47,7 +47,7 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   // Copies each bundled-audio asset's real file into this template's own permanent storage — see
   // `bundleTemplateAudio`'s own doc comment. Everything else in `sanitized` (placeholders, text/color)
   // passes through unchanged.
-  sanitized.assets = await bundleTemplateAudio(id, paths, sanitized.assets);
+  sanitized.assets = await bundleTemplateAudio(id, user.id, paths, sanitized.assets);
   await insertTemplate(id, user.id, name, sanitized);
   return Response.json({ id, name });
 });

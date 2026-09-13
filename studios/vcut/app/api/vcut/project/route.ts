@@ -93,10 +93,10 @@ export const POST = localRoute(async (req) => {
     await requirePro(hostedUser.id);
     const template = await getOwnedTemplate(body.templateId, hostedUser.id);
     project = buildProjectFromTemplate(id, name, template);
-    // Copies each bundled-audio asset's real file out of the TEMPLATE's own storage and into this
-    // brand-new project's own `mediaDir` — see `resolveTemplateBundledAudio`'s own doc comment. Every
+    // Copies each bundled-audio asset's real file out of the TEMPLATE's own storage and into the new
+    // owner's own account-wide library — see `resolveTemplateBundledAudio`'s own doc comment. Every
     // other asset (a placeholder, or text/color) passes through unchanged.
-    project.assets = await resolveTemplateBundledAudio(body.templateId, paths, project.assets);
+    project.assets = await resolveTemplateBundledAudio(body.templateId, hostedUser.id, project.assets);
   } else {
     project = preset ? createProject(id, name, preset) : createProject(id, name);
   }
