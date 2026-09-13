@@ -57,7 +57,16 @@ export async function bundleTemplateAudio(
     assets.map(async (asset) => {
       if (!asset.templateBundledAudio) return asset;
       const bytes = fs.readFileSync(resolveAssetInputPath(sourceProjectPaths, libraryMediaDir, asset));
-      const fresh = await importMediaBytes(audioDirs, bytes, asset.name);
+      // `importMediaBytes` needs its `suggestedName` param to carry a REAL extension — it's the only
+      // thing that tells it what kind of file this even is (see that function's own doc comment). A
+      // normal imported audio asset's `name` already is a real filename ("song.mp3"), but a bundled
+      // catalog SFX's `name` is deliberately just its human-readable label ("Error Glitch", no
+      // extension — see `assetFromBundledSfx`'s own doc comment), which made THIS call throw "VCut
+      // can't import 'Error Glitch'" the moment the earlier ENOENT fix let it get this far. Falls back
+      // to stitching the real extension off `relPath` on ONLY when `name` doesn't already have one of
+      // its own, so an ordinary asset's behavior here is completely unchanged.
+      const suggestedName = path.extname(asset.name) ? asset.name : `${asset.name}${path.extname(asset.relPath)}`;
+      const fresh = await importMediaBytes(audioDirs, bytes, suggestedName);
       return { ...fresh, id: asset.id, templateBundledAudio: true as const };
     })
   );
