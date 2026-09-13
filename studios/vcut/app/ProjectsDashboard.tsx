@@ -7,61 +7,7 @@ import { createPortal } from "react-dom";
 import { ConfirmDialog } from "@veasnawt/vcut/src/ui/ConfirmDialog";
 import { RESOLUTION_PRESETS, type Asset, type Project } from "@veasnawt/vcut/src/project/types";
 import { addClip, trackKindForAsset } from "@veasnawt/vcut/src/timeline/operations";
-import { getAccessToken, getCachedAccessToken, useSupabaseSession } from "@veasnawt/auth";
-
-/** This page talks to `/api/vcut/*` directly (`NewProjectDialog` included, below) rather than through
- *  `packages/vcut/src/api/client.ts` — that module covers an OPEN project's own editing operations,
- *  not "list/create/delete a project" at all, which only ever lived here. Same small bearer-token
- *  attachment `client.ts`'s own `apiFetch` uses (see its doc comment), duplicated rather than shared:
- *  this file isn't part of that package, and the two are genuinely the same three lines, not worth an
- *  extra shared module for. */
-const HOSTED = process.env.NEXT_PUBLIC_VCUT_HOSTED === "true";
-async function authFetch(input: string, init?: RequestInit): Promise<Response> {
-  if (!HOSTED) return fetch(input, init);
-  const token = await getAccessToken();
-  if (!token) return fetch(input, init);
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
-}
-
-interface ProjectSummary {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  clipCount: number;
-  width: number;
-  height: number;
-  thumbnail?: { relPath: string; kind: "thumbnail" | "media"; library: boolean };
-}
-
-/** Same `media/raw` route `packages/vcut/src/api/client.ts`'s own `mediaUrl` builds a URL for — this
- *  file duplicates the URL-building rather than importing that helper (see this file's own top-level
- *  doc comment on why: it talks to `/api/vcut/*` directly, outside that package's scope), so it also
- *  had to duplicate the SAME fix: an `<img src>` here is a plain browser resource load, unable to
- *  attach `apiFetch`'s `Authorization` header — needs the session token riding along as `?token=`
- *  instead, same fallback `_lib/auth.ts`'s `requireSessionUser` already accepts. Confirmed as a real
- *  gap, not theoretical: every project card's thumbnail 401'd on the real vcut.io deploy before this
- *  existed, the exact same failure `mediaUrl`'s own fix already covered inside the open editor —
- *  this is the project LIST's copy of that same bug, not a new class of one. */
-function thumbnailUrl(projectId: string, thumbnail: ProjectSummary["thumbnail"]): string | undefined {
-  if (!thumbnail) return undefined;
-  const libraryParam = thumbnail.library ? "&library=1" : "";
-  const base = `/api/vcut/media/raw?projectId=${encodeURIComponent(projectId)}&relPath=${encodeURIComponent(thumbnail.relPath)}&kind=${thumbnail.kind}${libraryParam}`;
-  if (!HOSTED) return base;
-  const token = getCachedAccessToken();
-  return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-}
-
-function formatUpdatedAt(ms: number): string {
-  const diffMinutes = Math.round((Date.now() - ms) / 60000);
-  if (diffMinutes < 1) return "just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return new Date(ms).toLocaleDateString();
-}
+import { authFetch, formatFileSize, formatUpdatedAt, HOSTED, thumbnailUrl, type ProjectSummary } from "./_shared/hostedClient";
 
 /** One preset's little aspect-ratio swatch — a literal Tailwind class per shape (not a computed
  *  `aspect-[${w}/${h}]` string) because the JIT compiler only picks up classes it can see written out
@@ -73,16 +19,11 @@ function presetAspectClass(label: string): string {
   return "aspect-square";
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** The "start a new project" flow — a modal rather than the old inline row of controls squeezed above
  *  the project list, because a name, an orientation choice, and an optional file all need real room to
  *  read as one coherent decision instead of a cramped afterthought. Same overlay/portal convention as
  *  `ConfirmDialog` (see that file's own comment for why a portal specifically). */
-function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
+export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
   const [name, setName] = useState("");
   const [preset, setPreset] = useState<(typeof RESOLUTION_PRESETS)[number]>(RESOLUTION_PRESETS[0]);
   const [media, setMedia] = useState<File | null>(null);
@@ -393,7 +334,6 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
  *  component either way — only which URL reaches it differs. */
 export function ProjectsDashboard() {
   const router = useRouter();
-  const { user, signOut } = useSupabaseSession();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -451,38 +391,31 @@ export function ProjectsDashboard() {
           edge of the viewport instead of dropping to its own line. Confirmed directly from a real
           mobile screenshot of vcut.io/projects, not a guess. */}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-semibold text-white">
-            <img src="/vcut-logo.png" alt="" className="h-6 w-6" />
-            VCut
-          </h1>
-          <p className="mt-1 text-xs text-white/40">A focused video editor for short-form creative work.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 sm:shrink-0">
-          {/* `user` is only ever non-null in the hosted build (see `useSupabaseSession`'s own doc
-              comment) — desktop/local dev show nothing extra here, unchanged from before accounts
-              existed. */}
-          {user && (
-            <div className="flex min-w-0 items-center gap-2 text-xs text-white/40">
-              <span className="max-w-[10rem] truncate">{user.email}</span>
-              <button
-                onClick={() => void signOut().then(() => router.replace("/login"))}
-                className="shrink-0 rounded px-2 py-1 text-white/50 transition hover:bg-white/10 hover:text-white"
-              >
-                Sign out
-              </button>
-            </div>
-          )}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-sky-500 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-sky-400"
-          >
-            <span aria-hidden className="text-base leading-none">
-              +
-            </span>
-            New Project
-          </button>
-        </div>
+        {/* Hosted mode wraps this page in `(tabs)/layout.tsx`'s own shell, whose sidebar already
+            shows the "VCut" logo/name — repeating it here would just be a second logo on the same
+            screen. Local/desktop dev renders this component directly at `/`, with no such shell, so
+            it still needs its own real title there. Sign out moved to the "Me" tab (hosted-only,
+            same as this whole account concept always was) rather than living on every screen. */}
+        {HOSTED ? (
+          <h1 className="text-lg font-semibold text-white">Projects</h1>
+        ) : (
+          <div>
+            <h1 className="flex items-center gap-2 text-lg font-semibold text-white">
+              <img src="/vcut-logo.png" alt="" className="h-6 w-6" />
+              VCut
+            </h1>
+            <p className="mt-1 text-xs text-white/40">A focused video editor for short-form creative work.</p>
+          </div>
+        )}
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex shrink-0 items-center gap-1.5 rounded-md bg-sky-500 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-sky-400"
+        >
+          <span aria-hidden className="text-base leading-none">
+            +
+          </span>
+          New Project
+        </button>
       </header>
 
       {error && <p className="text-xs text-rose-300">{error}</p>}

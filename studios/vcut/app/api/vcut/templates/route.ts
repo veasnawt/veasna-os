@@ -3,8 +3,15 @@ import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { newTemplateId, sanitizeProjectForTemplate } from "@veasnawt/vcut/src/project/template";
 import { checkProjectOwnership } from "../_lib/auth";
 import { hostedOnlyRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs } from "../_lib/paths";
-import { bundleTemplateAudio, deleteOwnedTemplate, insertTemplate, listTemplatesForOwner, requirePro } from "../_lib/templates";
+import { ApiError, ensureProjectDirs, userMediaPaths } from "../_lib/paths";
+import {
+  bundleTemplateAudio,
+  deleteOwnedTemplate,
+  insertTemplate,
+  listTemplatesForOwner,
+  renderTemplatePreview,
+  requirePro,
+} from "../_lib/templates";
 
 /** Reads/writes `project.json` off disk to build a template from it (POST). */
 export const runtime = "nodejs";
@@ -43,6 +50,13 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   const project = deserializeProject(fs.readFileSync(paths.projectFile, "utf8"));
 
   const id = newTemplateId();
+  // Renders a short preview clip from the REAL, unstripped project — must happen BEFORE
+  // `sanitizeProjectForTemplate` below replaces every video/image clip's real footage with a bare
+  // placeholder, since a placeholder has nothing left to render (see that function's own doc
+  // comment). Best-effort: never throws, never blocks saving the template on a render failure — see
+  // `renderTemplatePreview`'s own doc comment.
+  await renderTemplatePreview(id, project, paths, userMediaPaths(user.id).mediaDir);
+
   const sanitized = sanitizeProjectForTemplate(project);
   // Copies each bundled-audio asset's real file into this template's own permanent storage — see
   // `bundleTemplateAudio`'s own doc comment. Everything else in `sanitized` (placeholders, text/color)

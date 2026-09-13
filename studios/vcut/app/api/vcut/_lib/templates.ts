@@ -1,7 +1,14 @@
 import fs from "fs";
+import os from "os";
+import path from "path";
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
-import type { Asset } from "@veasnawt/vcut/src/project/types";
+import { buildExportPlan } from "@veasnawt/vcut/src/export/buildExportPlan";
+import { trimProjectToRange } from "@veasnawt/vcut/src/export/trimForExport";
+import { sequenceDuration } from "@veasnawt/vcut/src/project/createProject";
+import type { Asset, Project } from "@veasnawt/vcut/src/project/types";
 import type { TemplateProjectData } from "@veasnawt/vcut/src/project/template";
+import { resolveAssetInputPath } from "./assetInput";
+import { fontMetricsFor, fontsDirPath, runFfmpeg, textFontPath } from "./ffmpeg";
 import { importMediaBytes } from "./importMedia";
 import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, userMediaPaths } from "./paths";
 import type { ProjectPaths } from "./paths";
@@ -51,6 +58,98 @@ export async function bundleTemplateAudio(
       return { ...fresh, id: asset.id, templateBundledAudio: true as const };
     })
   );
+}
+
+/** Cap on a template's own preview clip — short enough to feel like a Reels/TikTok-style loop, not a
+ *  full watch-through. */
+const TEMPLATE_PREVIEW_MAX_SECONDS = 6;
+/** The long side of the preview's own output resolution, and its compression settings — deliberately
+ *  small: unlike a real export (a one-off file the user downloads and the app can forget about), this
+ *  file is kept FOREVER once a template is saved — nothing currently expires old template data — so
+ *  its per-template size directly adds to the same shared Railway volume that has already run out of
+ *  room once this session. A real export's own quality settings would be wildly disproportionate for
+ *  what's just a decorative preview thumbnail. */
+const TEMPLATE_PREVIEW_MAX_DIMENSION = 540;
+const TEMPLATE_PREVIEW_CRF = 30;
+const TEMPLATE_PREVIEW_AUDIO_KBPS = 96;
+
+/** Renders a short, low-bitrate preview clip from a template's ORIGINAL (pre-sanitize) project — the
+ *  Templates tab's own Pinterest-grid poster frame and full-screen autoplay video. Has to run on the
+ *  REAL project, before `sanitizeProjectForTemplate` strips every video/image clip down to a bare
+ *  placeholder — a placeholder has no real pixels left to render at all (see that function's own doc
+ *  comment) — so this is the only point in the whole save flow where a real preview is still possible.
+ *  `templates/route.ts`'s own POST handler calls this BEFORE sanitizing, for exactly that reason.
+ *
+ *  Written to `templates/<templateId>/preview.mp4` — a fixed filename, sibling of `bundleTemplateAudio`'s
+ *  own `media`/`thumbnails` subdirectories (`ensureTemplateAudioDirs`'s `dir`), not a growing collection,
+ *  since a template only ever has exactly one current preview.
+ *
+ *  Best-effort, never fatal: a template still saves successfully even if the preview render fails
+ *  (missing ffmpeg, an unreadable source file, an empty timeline) — same "a missing thumbnail costs a
+ *  flat-color clip, not a failed import" tolerance `generateThumbnail`/`generateWaveform` already
+ *  established elsewhere in this codebase; the Templates tab just shows a generic placeholder tile for
+ *  a template with no preview file on disk. `khmerTextWindowsFor` is unconditionally omitted — no
+ *  Khmer render-harness invocation for a background, decorative preview; a Khmer text clip just
+ *  renders through `buildExportPlan`'s own ordinary (non-Khmer-shaped) `drawtext` path instead, an
+ *  acceptable fidelity cut for a throwaway preview. */
+export async function renderTemplatePreview(
+  templateId: string,
+  project: Project,
+  paths: ProjectPaths,
+  libraryMediaDir: string | null
+): Promise<void> {
+  try {
+    const fullDuration = sequenceDuration(project);
+    if (fullDuration <= 0) return;
+    const previewProject = trimProjectToRange(project, 0, Math.min(fullDuration, TEMPLATE_PREVIEW_MAX_SECONDS));
+
+    const { width, height } = previewProject.sequence;
+    const scale = Math.min(1, TEMPLATE_PREVIEW_MAX_DIMENSION / Math.max(width, height));
+    previewProject.exportSettings = {
+      ...previewProject.exportSettings,
+      // Even dimensions — libx264 rejects an odd width/height outright.
+      width: Math.max(2, Math.round((width * scale) / 2) * 2),
+      height: Math.max(2, Math.round((height * scale) / 2) * 2),
+      fps: Math.min(previewProject.exportSettings.fps, 30),
+      crf: TEMPLATE_PREVIEW_CRF,
+      audioBitrateKbps: TEMPLATE_PREVIEW_AUDIO_KBPS,
+    };
+
+    const outputPath = path.join(ensureTemplateAudioDirs(templateId).dir, "preview.mp4");
+    const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "vcut-template-preview-"));
+    try {
+      const plan = buildExportPlan(previewProject, {
+        inputPathFor: (assetId) => {
+          const asset = previewProject.assets.find((a) => a.id === assetId);
+          if (!asset) throw new Error(`Clip references missing asset ${assetId}`);
+          return resolveAssetInputPath(paths, libraryMediaDir, asset);
+        },
+        outputPath,
+        fontPathFor: (fileName) => textFontPath(fileName),
+        textFilePathFor: (clip, content, variant) => {
+          const filePath = path.join(scratchDir, `${clip.id}${variant ? `-${variant}` : ""}.txt`);
+          fs.writeFileSync(filePath, content, "utf8");
+          return filePath;
+        },
+        assFilePathFor: (clip, assContent) => {
+          const filePath = path.join(scratchDir, `${clip.id}.ass`);
+          fs.writeFileSync(filePath, assContent, "utf8");
+          return filePath;
+        },
+        fontMetricsFor,
+        fontsDirFor: fontsDirPath,
+        lutPathFor: (lutId) => {
+          const lut = previewProject.luts.find((l) => l.id === lutId);
+          return lut ? resolveWithin(paths.lutsDir, lut.relPath) : undefined;
+        },
+      });
+      await runFfmpeg(plan.args, plan.duration, () => {}).done;
+    } finally {
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.error("[vcut] templates: preview render failed for", templateId, err);
+  }
 }
 
 /** The reverse of `bundleTemplateAudio` — copies each `Asset.templateBundledAudio` entry

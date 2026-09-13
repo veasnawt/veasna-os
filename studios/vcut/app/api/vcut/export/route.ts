@@ -30,7 +30,7 @@ import { localRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
-import { sfxAssetPath } from "../_lib/sfx";
+import { resolveAssetInputPath } from "../_lib/assetInput";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -500,15 +500,6 @@ export const POST = localRoute(async (req) => {
  *  for zero visible benefit once scaled down to the sequence's own frame. */
 const MAX_HOSTED_IMAGE_DIMENSION = 2200;
 
-/** A library-backed asset's real bytes live under the OWNER's account-wide `users/<id>/media`
- *  directory (see `Asset.libraryMediaId`'s own doc comment), not this project's own `paths.mediaDir` —
- *  every source-file lookup in this route has to check which one applies. Falls back to the project's
- *  own directory whenever `libraryMediaDir` is unavailable (desktop/local dev, where the library
- *  concept doesn't exist at all and `libraryMediaId` is consequently never set on any asset there). */
-function assetSourceDir(paths: ProjectPaths, libraryMediaDir: string | null, asset: Asset): string {
-  return asset.libraryMediaId && libraryMediaDir ? libraryMediaDir : paths.mediaDir;
-}
-
 /** Pre-scales any source IMAGE asset whose longer side exceeds `MAX_HOSTED_IMAGE_DIMENSION` into a
  *  scratch copy, returning a `Map<assetId, scaledPath>` for `inputPathFor` to consult — assets not in
  *  the map are used unmodified, straight from `paths.mediaDir` as before. Confirmed a real, live
@@ -535,7 +526,7 @@ async function prescaleOversizedImageAssets(
 
   for (const asset of project.assets) {
     if (asset.kind !== "image") continue;
-    const sourcePath = resolveWithin(assetSourceDir(paths, libraryMediaDir, asset), asset.relPath);
+    const sourcePath = resolveAssetInputPath(paths, libraryMediaDir, asset);
     const probe = await probeMedia(sourcePath).catch(() => null);
     if (!probe?.width || !probe.height) continue;
     if (probe.width <= MAX_HOSTED_IMAGE_DIMENSION && probe.height <= MAX_HOSTED_IMAGE_DIMENSION) continue;
@@ -674,11 +665,7 @@ async function runExportJob(
       inputPathFor: (assetId) => {
         const asset = project.assets.find((a) => a.id === assetId);
         if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
-        // A bundled catalog SFX (`Asset.bundledSfx`) was never copied anywhere — its real file is the
-        // SAME shared, immutable one every user's export of the same sound reads, resolved the exact
-        // same way the browser-serving `sfx/[file]/route.ts` already does.
-        if (asset.bundledSfx) return sfxAssetPath(asset.relPath);
-        return scaledImagePaths.get(assetId) ?? resolveWithin(assetSourceDir(paths, libraryMediaDir, asset), asset.relPath);
+        return scaledImagePaths.get(assetId) ?? resolveAssetInputPath(paths, libraryMediaDir, asset);
       },
       outputPath: mainOutputPath,
       fontPathFor: (fileName) => textFontPath(fileName),

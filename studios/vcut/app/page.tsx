@@ -8,14 +8,14 @@ import { useSupabaseSession } from "@veasnawt/auth";
 
 const HOSTED = process.env.NEXT_PUBLIC_VCUT_HOSTED === "true";
 
-/** A signed-in visitor goes straight to their projects rather than re-reading the pitch — the
+/** A signed-in visitor goes straight to their Home tab rather than re-reading the pitch — the
  *  landing page below is for someone deciding whether to sign up, not someone who already has. */
 function LandingPage() {
   const router = useRouter();
   const { user } = useSupabaseSession();
 
   useEffect(() => {
-    if (user) router.replace("/projects");
+    if (user) router.replace("/home");
   }, [user, router]);
 
   return (
