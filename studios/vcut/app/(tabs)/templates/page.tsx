@@ -21,7 +21,10 @@ type FeedMode = "mine" | "discover";
  *  there's no creator-profile system yet (Phase 3), so a Discover tile shows the template itself with
  *  no "by so-and-so" attribution. */
 export default function TemplatesPage() {
-  const [mode, setMode] = useState<FeedMode>("mine");
+  // Discover, not "My Templates" — a first-time visitor has saved nothing yet (an empty state that
+  // demonstrates nothing), while Discover always has real content once anything's published, matching
+  // the TikTok/Reels-style default this whole feature is modeled on.
+  const [mode, setMode] = useState<FeedMode>("discover");
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);

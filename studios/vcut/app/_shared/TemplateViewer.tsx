@@ -9,6 +9,32 @@ import { Avatar } from "./Avatar";
 import { authFetch, displayNameOrFallback, templatePreviewUrl, type CommentRow, type TemplateRow } from "./hostedClient";
 
 const FAVORITES_STORAGE_KEY = "vcut-favorite-templates";
+const MUTED_STORAGE_KEY = "vcut-template-viewer-muted";
+
+/** Whether to start muted THIS time — `true` (silent) the very first time anyone opens this viewer in
+ *  a browser, since starting unmuted on a video reached by scroll (not a fresh click) routinely gets
+ *  silently blocked by the browser's own autoplay policy, which would read as "the sound button is
+ *  broken" rather than "this browser said no." Every time after that, remembers whatever the person
+ *  chose LAST time (the mute button below) — once they've explicitly unmuted once, defaulting back to
+ *  silent on every subsequent visit is exactly the kind of "resets every time" friction real short-
+ *  video apps don't have. */
+function readInitialMuted(): boolean {
+  try {
+    const raw = window.localStorage.getItem(MUTED_STORAGE_KEY);
+    return raw === null ? true : raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function writeMuted(muted: boolean): void {
+  try {
+    window.localStorage.setItem(MUTED_STORAGE_KEY, muted ? "1" : "0");
+  } catch {
+    // Same private-window/full-quota tolerance as `writeFavorites` — worst case this just falls back
+    // to always starting muted next time, never a broken viewer.
+  }
+}
 
 function readFavorites(): Set<string> {
   try {
@@ -53,11 +79,13 @@ interface SocialInfo {
  *  the rest — the same "only ever one video actually decoding/playing at a time" discipline any real
  *  short-video feed needs, not just a nice-to-have.
  *
- *  Every video starts MUTED — autoplay-with-sound only survives a browser's own autoplay policy on the
- *  very FIRST video (opened by a genuine click), not on subsequent ones reached by scrolling (not a
- *  fresh user gesture, by most browsers' own definition) — so starting muted and offering one explicit
- *  unmute tap (applied to whichever section is current, persisted for the rest of THIS viewing
- *  session) is the only approach that behaves consistently across every video, not just the first.
+ *  Starts MUTED the very first time anyone opens this viewer in a browser — autoplay-with-sound only
+ *  survives a browser's own autoplay policy on the very FIRST video (opened by a genuine click), not on
+ *  subsequent ones reached by scrolling (not a fresh user gesture, by most browsers' own definition), so
+ *  starting unmuted by default would routinely get silently blocked. One explicit unmute tap applies to
+ *  whichever section is current and is remembered (`localStorage`, `readInitialMuted`/`writeMuted`)
+ *  across future visits — once someone's chosen sound on, defaulting back to silent every time they
+ *  reopen this viewer would be exactly the "resets every time" friction real short-video apps avoid.
  *
  *  The action rail is "Use this template" (primary) plus: a personal, LOCAL-ONLY (`localStorage`, not
  *  synced anywhere) Bookmark toggle; a real, server-backed Like with a visible count (Phase 3 — the two
@@ -89,7 +117,7 @@ export function TemplateViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [activeId, setActiveId] = useState<string | null>(templates[startIndex]?.id ?? null);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(() => readInitialMuted());
   const [favorites, setFavorites] = useState<Set<string>>(() => readFavorites());
   const [pendingDelete, setPendingDelete] = useState<TemplateRow | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -327,7 +355,12 @@ export function TemplateViewer({
       </button>
 
       <button
-        onClick={() => setMuted((m) => !m)}
+        onClick={() =>
+          setMuted((m) => {
+            writeMuted(!m);
+            return !m;
+          })
+        }
         aria-label={muted ? "Unmute" : "Mute"}
         className="absolute right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
         style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
@@ -509,22 +542,28 @@ function TemplateSection({
     <div ref={ref} data-template-id={template.id} className="relative flex h-full w-full snap-start snap-always items-center justify-center">
       <video ref={videoRef} src={templatePreviewUrl(template.id)} muted={muted} loop playsInline className="h-full w-full object-contain" />
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-6 pt-16">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-20 pr-16 pt-16">
         {mode === "discover" && (
-          <div className="pointer-events-auto mb-1.5">
-            <a href={`/u/${encodeURIComponent(template.ownerId)}`} className="inline-flex items-center gap-1.5">
-              <Avatar seed={template.ownerId} displayName={social?.creatorDisplayName} size={20} />
-              <span className="text-xs text-white/70">{displayNameOrFallback(social?.creatorDisplayName)}</span>
-            </a>
-          </div>
+          <a
+            href={`/u/${encodeURIComponent(template.ownerId)}`}
+            className="pointer-events-auto mb-1 inline-block truncate text-xs text-white/70"
+          >
+            {displayNameOrFallback(social?.creatorDisplayName)}
+          </a>
         )}
-        <p className="text-sm font-medium text-white">{template.name}</p>
+        <p className="truncate text-sm font-medium text-white">{template.name}</p>
       </div>
 
       <div
         className="absolute right-3 flex flex-col items-center gap-5"
         style={{ bottom: "calc(6rem + env(safe-area-inset-bottom))" }}
       >
+        {mode === "discover" && (
+          <a href={`/u/${encodeURIComponent(template.ownerId)}`} aria-label="Creator profile" className="flex flex-col items-center">
+            <Avatar seed={template.ownerId} displayName={social?.creatorDisplayName} size={36} />
+          </a>
+        )}
+
         <button onClick={onToggleLike} aria-label="Like" className="flex flex-col items-center gap-1 text-white">
           <span className={`flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm ${social?.viewerHasLiked ? "text-rose-400" : ""}`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill={social?.viewerHasLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
