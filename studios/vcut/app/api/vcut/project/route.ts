@@ -5,7 +5,7 @@ import { buildProjectFromTemplate } from "@veasnawt/vcut/src/project/template";
 import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
-import { getOwnedTemplate, requirePro } from "../_lib/templates";
+import { getOwnedTemplate, requirePro, resolveTemplateBundledAudio } from "../_lib/templates";
 
 /** These routes touch the real filesystem, so they must run on Node — not the Edge runtime, which
  *  has no `fs` and no ability to spawn FFmpeg. */
@@ -93,6 +93,10 @@ export const POST = localRoute(async (req) => {
     await requirePro(hostedUser.id);
     const template = await getOwnedTemplate(body.templateId, hostedUser.id);
     project = buildProjectFromTemplate(id, name, template);
+    // Copies each bundled-audio asset's real file out of the TEMPLATE's own storage and into this
+    // brand-new project's own `mediaDir` — see `resolveTemplateBundledAudio`'s own doc comment. Every
+    // other asset (a placeholder, or text/color) passes through unchanged.
+    project.assets = await resolveTemplateBundledAudio(body.templateId, paths, project.assets);
   } else {
     project = preset ? createProject(id, name, preset) : createProject(id, name);
   }

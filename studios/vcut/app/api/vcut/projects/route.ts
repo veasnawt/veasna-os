@@ -32,8 +32,15 @@ function summarize(project: Project): ProjectSummary {
   // A video's own generated thumbnail is preferred; a still image has none of its own and is read
   // straight from the media folder instead (see media/route.ts's import route). Audio-only/empty
   // projects fall through to `undefined` — the card renders a placeholder for those.
+  //
+  // `!a.templatePlaceholder` on both — a real, reported bug: a template-based project not yet fully
+  // filled in still has video/image PLACEHOLDER assets sitting in `project.assets` (no real file at
+  // all, `relPath: ""` — see `Asset.templatePlaceholder`'s own doc comment), and the image fallback
+  // specifically had nothing else guarding against matching one of those, producing a thumbnail that
+  // pointed at an empty path instead of correctly falling through to "no thumbnail yet."
   const thumbnailAsset =
-    project.assets.find((a) => a.kind === "video" && a.thumbnailRelPath) ?? project.assets.find((a) => a.kind === "image");
+    project.assets.find((a) => a.kind === "video" && a.thumbnailRelPath && !a.templatePlaceholder) ??
+    project.assets.find((a) => a.kind === "image" && !a.templatePlaceholder);
   const thumbnail: ProjectSummary["thumbnail"] = !thumbnailAsset
     ? undefined
     : thumbnailAsset.kind === "video"

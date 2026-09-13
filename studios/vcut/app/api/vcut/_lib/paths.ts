@@ -161,3 +161,46 @@ export function ensureUserMediaDirs(userId: string): UserMediaPaths {
   }
   return paths;
 }
+
+/** Template ids are server-generated (`newTemplateId`, `tpl_<8 hex>`) rather than user-supplied, but
+ *  get the same defensive character-set check every other id concatenated into a filesystem path here
+ *  already gets — cheap, and it means this function's own safety doesn't quietly depend on
+ *  `newTemplateId`'s current format never changing. */
+function assertValidTemplateId(id: string): void {
+  if (!id || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new ApiError(400, "Invalid template id", "invalid-template-id");
+  }
+}
+
+export interface TemplateAudioPaths {
+  dir: string;
+  mediaDir: string;
+  thumbnailsDir: string;
+}
+
+/** Where a template's own BUNDLED audio (music/voiceover — see `Asset.templateBundledAudio`'s own doc
+ *  comment) lives — `VCUT_ROOT/templates/<templateId>/...`, siblings of `users/<id>/` and each
+ *  project's own folder, for the same "outlives and is shared across every future use of it" reason
+ *  `userMediaPaths` documents. Unlike a user's own library, this is keyed by the TEMPLATE, not an
+ *  owner: once a template exists, anyone who legitimately uses it needs to read the SAME bundled file
+ *  regardless of who originally saved the template — `templates/route.ts`'s own POST is the only
+ *  writer (once, at save time); `project/route.ts`'s own POST only ever READS from here (copying a
+ *  fresh, independent copy into the new project's own `mediaDir` via `importMediaBytes`, exactly like
+ *  any other import), never serves it directly to a browser. */
+export function templateAudioPaths(templateId: string): TemplateAudioPaths {
+  assertValidTemplateId(templateId);
+  const dir = path.join(VCUT_ROOT, "templates", templateId);
+  return {
+    dir,
+    mediaDir: path.join(dir, "media"),
+    thumbnailsDir: path.join(dir, "thumbnails"),
+  };
+}
+
+export function ensureTemplateAudioDirs(templateId: string): TemplateAudioPaths {
+  const paths = templateAudioPaths(templateId);
+  for (const dir of [paths.dir, paths.mediaDir, paths.thumbnailsDir]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return paths;
+}

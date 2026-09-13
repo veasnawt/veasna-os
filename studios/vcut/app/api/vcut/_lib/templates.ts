@@ -1,6 +1,9 @@
+import fs from "fs";
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
+import type { Asset } from "@veasnawt/vcut/src/project/types";
 import type { TemplateProjectData } from "@veasnawt/vcut/src/project/template";
-import { ApiError } from "./paths";
+import { importMediaBytes } from "./importMedia";
+import { ApiError, ensureTemplateAudioDirs, resolveWithin, type ProjectPaths } from "./paths";
 import { getProfile } from "./profiles";
 
 /** Pro users only, end to end — creating, listing, using, and deleting a template all gate on this
@@ -13,6 +16,44 @@ export async function requirePro(userId: string): Promise<void> {
   if (profile?.plan !== "pro") {
     throw new ApiError(402, "Templates are a Pro feature — upgrade to save or use one", "pro-required");
   }
+}
+
+/** Copies the real audio file behind every `Asset.templateBundledAudio` entry `sanitizeProjectForTemplate`
+ *  left pointing at the SOURCE project's own `mediaDir` (unchanged `relPath`, by design — see that
+ *  function's own doc comment) into this template's own permanent storage (`templateAudioPaths`), and
+ *  returns the sanitized asset list with each of those entries replaced by the fresh, real asset
+ *  `importMediaBytes` produces there — same probing/thumbnail/waveform pipeline any other import goes
+ *  through, so the bundled copy is a fully-formed asset, not a bare file. Called once, right after
+ *  `sanitizeProjectForTemplate`, from `templates/route.ts`'s own POST handler — the one place a
+ *  template's `templateId` and its SOURCE project's paths are both in scope at the same time. Any
+ *  OTHER asset (a placeholder, or text/color) passes through unchanged. */
+export async function bundleTemplateAudio(templateId: string, sourceProjectPaths: ProjectPaths, assets: Asset[]): Promise<Asset[]> {
+  const audioDirs = ensureTemplateAudioDirs(templateId);
+  return Promise.all(
+    assets.map(async (asset) => {
+      if (!asset.templateBundledAudio) return asset;
+      const bytes = fs.readFileSync(resolveWithin(sourceProjectPaths.mediaDir, asset.relPath));
+      const fresh = await importMediaBytes(audioDirs, bytes, asset.name);
+      return { ...fresh, id: asset.id, templateBundledAudio: true as const };
+    })
+  );
+}
+
+/** The reverse of `bundleTemplateAudio` — copies each `Asset.templateBundledAudio` entry
+ *  `buildProjectFromTemplate` left pointing at the TEMPLATE's own bundled-audio storage into the brand
+ *  new project's own `mediaDir`, replacing it with a completely normal, real asset (`templateBundledAudio`
+ *  gone entirely — by the time anything else sees it, it's indistinguishable from any other imported
+ *  audio file, per that field's own doc comment). Called once, right after `buildProjectFromTemplate`,
+ *  from `project/route.ts`'s own POST handler. */
+export async function resolveTemplateBundledAudio(templateId: string, newProjectPaths: ProjectPaths, assets: Asset[]): Promise<Asset[]> {
+  const audioDirs = ensureTemplateAudioDirs(templateId);
+  return Promise.all(
+    assets.map(async (asset) => {
+      if (!asset.templateBundledAudio) return asset;
+      const bytes = fs.readFileSync(resolveWithin(audioDirs.mediaDir, asset.relPath));
+      return importMediaBytes(newProjectPaths, bytes, asset.name);
+    })
+  );
 }
 
 export interface TemplateRow {

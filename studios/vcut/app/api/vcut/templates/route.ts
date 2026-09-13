@@ -4,7 +4,7 @@ import { newTemplateId, sanitizeProjectForTemplate } from "@veasnawt/vcut/src/pr
 import { checkProjectOwnership } from "../_lib/auth";
 import { hostedOnlyRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
-import { deleteOwnedTemplate, insertTemplate, listTemplatesForOwner, requirePro } from "../_lib/templates";
+import { bundleTemplateAudio, deleteOwnedTemplate, insertTemplate, listTemplatesForOwner, requirePro } from "../_lib/templates";
 
 /** Reads/writes `project.json` off disk to build a template from it (POST). */
 export const runtime = "nodejs";
@@ -23,9 +23,10 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
 });
 
 /** `{ name, projectId }` — sanitizes the given project (see `sanitizeProjectForTemplate`'s own doc
- *  comment: every clip's timing/effects/transitions survive, but a video/audio/image clip's real file
- *  is replaced with a fillable placeholder) and saves the result as a new template row.
- *  `checkProjectOwnership` is the same ownership check `localRoute`'s own generic `?projectId=`
+ *  comment: every clip's timing/effects/transitions survive; a video/image clip's real file is replaced
+ *  with a fillable placeholder, while an audio clip's real file is bundled with the template itself via
+ *  `bundleTemplateAudio` below) and saves the result as a new template row. `checkProjectOwnership` is
+ *  the same ownership check `localRoute`'s own generic `?projectId=`
  *  gate would give for free — done explicitly here since this route isn't wrapped in `localRoute` at
  *  all (Pro-gating needs to run first, and `hostedOnlyRoute` has no project-ownership concept of its
  *  own to layer that on top of). */
@@ -42,7 +43,12 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   const project = deserializeProject(fs.readFileSync(paths.projectFile, "utf8"));
 
   const id = newTemplateId();
-  await insertTemplate(id, user.id, name, sanitizeProjectForTemplate(project));
+  const sanitized = sanitizeProjectForTemplate(project);
+  // Copies each bundled-audio asset's real file into this template's own permanent storage — see
+  // `bundleTemplateAudio`'s own doc comment. Everything else in `sanitized` (placeholders, text/color)
+  // passes through unchanged.
+  sanitized.assets = await bundleTemplateAudio(id, paths, sanitized.assets);
+  await insertTemplate(id, user.id, name, sanitized);
   return Response.json({ id, name });
 });
 
