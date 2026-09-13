@@ -21,8 +21,16 @@ export interface ProjectSummary {
    *  (not left for the client to guess) since only the server knows which asset, if any, actually has
    *  a rendered thumbnail file on disk. `kind` picks which `/api/vcut/media/raw` folder to read
    *  from: a video's OWN thumbnail lives in the thumbnails dir, but a still image has none of its own
-   *  (see `media/route.ts`'s import route) and is read straight from the media dir instead. */
-  thumbnail?: { relPath: string; kind: "thumbnail" | "media" };
+   *  (see `media/route.ts`'s import route) and is read straight from the media dir instead. `library`
+   *  mirrors `Asset.libraryMediaId`'s own doc comment — set when the chosen asset's real file actually
+   *  lives in the OWNER's account-wide library (`users/<id>/...`) rather than this project's own
+   *  folder, telling `/api/vcut/media/raw` which directory to actually resolve `relPath` against (see
+   *  that route's own `library=1` handling). Every hosted-mode upload/generation/stock download has
+   *  gone through the account-wide library since that feature shipped, so this is the COMMON case, not
+   *  an edge one — omitting it produced a broken thumbnail for most real projects, not just template
+   *  ones (a real, reported bug: the browser's own "image failed to load" icon, not this app's own
+   *  "no thumbnail yet" placeholder, since the URL pointed at a real-looking but wrong path). */
+  thumbnail?: { relPath: string; kind: "thumbnail" | "media"; library: boolean };
 }
 
 /** Shared by both branches below — the local one (reading straight off a directory listing) and the
@@ -44,8 +52,8 @@ function summarize(project: Project): ProjectSummary {
   const thumbnail: ProjectSummary["thumbnail"] = !thumbnailAsset
     ? undefined
     : thumbnailAsset.kind === "video"
-      ? { relPath: thumbnailAsset.thumbnailRelPath!, kind: "thumbnail" }
-      : { relPath: thumbnailAsset.relPath, kind: "media" };
+      ? { relPath: thumbnailAsset.thumbnailRelPath!, kind: "thumbnail", library: Boolean(thumbnailAsset.libraryMediaId) }
+      : { relPath: thumbnailAsset.relPath, kind: "media", library: Boolean(thumbnailAsset.libraryMediaId) };
 
   return {
     id: project.bpProjectId,

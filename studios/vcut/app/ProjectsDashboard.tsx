@@ -33,7 +33,7 @@ interface ProjectSummary {
   clipCount: number;
   width: number;
   height: number;
-  thumbnail?: { relPath: string; kind: "thumbnail" | "media" };
+  thumbnail?: { relPath: string; kind: "thumbnail" | "media"; library: boolean };
 }
 
 /** Same `media/raw` route `packages/vcut/src/api/client.ts`'s own `mediaUrl` builds a URL for — this
@@ -47,7 +47,8 @@ interface ProjectSummary {
  *  this is the project LIST's copy of that same bug, not a new class of one. */
 function thumbnailUrl(projectId: string, thumbnail: ProjectSummary["thumbnail"]): string | undefined {
   if (!thumbnail) return undefined;
-  const base = `/api/vcut/media/raw?projectId=${encodeURIComponent(projectId)}&relPath=${encodeURIComponent(thumbnail.relPath)}&kind=${thumbnail.kind}`;
+  const libraryParam = thumbnail.library ? "&library=1" : "";
+  const base = `/api/vcut/media/raw?projectId=${encodeURIComponent(projectId)}&relPath=${encodeURIComponent(thumbnail.relPath)}&kind=${thumbnail.kind}${libraryParam}`;
   if (!HOSTED) return base;
   const token = getCachedAccessToken();
   return token ? `${base}&token=${encodeURIComponent(token)}` : base;

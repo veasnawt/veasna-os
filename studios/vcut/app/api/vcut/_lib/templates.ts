@@ -73,11 +73,17 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
       const bytes = fs.readFileSync(resolveWithin(audioDirs.mediaDir, asset.relPath));
       await checkStorageQuota(newOwnerId, profile?.plan ?? "free", bytes.byteLength);
       const libraryPaths = ensureUserMediaDirs(newOwnerId);
-      const fresh = await importMediaBytes(libraryPaths, bytes, asset.name);
-      if (fresh.kind !== "audio") throw new ApiError(500, "Unexpected asset kind from template audio", "unexpected-asset-kind");
+      const imported = await importMediaBytes(libraryPaths, bytes, asset.name);
+      if (imported.kind !== "audio") throw new ApiError(500, "Unexpected asset kind from template audio", "unexpected-asset-kind");
+      // `id: asset.id` — NOT `imported`'s own freshly-minted one. A real, reported bug otherwise: the
+      // audio CLIP (built by `buildProjectFromTemplate`, already returned before this function ever
+      // runs) already references `asset.id` — silently keeping `importMediaBytes`'s own different id
+      // instead left that clip pointing at an asset that no longer existed in `project.assets` at all,
+      // so the resulting project's preview/export both played with no audio whatsoever.
+      const fresh: Asset = { ...imported, id: asset.id };
       await insertUserMedia(newOwnerId, {
         id: fresh.id,
-        kind: fresh.kind,
+        kind: fresh.kind as "video" | "audio" | "image",
         name: fresh.name,
         relPath: fresh.relPath,
         thumbnailRelPath: fresh.thumbnailRelPath ?? null,
