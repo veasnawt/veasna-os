@@ -120,3 +120,44 @@ export function uniqueFileName(name: string): string {
   const stem = safe.slice(0, safe.length - ext.length) || "media";
   return `${stem}-${crypto.randomUUID().slice(0, 8)}${ext}`;
 }
+
+/** A Supabase user id — always a real UUID in practice (it comes straight out of a verified session
+ *  token, never user-typed input), but this still gets concatenated into a filesystem path the same
+ *  way a project id does, so it gets the same defensive validation `assertValidProjectId` gives that
+ *  one rather than trusting the token's own shape implicitly. */
+function assertValidUserId(id: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new ApiError(400, "Invalid user id", "invalid-user-id");
+  }
+}
+
+export interface UserMediaPaths {
+  dir: string;
+  mediaDir: string;
+  thumbnailsDir: string;
+}
+
+/** Where a user's own reusable media library lives — `VCUT_ROOT/users/<userId>/...`, deliberately
+ *  siblings of the per-project folders `projectPaths` returns, not nested under any one of them: a
+ *  library asset is meant to outlive and be shared across every project that references it, so its
+ *  storage can't be scoped to (or deleted along with) any single project's own directory the way an
+ *  old project-local upload was. Hosted-only in practice (nothing calls this outside `VCUT_HOSTED` —
+ *  local/desktop single-user installs have no separate "account" for a library to belong TO, and keep
+ *  using each project's own `mediaDir` exactly as before this existed). */
+export function userMediaPaths(userId: string): UserMediaPaths {
+  assertValidUserId(userId);
+  const dir = path.join(VCUT_ROOT, "users", userId);
+  return {
+    dir,
+    mediaDir: path.join(dir, "media"),
+    thumbnailsDir: path.join(dir, "thumbnails"),
+  };
+}
+
+export function ensureUserMediaDirs(userId: string): UserMediaPaths {
+  const paths = userMediaPaths(userId);
+  for (const dir of [paths.dir, paths.mediaDir, paths.thumbnailsDir]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return paths;
+}

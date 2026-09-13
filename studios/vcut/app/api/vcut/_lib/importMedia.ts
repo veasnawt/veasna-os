@@ -3,20 +3,30 @@ import path from "path";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
 import { generateFilmstrip, generateThumbnail, generateWaveform, probeMedia, remuxForDuration } from "./ffmpeg";
 import { kindForExtension } from "./mediaFormats";
-import { ApiError, resolveWithin, uniqueFileName, type ProjectPaths } from "./paths";
+import { ApiError, resolveWithin, uniqueFileName } from "./paths";
 
-/** Turns raw bytes already known to represent one media file into a real project `Asset` — the
- *  "write to disk, probe, generate thumbnail/filmstrip/waveform, build the Asset record" pipeline
- *  that used to live only inline in `media/route.ts`'s own `POST` handler. Extracted here once a
- *  SECOND caller (stock media import, `stock/route.ts`) needed the identical steps, and a THIRD (AI
- *  image/video generation) made three separately hand-maintained copies clearly the wrong call —
- *  `media/route.ts` itself now calls this too, so there is exactly one place this logic can drift.
+/** The only two fields this function actually touches — deliberately narrower than either
+ *  `ProjectPaths` or `UserMediaPaths` (both of which structurally satisfy this on their own, no
+ *  adapter needed) so the SAME function writes either into a project's own media folder or into a
+ *  user's account-wide library depending only on which paths object the caller happens to pass in.
+ *  See `media/route.ts`'s own `POST` handler for the hosted-mode branch that picks between the two. */
+export interface MediaWriteTarget {
+  mediaDir: string;
+  thumbnailsDir: string;
+}
+
+/** Turns raw bytes already known to represent one media file into a real `Asset` — the "write to
+ *  disk, probe, generate thumbnail/filmstrip/waveform, build the Asset record" pipeline that used to
+ *  live only inline in `media/route.ts`'s own `POST` handler. Extracted here once a SECOND caller
+ *  (stock media import, `stock/route.ts`) needed the identical steps, and a THIRD (AI image/video
+ *  generation) made three separately hand-maintained copies clearly the wrong call — `media/route.ts`
+ *  itself now calls this too, so there is exactly one place this logic can drift.
  *
  *  `suggestedName` only ever supplies the file's extension (to classify `kind`) and the Asset's own
  *  display `name` — the actual on-disk filename is always freshly randomized via `uniqueFileName`
  *  regardless of what a remote source happened to call it, same guarantee the original inline version
  *  already gave uploaded files. */
-export async function importMediaBytes(paths: ProjectPaths, bytes: Buffer, suggestedName: string): Promise<Asset> {
+export async function importMediaBytes(paths: MediaWriteTarget, bytes: Buffer, suggestedName: string): Promise<Asset> {
   const ext = path.extname(suggestedName).toLowerCase();
   const kind = kindForExtension(ext);
   if (!kind) throw new ApiError(400, `VCut can't import "${ext || suggestedName}"`, "unsupported-format");

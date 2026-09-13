@@ -21,14 +21,14 @@ import {
 import { createClip, createTextAsset, createTrack, sequenceDuration } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { isIdentityTextCrop, type Project } from "@veasnawt/vcut/src/project/types";
-import type { Clip } from "@veasnawt/vcut/src/project/types";
+import type { Asset, Clip } from "@veasnawt/vcut/src/project/types";
 import { hasTextCropKeyframes, hasTextStyleKeyframes } from "@veasnawt/vcut/src/timeline/keyframes";
 import { checkProjectOwnership, requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { buildCustomFontDataUrls, openKhmerTextHarness } from "../_lib/khmerTextHarness";
 import { ffmpegAvailable, ffmpegBinary, fontMetricsFor, fontsDirPath, probeMedia, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
 import { localRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
-import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, VCUT_ROOT } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 
 export const runtime = "nodejs";
@@ -465,6 +465,11 @@ export const POST = localRoute(async (req) => {
     const project = deserializeProject(JSON.stringify(body.project));
     const includeOutro = await shouldIncludeOutro(req);
     const paths = ensureProjectDirs(bpProjectId);
+    // Re-derives the session user independently rather than threading one through from `localRoute`'s
+    // own check — same pattern `shouldIncludeOutro` above already uses, for the same reason (`localRoute`
+    // never passes its resolved user to the handler). `null` on desktop/local dev, where no asset can
+    // ever carry a `libraryMediaId` in the first place (see `assetSourceDir`'s own doc comment).
+    const libraryMediaDir = VCUT_HOSTED ? userMediaPaths((await requireSessionUser(req)).id).mediaDir : null;
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const fileName = `${(body.fileName || project.name || "export").replace(/[^A-Za-z0-9._-]/g, "_")}-${stamp}.mp4`;
@@ -476,7 +481,7 @@ export const POST = localRoute(async (req) => {
     // Khmer render, `buildExportPlan` rejecting the project, FFmpeg itself failing) lands on the JOB
     // (`status`/`error`, surfaced over SSE) rather than this response, which has already gone out by
     // the time any of it could happen.
-    void runExportJob(job, project, paths, outputPath, req.url, includeOutro);
+    void runExportJob(job, project, paths, outputPath, req.url, includeOutro, libraryMediaDir);
 
     return Response.json({ jobId: id, fileName, duration: sequenceDuration(project) });
   } catch (err) {
@@ -494,6 +499,15 @@ export const POST = localRoute(async (req) => {
  *  for zero visible benefit once scaled down to the sequence's own frame. */
 const MAX_HOSTED_IMAGE_DIMENSION = 2200;
 
+/** A library-backed asset's real bytes live under the OWNER's account-wide `users/<id>/media`
+ *  directory (see `Asset.libraryMediaId`'s own doc comment), not this project's own `paths.mediaDir` —
+ *  every source-file lookup in this route has to check which one applies. Falls back to the project's
+ *  own directory whenever `libraryMediaDir` is unavailable (desktop/local dev, where the library
+ *  concept doesn't exist at all and `libraryMediaId` is consequently never set on any asset there). */
+function assetSourceDir(paths: ProjectPaths, libraryMediaDir: string | null, asset: Asset): string {
+  return asset.libraryMediaId && libraryMediaDir ? libraryMediaDir : paths.mediaDir;
+}
+
 /** Pre-scales any source IMAGE asset whose longer side exceeds `MAX_HOSTED_IMAGE_DIMENSION` into a
  *  scratch copy, returning a `Map<assetId, scaledPath>` for `inputPathFor` to consult — assets not in
  *  the map are used unmodified, straight from `paths.mediaDir` as before. Confirmed a real, live
@@ -509,13 +523,18 @@ const MAX_HOSTED_IMAGE_DIMENSION = 2200;
  *  Hosted-mode only, same reasoning as this route's other memory-conscious changes: desktop/local
  *  dev run on the user's own machine, with no such 1GB-class ceiling to protect, and shouldn't pay a
  *  quality cost (or the extra pre-pass time) that only matters for THIS specific deployment. */
-async function prescaleOversizedImageAssets(project: Project, paths: ProjectPaths, scratchDir: string): Promise<Map<string, string>> {
+async function prescaleOversizedImageAssets(
+  project: Project,
+  paths: ProjectPaths,
+  scratchDir: string,
+  libraryMediaDir: string | null
+): Promise<Map<string, string>> {
   const overrides = new Map<string, string>();
   if (!VCUT_HOSTED) return overrides;
 
   for (const asset of project.assets) {
     if (asset.kind !== "image") continue;
-    const sourcePath = resolveWithin(paths.mediaDir, asset.relPath);
+    const sourcePath = resolveWithin(assetSourceDir(paths, libraryMediaDir, asset), asset.relPath);
     const probe = await probeMedia(sourcePath).catch(() => null);
     if (!probe?.width || !probe.height) continue;
     if (probe.width <= MAX_HOSTED_IMAGE_DIMENSION && probe.height <= MAX_HOSTED_IMAGE_DIMENSION) continue;
@@ -549,7 +568,8 @@ async function runExportJob(
   paths: ProjectPaths,
   outputPath: string,
   reqUrl: string,
-  includeOutro: boolean
+  includeOutro: boolean,
+  libraryMediaDir: string | null
 ): Promise<void> {
   // One text clip's content, written to its own file so `drawtext`'s `textfile=` can read it (see
   // `ExportPlanOptions.textFilePathFor`'s own comment on why a file rather than an escaped `text=`
@@ -647,13 +667,13 @@ async function runExportJob(
     job.message = "Preparing to render…";
     job.notify();
 
-    const scaledImagePaths = await prescaleOversizedImageAssets(project, paths, textFilesDir);
+    const scaledImagePaths = await prescaleOversizedImageAssets(project, paths, textFilesDir, libraryMediaDir);
 
     plan = buildExportPlan(project, {
       inputPathFor: (assetId) => {
         const asset = project.assets.find((a) => a.id === assetId);
         if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
-        return scaledImagePaths.get(assetId) ?? resolveWithin(paths.mediaDir, asset.relPath);
+        return scaledImagePaths.get(assetId) ?? resolveWithin(assetSourceDir(paths, libraryMediaDir, asset), asset.relPath);
       },
       outputPath: mainOutputPath,
       fontPathFor: (fileName) => textFontPath(fileName),

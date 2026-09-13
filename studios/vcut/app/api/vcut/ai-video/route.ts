@@ -1,10 +1,13 @@
 import Replicate from "replicate";
+import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
+import { getProfile } from "../_lib/profiles";
 import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
+import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +126,48 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
     setStageProgress(job, "downloading", 1);
 
     setStageProgress(job, "importing", 0);
-    const asset = await importMediaBytes(paths, bytes, `${prompt.slice(0, 40).replace(/[^a-zA-Z0-9-]+/g, "-") || "ai-video"}.mp4`);
+    const suggestedName = `${prompt.slice(0, 40).replace(/[^a-zA-Z0-9-]+/g, "-") || "ai-video"}.mp4`;
+
+    // Same "user's own account-wide library, not this project's storage" branch ai-image/route.ts's
+    // own generation handler takes — see that file's own comment for the full reasoning (a real
+    // credit cost to redo makes this the highest-value reuse case). Checked here, not before `spend()`
+    // ran, since the real byte size isn't known until the provider actually returns the video; a
+    // quota failure here still lands in this function's own `catch` below, which refunds exactly like
+    // any other post-spend failure.
+    const asset =
+      VCUT_HOSTED && ownerId
+        ? await (async () => {
+            const profile = await getProfile(ownerId);
+            await checkStorageQuota(ownerId, profile?.plan ?? "free", bytes.byteLength);
+            const libraryPaths = ensureUserMediaDirs(ownerId);
+            const built = await importMediaBytes(libraryPaths, bytes, suggestedName);
+            if (built.kind !== "video") throw new ApiError(500, "Unexpected asset kind from generation", "unexpected-asset-kind");
+            await insertUserMedia(ownerId, {
+              id: built.id,
+              kind: built.kind,
+              name: built.name,
+              relPath: built.relPath,
+              thumbnailRelPath: built.thumbnailRelPath ?? null,
+              filmstripRelPath: built.filmstripRelPath ?? null,
+              waveformRelPath: built.waveformRelPath ?? null,
+              duration: built.duration,
+              width: built.width ?? null,
+              height: built.height ?? null,
+              fps: built.fps ?? null,
+              hasAudio: built.hasAudio,
+              sizeBytes: built.sizeBytes,
+              // No `model` — Seedance 2.0 is this route's only model, unlike ai-image/route.ts's
+              // three-way choice.
+              aiGeneration: { prompt, aspectRatio },
+            });
+            // `aiGeneration` itself is NOT stamped here — see ai-image/route.ts's own identical
+            // comment: editorStore.ts's `startAiVideoGeneration` already sets it client-side
+            // unconditionally, on whatever asset this job reports back. `libraryMediaId` is the one
+            // field only the server can decide.
+            built.libraryMediaId = built.id;
+            return built;
+          })()
+        : await importMediaBytes(paths, bytes, suggestedName);
     setStageProgress(job, "importing", 1);
 
     job.asset = asset;

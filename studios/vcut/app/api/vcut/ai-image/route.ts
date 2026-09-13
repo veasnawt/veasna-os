@@ -1,10 +1,13 @@
 import Replicate from "replicate";
+import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
+import { getProfile } from "../_lib/profiles";
 import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
+import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,8 +122,47 @@ export const POST = hostedCreditGatedRoute("ai-image", MODELS[DEFAULT_MODEL].cre
     });
 
     const bytes = await extractReplicateMediaBytes(output, "The image generator returned no usable output", "ai-image-no-output");
+    const suggestedName = `${prompt.slice(0, 40).replace(/[^a-zA-Z0-9-]+/g, "-") || "ai-image"}.png`;
 
-    const asset = await importMediaBytes(paths, bytes, `${prompt.slice(0, 40).replace(/[^a-zA-Z0-9-]+/g, "-") || "ai-image"}.png`);
+    // Same "user's own account-wide library, not this project's storage" branch media/route.ts's own
+    // upload handler takes — a generation costs real credits to redo, making it the single highest-
+    // value case for "reuse this in another project without paying again." Storage is checked HERE
+    // (not before spending credits above) because the real byte size isn't known until the provider
+    // actually returns it — a quota failure here still triggers the catch block's own refund, same as
+    // any other post-spend failure.
+    if (VCUT_HOSTED && user) {
+      const profile = await getProfile(user.id);
+      await checkStorageQuota(user.id, profile?.plan ?? "free", bytes.byteLength);
+      const libraryPaths = ensureUserMediaDirs(user.id);
+      const asset = await importMediaBytes(libraryPaths, bytes, suggestedName);
+      if (asset.kind !== "image") throw new ApiError(500, "Unexpected asset kind from generation", "unexpected-asset-kind");
+      const aiGeneration = { prompt, aspectRatio, model: modelId };
+      await insertUserMedia(user.id, {
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.name,
+        relPath: asset.relPath,
+        thumbnailRelPath: asset.thumbnailRelPath ?? null,
+        filmstripRelPath: asset.filmstripRelPath ?? null,
+        waveformRelPath: asset.waveformRelPath ?? null,
+        duration: asset.duration,
+        width: asset.width ?? null,
+        height: asset.height ?? null,
+        fps: asset.fps ?? null,
+        hasAudio: asset.hasAudio,
+        sizeBytes: asset.sizeBytes,
+        aiGeneration,
+      });
+      // `aiGeneration` is NOT stamped onto the returned asset here — editorStore.ts's own
+      // `generateAiImage` already unconditionally sets it (and `hiddenFromLibrary`) on whatever asset
+      // this route returns, client-side, for both this branch and the one below; duplicating it here
+      // would just be immediately overwritten with the identical value. `libraryMediaId` is the one
+      // field ONLY the server can decide, so it's the only one stamped here.
+      asset.libraryMediaId = asset.id;
+      return Response.json({ asset });
+    }
+
+    const asset = await importMediaBytes(paths, bytes, suggestedName);
     return Response.json({ asset });
   } catch (err) {
     if (user) void refundCredits(user.id, modelConfig.credits);

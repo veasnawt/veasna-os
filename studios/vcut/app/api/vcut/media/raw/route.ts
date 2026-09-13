@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { requireSessionUser, VCUT_HOSTED } from "../../_lib/auth";
 import { localRoute } from "../../_lib/localOnly";
-import { ApiError, projectPaths, resolveWithin } from "../../_lib/paths";
+import { ApiError, projectPaths, resolveWithin, userMediaPaths } from "../../_lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,19 +54,35 @@ export const GET = localRoute(async (req) => {
       : "media";
   if (!projectId || !relPath) throw new ApiError(400, "Missing projectId or relPath", "missing-params");
 
-  const paths = projectPaths(projectId);
-  const baseDir =
-    kind === "thumbnail"
-      ? paths.thumbnailsDir
-      : kind === "export"
-        ? paths.exportsDir
-        : kind === "lut"
-          ? paths.lutsDir
-          : kind === "customFont"
-            ? paths.customFontsDir
-            : kind === "customSfx"
-              ? paths.customSfxDir
-              : paths.mediaDir;
+  // `library=1` means this file lives in the CURRENT user's account-wide library
+  // (`users/<id>/media`/`.../thumbnails`), not this project's own folder — see
+  // `Asset.libraryMediaId`'s own doc comment. `projectId` is still required and still checked above
+  // (via `localRoute`'s own ownership check) even for a library file, since it's what anchors this
+  // request to a real project the caller actually owns in the first place; the library directory
+  // resolved below always belongs to that SAME owner; only `kind === "media" | "thumbnail"` ever apply
+  // to a library file (no library-only export/lut/font/sfx concept exists).
+  const isLibrary = url.searchParams.get("library") === "1";
+  let baseDir: string;
+  if (isLibrary) {
+    if (!VCUT_HOSTED) throw new ApiError(400, "Library media isn't available here", "library-unavailable");
+    const user = await requireSessionUser(req);
+    const libraryPaths = userMediaPaths(user.id);
+    baseDir = kind === "thumbnail" ? libraryPaths.thumbnailsDir : libraryPaths.mediaDir;
+  } else {
+    const paths = projectPaths(projectId);
+    baseDir =
+      kind === "thumbnail"
+        ? paths.thumbnailsDir
+        : kind === "export"
+          ? paths.exportsDir
+          : kind === "lut"
+            ? paths.lutsDir
+            : kind === "customFont"
+              ? paths.customFontsDir
+              : kind === "customSfx"
+                ? paths.customSfxDir
+                : paths.mediaDir;
+  }
   const filePath = resolveWithin(baseDir, relPath);
 
   if (!fs.existsSync(filePath)) {

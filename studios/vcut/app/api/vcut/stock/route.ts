@@ -1,6 +1,9 @@
+import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
 import { hostedSessionRoute, localRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
+import { getProfile } from "../_lib/profiles";
+import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,7 +181,40 @@ export const POST = localRoute(async (req) => {
   }
 
   const bytes = await downloadMediaUrl(sourceUrl);
-  const asset = await importMediaBytes(paths, bytes, body?.name?.trim() || parsed.pathname.split("/").pop() || "stock-media");
+  const suggestedName = body?.name?.trim() || parsed.pathname.split("/").pop() || "stock-media";
 
+  // Same "user's own account-wide library, not this project's storage" branch media/route.ts's own
+  // upload handler and the AI generation routes all take — a Commons import is just as reusable across
+  // a user's other projects as an upload or a generation is.
+  if (VCUT_HOSTED) {
+    const user = await requireSessionUser(req);
+    const profile = await getProfile(user.id);
+    await checkStorageQuota(user.id, profile?.plan ?? "free", bytes.byteLength);
+    const libraryPaths = ensureUserMediaDirs(user.id);
+    const asset = await importMediaBytes(libraryPaths, bytes, suggestedName);
+    if (asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "image") {
+      throw new ApiError(500, "Unexpected asset kind from import", "unexpected-asset-kind");
+    }
+    await insertUserMedia(user.id, {
+      id: asset.id,
+      kind: asset.kind,
+      name: asset.name,
+      relPath: asset.relPath,
+      thumbnailRelPath: asset.thumbnailRelPath ?? null,
+      filmstripRelPath: asset.filmstripRelPath ?? null,
+      waveformRelPath: asset.waveformRelPath ?? null,
+      duration: asset.duration,
+      width: asset.width ?? null,
+      height: asset.height ?? null,
+      fps: asset.fps ?? null,
+      hasAudio: asset.hasAudio,
+      sizeBytes: asset.sizeBytes,
+      aiGeneration: null,
+    });
+    asset.libraryMediaId = asset.id;
+    return Response.json({ asset });
+  }
+
+  const asset = await importMediaBytes(paths, bytes, suggestedName);
   return Response.json({ asset });
 });
