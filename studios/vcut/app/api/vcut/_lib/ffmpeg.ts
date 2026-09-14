@@ -5,7 +5,7 @@ import path from "path";
 import { buildFilmstripArgs, buildMaskImageArgs, buildMaskVideoArgs, buildThumbnailArgs, buildWaveformArgs } from "@veasnawt/vcut/src/export/ffmpegCommands";
 import { readAssFontMetrics } from "@veasnawt/vcut/src/project/fonts";
 import type { AssFontMetrics } from "@veasnawt/vcut/src/project/fonts";
-import { ApiError } from "./paths";
+import { ApiError, VCUT_ROOT } from "./paths";
 import { VCUT_HOSTED } from "./auth";
 
 /** A binary inside an `app.asar` archive can't be executed — electron-builder writes such files to a
@@ -509,17 +509,29 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
   // insertion point sits AFTER `buildExportPlan.ts`'s own `-c:a aac -b:a ...` block, so an
   // unscoped `-threads` there binds to the AUDIO encoder context, never the video one this fix was
   // actually written for (`videoEncoderArgs`, added later — see its own doc comment — is what
-  // correctly scopes a cap to `-c:v` specifically, immediately after it in the args array). A real,
-  // reported export failure confirmed this isn't just redundant: this bleeding-edge hosted FFmpeg
-  // build (n8.1.2, a recent snapshot) hard-rejects a `-threads` value on the `aac` encoder context —
-  // which has no real multi-threading to speak of in the first place, so it never needed a cap here —
-  // with `[aost#0:1/aac] Terminating thread with return code -22 (Invalid argument)`, cascading into
-  // the video encoder failing the identical way in the same teardown. Reproduced live against the
-  // real project that reported it (rendering-text phase completed fine — 36 Khmer overlays — then
-  // failed instantly at 0% into the SAME encoding phase, before a single frame), confirmed fixed by
-  // deleting this line rather than relocating it: video already has its own correctly-scoped cap,
-  // and audio was never supposed to receive one at all.
-  const hostedFfmpegArgs = ["-progress", "pipe:1", "-nostats", ...capDecoderThreads(resolvedArgs)];
+  // correctly scopes a cap to `-c:v` specifically, immediately after it in the args array). Video
+  // already has its own correctly-scoped cap, and audio was never supposed to receive one at all —
+  // this insertion was simply redundant, not a fix for anything on its own (see below for the real
+  // mechanism behind the failure this was originally suspected of causing).
+  //
+  // `-filter_threads`/`-filter_complex_threads` capped to 1 — TESTED at 4 (reasoning at the time: these
+  // govern INTRA-frame slice parallelism, not frames-in-flight, so more of it should only make a heavy
+  // filtergraph drain faster) against the real reported failure and confirmed WORSE, not better: the
+  // whole CONTAINER crashed and auto-restarted (not just the ffmpeg child process the way a plain OOM
+  // kill of ffmpeg alone behaves) — visible as a fresh "Starting Container" boot in this service's own
+  // logs, and an unrelated in-flight request on the same container aborting with `ECONNRESET` mid-way.
+  // More filter-graph parallelism apparently raises PEAK memory pressure (more of the graph actively
+  // processing frames at once) faster than it drains any backlog. Left at 1.
+  const hostedFfmpegArgs = [
+    "-filter_threads",
+    "1",
+    "-filter_complex_threads",
+    "1",
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    ...capDecoderThreads(resolvedArgs),
+  ];
   const child = VCUT_HOSTED
     ? spawn(ffmpegBinary(), hostedFfmpegArgs, { windowsHide: true })
     : spawn(ffmpegBinary(), ["-progress", "pipe:1", "-nostats", ...resolvedArgs], { windowsHide: true });
@@ -557,8 +569,21 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
 
   // FFmpeg writes all of its diagnostics to stderr, so this is where a real failure explains itself.
   let stderrTail = "";
+  // The UI-facing error (`stderrTail`, below) only ever shows the last 4000 chars — the last few
+  // lines — which is fine for the common case but has REAL, confirmed cost for hosted mode
+  // specifically: a genuinely reported export failure's actual root-cause line (a decoder's own
+  // `pthread_create() failed` well before the cascading encoder-open errors the last few lines
+  // showed) lived earlier in stderr than that tail could reach, and reasoning from the truncated
+  // message alone sent a real investigation toward the wrong fix twice before this full capture
+  // caught the real line. `stderrFull` (written to `last-export-debug.log`, below) is this full
+  // capture — hosted-only (desktop users have their own terminal for this), bounded to 200KB (a
+  // real export's full stderr is normally a few KB; this is just a guard against a runaway
+  // pathological case), overwritten on every run so it always reflects the MOST RECENT export.
+  let stderrFull = "";
   child.stderr?.on("data", (chunk: Buffer) => {
-    stderrTail = (stderrTail + chunk.toString()).slice(-4000);
+    const text = chunk.toString();
+    stderrTail = (stderrTail + text).slice(-4000);
+    if (VCUT_HOSTED) stderrFull = (stderrFull + text).slice(-200_000);
   });
 
   // Set only by `cancel()` below — the one signal `close` can trust as "someone actually asked for
@@ -576,6 +601,16 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
     });
     child.on("close", (code, signal) => {
       cleanup();
+      if (VCUT_HOSTED) {
+        try {
+          fs.writeFileSync(
+            path.join(VCUT_ROOT, "last-export-debug.log"),
+            `exit=${code} signal=${signal}\n\nARGS:\n${JSON.stringify(hostedFfmpegArgs, null, 2)}\n\nSTDERR:\n${stderrFull}\n`
+          );
+        } catch {
+          /* diagnostic only */
+        }
+      }
       if (code === 0) return resolve();
       // A cancelled export is an expected outcome, not an error to surface as a failure — but ONLY
       // when `cancel()` is what sent the signal. Any other signal-terminated exit (most plausibly the
