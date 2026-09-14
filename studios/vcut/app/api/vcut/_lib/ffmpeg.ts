@@ -451,6 +451,35 @@ function spillFilterComplexToScript(args: string[]): { args: string[]; cleanup: 
 // which has no enforced RSS limit on modern Linux) — real effort, not a quick wrap; left for a future
 // pass rather than shipping a "fix" that breaks ordinary exports outright.
 
+/** Caps every DECODER's own thread count to 1, hosted-mode only — the `-threads 2` fix below caps
+ *  only the ENCODER (see its own doc comment for why that placement matters); this is the separate,
+ *  later-discovered gap it left open. Each `-i` a project's own timeline needs (one per clip segment,
+ *  PLUS a separate pair for every transition's own "from"/"to" slice — see `buildSegments`'s own
+ *  comment) opens its own independent h264 decoder, and with NO per-input `-threads` of its own, each
+ *  one auto-detects a thread count off `nproc` — this container reports 48 cores. A real, reported
+ *  export failure confirmed the actual mechanism: a project with 270+ separate inputs, each spawning
+ *  several decoder threads, blew straight through this container's own cgroup `pids.max` (1000 total
+ *  processes/threads for the WHOLE container) — surfacing as `Error while opening decoder: Resource
+ *  temporarily unavailable`, `pthread_create`'s own EAGAIN once the cgroup refuses one more thread.
+ *  Confirmed to reproduce and confirmed fixed against a real many-input export on the actual
+ *  container, not just reasoned about — see this fix's own commit for the repro.
+ *
+ *  `-threads` is positional per input, same as the encoder-side comment below documents — inserting it
+ *  immediately before EVERY `-i` token (not just the first) is what makes it apply to each one
+ *  independently, rather than only the first input in the whole command line. `1`, not `2` — bounding
+ *  total decoder threads by input COUNT is the actual goal here (a large project is exactly the case
+ *  that broke), and single-threaded h264 decode is a barely-measurable cost for this app's own typical
+ *  output sizes (1080-wide vertical, not 4K). Desktop is untouched — same "hosted's cgroup CPU/PID
+ *  quota is the constraint, not desktop's real cores" split the encoder-side fix already draws. */
+function capDecoderThreads(args: string[]): string[] {
+  const result: string[] = [];
+  for (const arg of args) {
+    if (arg === "-i") result.push("-threads", "1");
+    result.push(arg);
+  }
+  return result;
+}
+
 /** Runs FFmpeg, reporting progress as a 0–1 fraction.
  *
  *  `-progress pipe:1 -nostats` makes FFmpeg emit machine-readable `key=value` lines on stdout
@@ -482,7 +511,7 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
     "-progress",
     "pipe:1",
     "-nostats",
-    ...resolvedArgs.slice(0, -1),
+    ...capDecoderThreads(resolvedArgs.slice(0, -1)),
     "-threads",
     "2",
     resolvedArgs[resolvedArgs.length - 1],
