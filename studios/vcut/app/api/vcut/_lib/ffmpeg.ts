@@ -495,27 +495,31 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
   // `os.cpus().length` reports (the host's full core count, not what THIS container is actually
   // allotted) — FFmpeg's encoder thread count defaults off that same over-reported number, and
   // spawning far more threads than the quota can schedule fails outright with `Terminating thread
-  // with return code -22 (Invalid argument)` on both audio and video output streams.
+  // with return code -22 (Invalid argument)`.
   //
   // Placement matters and a first attempt at this fix got it wrong: `-threads` is positional in
   // ffmpeg's own argument parsing — placed before the FIRST `-i` (this function's original fix), it
-  // becomes a DECODER thread hint for that one input, never touching the actual libx264/aac ENCODER
-  // contexts that were the ones actually crashing. Confirmed directly: a real hosted export with
+  // becomes a DECODER thread hint for that one input, never touching the actual libx264 ENCODER
+  // context that was the one actually crashing. Confirmed directly: a real hosted export with
   // that earlier fix deployed still produced a 48-byte, effectively-empty output file — the crash
   // just stopped being reported as a hard failure while still not writing real encoded packets.
-  // `resolvedArgs`'s own last element is always `options.outputPath` (buildExportPlan.ts always
-  // pushes it last; `spillFilterComplexToScript` above swaps two earlier elements in place without
-  // changing the array's length or tail) — inserting immediately before it lands this as an OUTPUT
-  // option, in the same section as `-c:v`/`-c:a`, which is what actually caps the encoders.
-  const hostedFfmpegArgs = [
-    "-progress",
-    "pipe:1",
-    "-nostats",
-    ...capDecoderThreads(resolvedArgs.slice(0, -1)),
-    "-threads",
-    "2",
-    resolvedArgs[resolvedArgs.length - 1],
-  ];
+  //
+  // What used to be HERE — this function's own blanket `"-threads", "2"` spliced in right before
+  // `resolvedArgs`'s own last element (`options.outputPath`) — is GONE now, not just moved: that
+  // insertion point sits AFTER `buildExportPlan.ts`'s own `-c:a aac -b:a ...` block, so an
+  // unscoped `-threads` there binds to the AUDIO encoder context, never the video one this fix was
+  // actually written for (`videoEncoderArgs`, added later — see its own doc comment — is what
+  // correctly scopes a cap to `-c:v` specifically, immediately after it in the args array). A real,
+  // reported export failure confirmed this isn't just redundant: this bleeding-edge hosted FFmpeg
+  // build (n8.1.2, a recent snapshot) hard-rejects a `-threads` value on the `aac` encoder context —
+  // which has no real multi-threading to speak of in the first place, so it never needed a cap here —
+  // with `[aost#0:1/aac] Terminating thread with return code -22 (Invalid argument)`, cascading into
+  // the video encoder failing the identical way in the same teardown. Reproduced live against the
+  // real project that reported it (rendering-text phase completed fine — 36 Khmer overlays — then
+  // failed instantly at 0% into the SAME encoding phase, before a single frame), confirmed fixed by
+  // deleting this line rather than relocating it: video already has its own correctly-scoped cap,
+  // and audio was never supposed to receive one at all.
+  const hostedFfmpegArgs = ["-progress", "pipe:1", "-nostats", ...capDecoderThreads(resolvedArgs)];
   const child = VCUT_HOSTED
     ? spawn(ffmpegBinary(), hostedFfmpegArgs, { windowsHide: true })
     : spawn(ffmpegBinary(), ["-progress", "pipe:1", "-nostats", ...resolvedArgs], { windowsHide: true });
