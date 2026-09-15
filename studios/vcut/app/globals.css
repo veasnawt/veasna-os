@@ -1009,4 +1009,27 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: rgb(255 255 255 / 0.3);
   }
+
+  /* CSS multi-column masonry for `MediaLibrary.tsx`'s own mobile grid — that component's JSX already
+     applies this class name (plus `break-inside-avoid` on each `<li>`) expecting a real Pinterest-style
+     layout, the same technique `templates/page.tsx`'s own grid already uses correctly via Tailwind's
+     `columns-N` utilities — but this specific class was never actually defined anywhere, a real,
+     confirmed bug: below the `lg` breakpoint (where `lg:flex lg:flex-col` switches to a plain vertical
+     list instead), an undefined class does nothing, so every item — including the Import tile's own
+     1:1-aspect-ratio icon box, which also carries `w-full` — rendered as ONE full-PANEL-WIDTH column,
+     turning a small square icon into a giant full-width square. `column-gap` (not `gap`) is the
+     multi-column property Tailwind's own `gap-2` utility already alongside this class in the JSX has no
+     effect on — that class stays for the `lg:` breakpoint's flex layout, this rule owns the actual
+     mobile masonry spacing. Two columns at the narrowest width the media panel renders at (matching two
+     real thumbnail-sized tiles fitting side by side on a phone), stepping up once the panel itself is
+     wide enough for a third. */
+  .vcut-media-grid {
+    column-count: 2;
+    column-gap: 0.5rem;
+  }
+  @media (min-width: 480px) {
+    .vcut-media-grid {
+      column-count: 3;
+    }
+  }
 }

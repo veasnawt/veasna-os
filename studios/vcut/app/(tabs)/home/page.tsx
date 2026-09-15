@@ -71,14 +71,25 @@ export default function HomePage() {
         ) : recent.length === 0 ? (
           <p className="mt-4 text-xs text-white/40">No projects yet — create one above to get started.</p>
         ) : (
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          // `columns-N` (CSS multi-column), not `grid grid-cols-N` (an earlier version of this line) —
+          // a real reported bug: with a uniform grid, each ROW's height is forced to its TALLEST
+          // cell, and these thumbnails keep their own source aspect ratio (`style={{aspectRatio: ...}}`
+          // below) rather than a fixed one, so a row mixing a portrait clip next to a landscape one
+          // left the shorter thumbnail's own caption sitting in a pool of dead space before the next
+          // row could start — confirmed directly from a real screenshot, not reasoned about.
+          // `columns-N` instead lets each COLUMN pack items back-to-back regardless of their
+          // neighbors' own height, the real "Pinterest-style" masonry behavior `templates/page.tsx`'s
+          // own grid already uses correctly for the identical reason — matched here rather than
+          // reinvented. `break-inside-avoid` on each `Link` below (mirroring that page's own tile) is
+          // what stops a single project's card from being split across two columns.
+          <div className="mt-3 columns-2 gap-3 sm:columns-3 lg:columns-4">
             {recent.map((p) => {
               const url = thumbnailUrl(p.id, p.thumbnail);
               return (
                 <Link
                   key={p.id}
                   href={`/edit?projectId=${encodeURIComponent(p.id)}&projectName=${encodeURIComponent(p.name)}`}
-                  className="group flex flex-col gap-1.5"
+                  className="group mb-3 flex break-inside-avoid flex-col gap-1.5"
                 >
                   <div
                     style={{ aspectRatio: `${p.width} / ${p.height}` }}
