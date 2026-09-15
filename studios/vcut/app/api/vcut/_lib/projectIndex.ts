@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
-import type { Project } from "@veasnawt/vcut/src/project/types";
+import type { Asset, Project } from "@veasnawt/vcut/src/project/types";
+import { clipAtTime } from "@veasnawt/vcut/src/timeline/queries";
 import { VCUT_ROOT, projectPaths } from "./paths";
 
 export interface ProjectSummary {
@@ -42,14 +43,48 @@ export interface ProjectSummary {
  *  `upsertSummary`) never pays for a full directory scan it doesn't need. */
 let cache: Map<string, ProjectSummary> | null = null;
 
+/** Resolves `project.exportSettings.cover` (if set) to a real `Asset` the caller can build a
+ *  thumbnail reference from — `undefined` for every case `summaryFromProject` should fall through to
+ *  its own ordinary default for: no cover set, an `image` cover whose asset has since been deleted, or
+ *  a `frame` cover with no clip actually on screen at that instant (an empty video track, a gap) or
+ *  whose resolved clip's own asset has no generated thumbnail yet. Never resolves a `frame` cover to
+ *  an IMAGE-kind clip either — a still has no `thumbnailRelPath` of its own to approximate with here,
+ *  only `summaryFromProject`'s own separate "read the image file directly" branch handles that shape,
+ *  and only for the plain (non-cover) fallback case. */
+function resolveCoverAsset(project: Project): Asset | undefined {
+  const cover = project.exportSettings.cover;
+  if (!cover) return undefined;
+  if (cover.kind === "image") return project.assets.find((a) => a.id === cover.assetId);
+  for (const track of project.sequence.tracks) {
+    if (track.kind !== "video" || !track.visible) continue;
+    const clip = clipAtTime(track, cover.time);
+    if (!clip) continue;
+    const asset = project.assets.find((a) => a.id === clip.assetId);
+    if (asset?.kind === "video" && asset.thumbnailRelPath) return asset;
+  }
+  return undefined;
+}
+
 /** Derives a `ProjectSummary` from a fully-parsed `Project` — the one place this logic lives, shared
  *  by the cold-start fallback below and by `project/route.ts`, which calls this after every save so
  *  the sidecar it writes always matches what's actually on disk. */
 export function summaryFromProject(project: Project): ProjectSummary {
+  // A custom cover (see `ExportSettings.cover`'s own doc comment) wins outright when one's been
+  // picked — a real, direct request: the card a project's own OWNER sees in their list should match
+  // what the export itself will actually show, not some unrelated fallback frame. An `image` cover is
+  // a real asset with no thumbnail of its own generated for it (same "read straight from the media
+  // folder" treatment a still-image asset already gets below); a `frame` cover has no PRE-RENDERED
+  // file for that exact instant sitting on disk anywhere (unlike export-time cover-art muxing, which
+  // extracts a real frame from the fully-composited OUTPUT — this project may never have been
+  // exported at all), so this approximates it with whichever clip is actually on screen at that
+  // timeline moment and reuses THAT asset's own already-generated thumbnail — not frame-exact, but a
+  // real, relevant preview rather than an unrelated one, and zero new thumbnail-generation work.
+  const coverAsset = resolveCoverAsset(project);
   // A video's own generated thumbnail is preferred; a still image has none of its own and is read
   // straight from the media folder instead (see media/route.ts's import route). Audio-only/empty
   // projects fall through to `undefined` — the card renders a placeholder for those.
   const thumbnailAsset =
+    coverAsset ??
     project.assets.find((a) => a.kind === "video" && a.thumbnailRelPath) ??
     project.assets.find((a) => a.kind === "image");
   const thumbnail: ProjectSummary["thumbnail"] = !thumbnailAsset
