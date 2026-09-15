@@ -14,7 +14,8 @@ import { VCUT_HOSTED } from "../_lib/auth";
 import { getInpaintKeyStatus, getKiriToken, getReplicateToken } from "../_lib/inpaintEnvFile";
 import { refundCredits } from "../_lib/credits";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs, resolveWithin } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, userMediaPaths } from "../_lib/paths";
+import { resolveAssetInputPath } from "../_lib/assetInput";
 
 /** Credits per minute of audio transcribed (rounded up) — a flat per-job rate here would have no
  *  ceiling on real cost, since this can transcribe an ENTIRE sequence (or a single clip) of whatever
@@ -361,7 +362,8 @@ async function runCaptionsJob(
   bpProjectId: string,
   ranges: CaptionRange[],
   language: string,
-  wordHighlight: boolean
+  wordHighlight: boolean,
+  libraryMediaDir: string | null
 ) {
   const paths = ensureProjectDirs(bpProjectId);
   const audioPath = path.join(paths.scratchDir, `${job.id}-audio.mp3`);
@@ -398,7 +400,7 @@ async function runCaptionsJob(
         inputPathFor: (assetId) => {
           const asset = findAsset(trimmed, assetId);
           if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
-          return resolveWithin(paths.mediaDir, asset.relPath);
+          return resolveAssetInputPath(paths, libraryMediaDir, asset);
         },
         outputPath: partPath,
       });
@@ -736,7 +738,14 @@ export const POST = hostedCreditGatedRoute("captions", CAPTIONS_CREDITS_PER_MINU
   job.notify = notifier.notify;
   jobs.set(id, job);
 
-  void runCaptionsJob(job, bpProjectId, ranges, language, wordHighlight).catch(() => {
+  // Same "an asset's real bytes can live in the owner's account-wide library, not this project's own
+  // mediaDir" resolution `export/route.ts` already needs — a real, reported bug confirmed this route
+  // never accounted for it: a voiceover recording (imported via `hiddenFromLibrary`, which still lands
+  // in the user's library dir in hosted mode, not the project's) failed Auto Captions outright with
+  // "No such file or directory" because `inputPathFor` used to resolve every asset against
+  // `paths.mediaDir` unconditionally.
+  const libraryMediaDir = VCUT_HOSTED && user ? userMediaPaths(user.id).mediaDir : null;
+  void runCaptionsJob(job, bpProjectId, ranges, language, wordHighlight, libraryMediaDir).catch(() => {
     // runCaptionsJob already handles its own errors internally (job.status/error) — this catch exists
     // only to guarantee an unexpected throw inside it can never become an unhandled rejection.
   });
