@@ -24,6 +24,7 @@ import { isIdentityTextCrop, type Project } from "@veasnawt/vcut/src/project/typ
 import type { Asset, Clip } from "@veasnawt/vcut/src/project/types";
 import { hasTextCropKeyframes, hasTextStyleKeyframes } from "@veasnawt/vcut/src/timeline/keyframes";
 import { checkProjectOwnership, requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
+import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS } from "../_lib/ffmpegConcurrency";
 import { buildCustomFontDataUrls, openKhmerTextHarness } from "../_lib/khmerTextHarness";
 import { ffmpegAvailable, ffmpegBinary, fontMetricsFor, fontsDirPath, probeMedia, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
 import { localRoute } from "../_lib/localOnly";
@@ -275,6 +276,84 @@ async function runOutroStep(project: Project, scratchDir: string, mainPath: stri
   });
 }
 
+/** Extracts the frame at `time` seconds into `videoPath` (the MAIN project's own timeline — see
+ *  `ExportSettings.cover`'s own `{ kind: "frame" }` doc comment) as a real JPEG, via the same
+ *  `-ss <t> -i <input> -frames:v 1` shape `buildThumbnailArgs` uses elsewhere — written inline rather
+ *  than reusing that function directly since it also force-scales to a fixed 320px thumbnail width,
+ *  which would visibly downgrade a cover meant to represent the real export's own full resolution.
+ *  Reading from `videoPath` (the fully composited output, not a source asset) guarantees the cover
+ *  matches whatever crop/overlay/text/color-grading the real export applied — not a naive frame from
+ *  untouched footage. */
+async function extractCoverFrameJpeg(scratchDir: string, videoPath: string, time: number): Promise<string> {
+  const coverJpegPath = path.join(scratchDir, "cover.jpg");
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      ffmpegBinary(),
+      ["-y", "-ss", String(Math.max(0, time)), "-i", videoPath, "-frames:v", "1", "-q:v", "2", coverJpegPath],
+      { timeout: 30_000 },
+      (err) => (err ? reject(err) : resolve())
+    );
+  });
+  return coverJpegPath;
+}
+
+/** Muxes `coverImagePath` into `videoPath` as a SECOND video stream with `disposition:attached_pic` —
+ *  the same iTunes-style cover-art mechanism QuickTime/Photos/most players and messaging apps already
+ *  recognize as a file's own preview image, without decoding/seeking into the real video stream at
+ *  all. `-c copy` on the main streams (video+audio unchanged, a remux not a re-encode) with `-c:v:1
+ *  mjpeg` only on the newly-added cover stream (`:v:1` — ffmpeg's own type-relative stream specifier,
+ *  "the SECOND stream of type video," not an absolute output index) transcodes WHATEVER format
+ *  `coverImagePath` is (a JPEG `extractCoverFrameJpeg` just produced, or an arbitrary user-uploaded
+ *  PNG/WEBP/etc — ffmpeg's own image decoders handle either as an ordinary input) into the one format
+ *  every player expects an attached-pic stream to be. Cheap regardless of the real export's own
+ *  length, the same "seconds, not a second full encode" cost `runOutroStep`'s own concat-demuxer remux
+ *  above already relies on.
+ *
+ *  Writes into a fresh temp file first, then overwrites `videoPath` via `renameSync` — ffmpeg can't
+ *  read and write the same path in one invocation, and this avoids ever leaving `videoPath` (which the
+ *  export job's own `outputPath` already points real, possibly-in-progress-of-being-served bytes at)
+ *  in a partially-written state if this step is interrupted. Best-effort at the CALL SITE (see
+ *  `runExportJob`'s own comment): a failure here should cost the user nothing more than "no cover
+ *  embedded," never the whole export. */
+async function runCoverArtStep(videoPath: string, coverImagePath: string): Promise<void> {
+  // Same directory as `videoPath` itself, NOT the scratch dir the caller may have used to produce
+  // `coverImagePath` — that lives under the container's own ephemeral `os.tmpdir()`, a DIFFERENT
+  // filesystem/mount from `videoPath`'s own home on the persistent volume. Confirmed directly as a
+  // real bug, not a theoretical one: `renameSync` below failed every time with `EXDEV: cross-device
+  // link not permitted` before this fix — the exact trap `getOrRenderOutroVariant`'s own doc comment
+  // already documents ("same directory start-to-finish keeps the rename atomic") for the identical
+  // reason, just not followed here the first time around.
+  const muxedPath = path.join(path.dirname(videoPath), `.tmp-cover-${crypto.randomUUID()}.mp4`);
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      ffmpegBinary(),
+      [
+        "-y",
+        "-i",
+        videoPath,
+        "-i",
+        coverImagePath,
+        "-map",
+        "0",
+        "-map",
+        "1",
+        "-c",
+        "copy",
+        "-c:v:1",
+        "mjpeg",
+        "-disposition:v:1",
+        "attached_pic",
+        "-movflags",
+        "+faststart",
+        muxedPath,
+      ],
+      { timeout: 30_000 },
+      (err) => (err ? reject(err) : resolve())
+    );
+  });
+  fs.renameSync(muxedPath, videoPath);
+}
+
 type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** `preparing`/`rendering-text` cover everything BEFORE FFmpeg exists to report real numeric
@@ -331,17 +410,16 @@ interface ExportJob {
  *  child is still killed on process exit, and the UI surfaces the lost job rather than hanging.) */
 const jobs = new Map<string, ExportJob>();
 
-/** Hosted-mode-only cap on TOTAL simultaneous exports across every project/user sharing this one
- *  Railway service instance — job state here is per-process, so there's no way to spread this across
- *  replicas even if the deployment ever ran more than one (it doesn't; this app is deployed as a
- *  single instance, never horizontally scaled, for exactly this reason). The
- *  per-project check above already stops the SAME project double-exporting; this stops five
- *  DIFFERENT users each starting one at once from piling multiple Khmer-text Chromium instances and
- *  FFmpeg encodes onto one modest machine. Not enforced in desktop/local mode — a single user on
- *  their own hardware exporting several projects at once is their call, not something to throttle.
- *  Configurable via env rather than hardcoded so this can be tuned to the actual machine size
- *  deployed without a code change. */
-const MAX_CONCURRENT_HOSTED_EXPORTS = Number(process.env.VCUT_MAX_CONCURRENT_EXPORTS) || 2;
+// `MAX_CONCURRENT_HOSTED_EXPORTS` itself now lives in `_lib/ffmpegConcurrency.ts` — moved there so
+// `_lib/templates.ts`'s own template-preview rendering can wait on the SAME configured limit instead
+// of running with no concurrency awareness at all (see that module's own doc comment for the real,
+// reported regression that caused). Behavior here is unchanged: hosted-mode-only cap on TOTAL
+// simultaneous exports across every project/user sharing this one Railway service instance — job state
+// here is per-process, so there's no way to spread this across replicas even if the deployment ever ran
+// more than one (it doesn't; this app is deployed as a single instance, never horizontally scaled, for
+// exactly this reason). The per-project check above already stops the SAME project double-exporting;
+// this stops five DIFFERENT users each starting one at once from piling multiple Khmer-text Chromium
+// instances and FFmpeg encodes onto one modest machine. Not enforced in desktop/local mode.
 
 function makeNotifier(job: Partial<ExportJob>): { changed: Promise<void>; notify: () => void } {
   let resolve!: () => void;
@@ -481,8 +559,12 @@ export const POST = localRoute(async (req) => {
     // Not awaited — see this function's own doc comment for why. Any failure from here on (a bad
     // Khmer render, `buildExportPlan` rejecting the project, FFmpeg itself failing) lands on the JOB
     // (`status`/`error`, surfaced over SSE) rather than this response, which has already gone out by
-    // the time any of it could happen.
-    void runExportJob(job, project, paths, outputPath, req.url, includeOutro, libraryMediaDir);
+    // the time any of it could happen. `beginHeavyFfmpegJob`/`.finally(endHeavyFfmpegJob)` brackets
+    // this job's WHOLE lifetime (not just its own `runFfmpeg` call) regardless of which of
+    // `runExportJob`'s several internal exit paths it settles through, so `_lib/templates.ts`'s own
+    // concurrency check sees an accurate count for as long as this export is actually using resources.
+    beginHeavyFfmpegJob();
+    void runExportJob(job, project, paths, outputPath, req.url, includeOutro, libraryMediaDir).finally(endHeavyFfmpegJob);
 
     return Response.json({ jobId: id, fileName, duration: sequenceDuration(project) });
   } catch (err) {
@@ -700,10 +782,22 @@ async function runExportJob(
       // (and additive to) the oversized-image fix: Railway's own metrics showed the peak drop
       // measurably once that image fix shipped, but a heavily transform-keyframed clip STILL pushed
       // memory close to the ceiling on its own, independent of its source image's resolution — see
-      // `ExportPlanOptions.keyframeSliceTuning`'s own doc comment for why. Doubling the interval and
-      // roughly halving the slice ceiling trades slightly coarser motion on a densely-keyframed clip
-      // for a real, bounded reduction in filter-graph size. Desktop/local dev keep the original,
-      // finer defaults (omitted entirely) — no memory ceiling there to protect.
+      // `ExportPlanOptions.keyframeSliceTuning`'s own doc comment for why.
+      //
+      // TRIED narrowing this to `{ baseIntervalSeconds: 0.2, maxSlices: 160 }` (from 0.3/120) to
+      // address a separate, real complaint ("the keyframed animation doesn't look smooth on export") —
+      // reverted within the same session: reproduced directly against a real project with exactly this
+      // shape (a video clip with BOTH `transformKeyframes` AND a transition active) two independent
+      // times, same deterministic ~80% progress point both times, "FFmpeg was terminated unexpectedly
+      // (signal SIGKILL)" — a real OOM kill (`memory.events` `oom_kill` incrementing to match), not
+      // container noise. The 0.3s/120 figure was never an arbitrary guess to begin with (see this
+      // comment's own opening line); a plausible-sounding "middle ground" between it and the smoothness
+      // ask turned out to still cross the real ceiling on real content. Left at the confirmed-safe
+      // value; a future attempt at smoother export-side keyframes needs to be validated against a real
+      // project with keyframes AND a transition together (not either in isolation) before shipping
+      // again, ideally with a live container memory trace the way the ORIGINAL incident was diagnosed
+      // (see this session's own export.ts/pids.max investigation for that methodology). Desktop/local
+      // dev keep the original, finer defaults (omitted entirely) — no memory ceiling there to protect.
       ...(VCUT_HOSTED ? { keyframeSliceTuning: { baseIntervalSeconds: 0.3, maxSlices: 120 } } : null),
     });
   } catch (err) {
@@ -749,6 +843,29 @@ async function runExportJob(
           // regardless of how long the main render itself took.
           console.error("[vcut] export: outro step failed, shipping without it:", err);
           fs.copyFileSync(mainOutputPath, outputPath);
+        }
+      }
+
+      // Runs LAST, after outro (if any) has already finalized `outputPath` — a `frame` cover's `time`
+      // is a MAIN-timeline-relative second, valid regardless of whether an outro got appended (it only
+      // adds content AFTER the main render, never shifting where 0 sits). Best-effort, same reasoning
+      // as the outro step just above: a user picked a cover, they didn't ask to lose an otherwise-
+      // perfectly-good export over a problem embedding it.
+      const cover = project.exportSettings.cover;
+      if (cover) {
+        job.message = "Adding cover…";
+        job.notify();
+        try {
+          const coverAsset = cover.kind === "image" ? project.assets.find((a) => a.id === cover.assetId) : undefined;
+          const coverImagePath =
+            cover.kind === "frame"
+              ? await extractCoverFrameJpeg(textFilesDir, outputPath, cover.time)
+              : coverAsset
+                ? resolveAssetInputPath(paths, libraryMediaDir, coverAsset)
+                : null;
+          if (coverImagePath) await runCoverArtStep(outputPath, coverImagePath);
+        } catch (err) {
+          console.error("[vcut] export: cover art step failed, shipping without it:", err);
         }
       }
 

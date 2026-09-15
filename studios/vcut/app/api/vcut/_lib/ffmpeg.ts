@@ -603,9 +603,17 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
       cleanup();
       if (VCUT_HOSTED) {
         try {
+          // `args` (this function's own parameter, NOT `resolvedArgs`/`hostedFfmpegArgs`) still has
+          // `-filter_complex` followed by the raw graph text inline — `spillFilterComplexToScript` (see
+          // its own doc comment) replaces that pair with `-filter_complex_script <tempfile>` in
+          // `resolvedArgs`, and `cleanup()` (called just above) deletes that temp file before this ever
+          // runs, so `hostedFfmpegArgs`/`resolvedArgs` alone can no longer show the actual graph FFmpeg
+          // ran — only which file it briefly lived in.
+          const fcIndex = args.indexOf("-filter_complex");
+          const filterComplex = fcIndex >= 0 ? args[fcIndex + 1] : "(no -filter_complex arg)";
           fs.writeFileSync(
             path.join(VCUT_ROOT, "last-export-debug.log"),
-            `exit=${code} signal=${signal}\n\nARGS:\n${JSON.stringify(hostedFfmpegArgs, null, 2)}\n\nSTDERR:\n${stderrFull}\n`
+            `exit=${code} signal=${signal}\n\nARGS:\n${JSON.stringify(hostedFfmpegArgs, null, 2)}\n\nFILTER_COMPLEX:\n${filterComplex}\n\nSTDERR:\n${stderrFull}\n`
           );
         } catch {
           /* diagnostic only */
