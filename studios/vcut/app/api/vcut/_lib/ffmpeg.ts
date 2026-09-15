@@ -249,6 +249,13 @@ function parseFrameRate(value: unknown): number | undefined {
   return num / den;
 }
 
+/** Normalizes an arbitrary rotation angle (can be negative, or a multiple past 360, depending on
+ *  which of ffprobe's two own conventions reported it — see `probeMedia`'s own comment) down to
+ *  exactly one of 0/90/180/270. */
+function normalizeRotation(rotation: number): number {
+  return ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+}
+
 export async function probeMedia(filePath: string): Promise<ProbeResult> {
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
@@ -261,7 +268,15 @@ export async function probeMedia(filePath: string): Promise<ProbeResult> {
 
   const data = JSON.parse(stdout) as {
     format?: { duration?: string };
-    streams?: { codec_type?: string; width?: number; height?: number; r_frame_rate?: string; duration?: string }[];
+    streams?: {
+      codec_type?: string;
+      width?: number;
+      height?: number;
+      r_frame_rate?: string;
+      duration?: string;
+      tags?: { rotate?: string };
+      side_data_list?: { rotation?: number }[];
+    }[];
   };
 
   const streams = data.streams ?? [];
@@ -272,10 +287,31 @@ export async function probeMedia(filePath: string): Promise<ProbeResult> {
   // that don't carry one at container level.
   const duration = Number(data.format?.duration ?? video?.duration ?? audio?.duration ?? 0);
 
+  // A portrait phone-camera recording is very commonly stored as a LANDSCAPE raw frame with a
+  // rotation flag telling players to rotate it for display — the raw `video.width`/`.height` above
+  // describe the UNDECODED frame buffer, not what's actually shown. ffprobe surfaces the flag either
+  // as a `side_data_list` "Display Matrix" entry's own `rotation` (modern mp4/mov muxers) or the
+  // legacy `tags.rotate` string — checked in that order since the side-data form is what current
+  // encoders (including every recent iPhone) actually write. Swapping width/height when the effective
+  // rotation is a quarter turn is what keeps `Asset.width`/`.height` matching what's actually SHOWN,
+  // which is what every consumer (`TransformHandles`' own on-canvas bounding box, the "fit"-scale math
+  // `computeTransformedBox` does) assumes it already is — a real, reported bug: the video itself
+  // played back correctly rotated (the browser's native `<video>` decode already handles this, and
+  // `PlaybackEngine`'s own canvas compositing reads the corrected `element.videoWidth`/`.videoHeight`
+  // directly off that decode, not off the stored `Asset` field at all), but the resize/crop handles —
+  // which DO read the stored, never-corrected `Asset.width`/`.height` — drew a landscape-shaped box
+  // over genuinely portrait footage. `nativeStorage.ts`'s own local-import path never had this bug:
+  // it already reads `video.videoWidth`/`.videoHeight` off the browser's decoder directly, which is
+  // rotation-correct for free — this is the hosted, ffprobe-based path's own equivalent fix.
+  const sideDataRotation = video?.side_data_list?.find((sd) => typeof sd.rotation === "number")?.rotation;
+  const tagRotation = video?.tags?.rotate ? Number(video.tags.rotate) : undefined;
+  const rotationSource = sideDataRotation ?? tagRotation;
+  const rotated = rotationSource !== undefined && Number.isFinite(rotationSource) && normalizeRotation(rotationSource) % 180 === 90;
+
   return {
     duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
-    width: video?.width,
-    height: video?.height,
+    width: rotated ? video?.height : video?.width,
+    height: rotated ? video?.width : video?.height,
     fps: parseFrameRate(video?.r_frame_rate),
     hasAudio: Boolean(audio),
     hasVideo: Boolean(video),
