@@ -231,7 +231,12 @@ async function getOrRenderOutroVariant(project: Project, scratchDir: string): Pr
     fontMetricsFor,
     fontsDirFor: fontsDirPath,
     khmerTextWindowsFor: () => undefined,
-    ...(VCUT_HOSTED ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "veryfast", "-crf", String(OUTRO_CRF), "-threads", "2"] } : null),
+    // Matches the main export's own `videoEncoderArgs` (see that call site's own comment for why
+    // `medium`/`-threads 8`, not `veryfast`/`2`, now that this service runs a 24 vCPU Pro-plan
+    // allocation, not the ~2 vCPU this pair was originally tuned against) — kept in sync so a
+    // project's outro segment doesn't visibly re-encode at a lower quality than the segment it's
+    // being appended to.
+    ...(VCUT_HOSTED ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(OUTRO_CRF), "-threads", "8"] } : null),
   });
 
   try {
@@ -764,19 +769,32 @@ async function runExportJob(
       fontMetricsFor,
       fontsDirFor: fontsDirPath,
       khmerTextWindowsFor: (clip: Clip) => khmerWindowsByClipId.get(clip.id),
-      // Confirmed a real, live cause of a hosted export crashing its own 1GB-limited container
+      // Confirmed a real, live cause of a hosted export crashing its own then-1GB-limited container
       // (Railway's own memory metrics showed a hard spike-then-drop right at the moment of an
       // actual reported export failure): FFmpeg's own thread auto-detection reads the HOST
       // machine's full core count via /proc/cpuinfo, not the container's actual cgroup CPU quota —
       // a well-documented Docker gotcha, not specific to this app. A host with far more cores than
-      // this service's own 2-vCPU allocation lets libx264 spin up that many encoder threads, each
+      // this service's own actual allocation lets libx264 spin up that many encoder threads, each
       // carrying its own frame-buffer working set — real, avoidable memory pressure that has
-      // nothing to do with this export's own resolution or duration. Explicitly capping at 2
-      // (matching the actual allocation) bounds that regardless of what the host reports. Desktop/
-      // local dev keep the plain default (their own machine, no such container/host mismatch, and
-      // no reason to leave performance on the table there).
+      // nothing to do with this export's own resolution or duration. Explicitly capping `-threads`
+      // (matching the actual allocation, not the host's over-reported count) bounds that regardless
+      // of what the host reports. Desktop/local dev keep the plain default (their own machine, no
+      // such container/host mismatch, and no reason to leave performance on the table there).
+      //
+      // Both this project's own Railway plan and this specific cap have moved since the incident
+      // above: the service now runs on a 24 vCPU allocation (Pro plan, confirmed via `railway
+      // metrics --cpu`), not the ~2 vCPU this constant was originally tuned against — `8` keeps a
+      // real, deliberate margin under that new ceiling (not "however many cores are available")
+      // rather than re-introducing the exact over-provisioning class of bug this fix exists to
+      // prevent: `VCUT_MAX_CONCURRENT_EXPORTS` (default 2) means up to two of these can run at
+      // once, and 2 × 8 = 16 leaves real headroom under 24 vCPU for the Next.js server process
+      // itself and every export's own (separately, always-1-per-input) decoder threads, rather than
+      // assuming this is the only thing ever running in the container. `-preset veryfast` is now
+      // `medium` too — x264's own standard default, meaningfully better quality-per-bitrate at any
+      // given CRF than `veryfast` — safe to spend the extra CPU-seconds on now that this service
+      // isn't CPU-quota-starved the way it was when `veryfast` was chosen.
       ...(VCUT_HOSTED
-        ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "veryfast", "-crf", String(project.exportSettings.crf), "-threads", "2"] }
+        ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(project.exportSettings.crf), "-threads", "8"] }
         : null),
       // Confirmed a real, live contributor to the SAME memory-ceiling incident above, separate from
       // (and additive to) the oversized-image fix: Railway's own metrics showed the peak drop
