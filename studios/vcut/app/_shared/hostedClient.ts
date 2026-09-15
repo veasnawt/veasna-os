@@ -74,6 +74,27 @@ export function templatePreviewUrl(templateId: string): string {
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
+/** A real still frame for the grid tile's own `<video poster=...>` — see `poster/route.ts`'s own doc
+ *  comment for why relying on the browser's default first-frame decode (what this tile used to do,
+ *  with no `poster` attribute at all) doesn't reliably work. Same `?token=` hosted-mode fallback as
+ *  `templatePreviewUrl` above, for the identical reason. */
+export function templatePosterUrl(templateId: string): string {
+  const base = `/api/vcut/templates/${encodeURIComponent(templateId)}/poster`;
+  if (!HOSTED) return base;
+  const token = getCachedAccessToken();
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
+/** The full-screen swipe viewer's own source — `renderTemplatePreview`'s `preview-full.mp4`, the
+ *  template's real full duration at its own real export quality, NOT the short low-bitrate loop
+ *  `templatePreviewUrl` serves for the grid tile's background. Same `?token=` hosted-mode fallback. */
+export function templateFullPreviewUrl(templateId: string): string {
+  const base = `/api/vcut/templates/${encodeURIComponent(templateId)}/preview-full`;
+  if (!HOSTED) return base;
+  const token = getCachedAccessToken();
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
 /** A small, fixed palette (not an arbitrary HSL-from-hash) — picking from real, pre-tuned colors avoids
  *  the muddy/illegible combinations a raw hash-to-hue formula can land on (a pale yellow on white text,
  *  for instance), the actual reason Phase 3's own scoping picked "auto-generated, no upload" avatars in

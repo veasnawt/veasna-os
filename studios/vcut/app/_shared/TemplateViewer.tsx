@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { ConfirmDialog } from "@veasnawt/vcut/src/ui/ConfirmDialog";
 import { Avatar } from "./Avatar";
-import { authFetch, displayNameOrFallback, templatePreviewUrl, type CommentRow, type TemplateRow } from "./hostedClient";
+import { authFetch, displayNameOrFallback, templateFullPreviewUrl, templatePreviewUrl, type CommentRow, type TemplateRow } from "./hostedClient";
 
 const FAVORITES_STORAGE_KEY = "vcut-favorite-templates";
 const MUTED_STORAGE_KEY = "vcut-template-viewer-muted";
@@ -542,6 +542,13 @@ function TemplateSection({
   onTogglePublic,
 }: TemplateSectionProps & { ref: (el: HTMLDivElement | null) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Full duration, real export quality (`renderTemplatePreview`'s own `preview-full.mp4`) — NOT the
+  // short, low-bitrate loop `templatePreviewUrl` serves for the grid tile's own background, a real,
+  // reported gap this full-screen viewer used to share with that tile. Falls back to the grid's own
+  // file (`triedFallback` guards against downgrading twice if that ALSO fails to load) rather than an
+  // older template — saved before `preview-full.mp4` rendering existed — showing nothing at all.
+  const [src, setSrc] = useState(() => templateFullPreviewUrl(template.id));
+  const triedFallback = useRef(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -552,7 +559,19 @@ function TemplateSection({
 
   return (
     <div ref={ref} data-template-id={template.id} className="relative flex h-full w-full snap-start snap-always items-center justify-center">
-      <video ref={videoRef} src={templatePreviewUrl(template.id)} muted={muted} loop playsInline className="h-full w-full object-contain" />
+      <video
+        ref={videoRef}
+        src={src}
+        muted={muted}
+        loop
+        playsInline
+        className="h-full w-full object-contain"
+        onError={() => {
+          if (triedFallback.current) return;
+          triedFallback.current = true;
+          setSrc(templatePreviewUrl(template.id));
+        }}
+      />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-20 pr-16 pt-16">
         {mode === "discover" && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Avatar } from "../../_shared/Avatar";
-import { authFetch, displayNameOrFallback, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
+import { authFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 import { TemplateViewer } from "../../_shared/TemplateViewer";
 
 type FeedMode = "mine" | "discover";
@@ -108,11 +108,14 @@ export default function TemplatesPage() {
   );
 }
 
-/** One grid tile — a `<video>` shows its own natural first frame as a poster (no `autoplay`, no
- *  separate thumbnail image needed). `hasPreview` tracks load success purely to swap in the generic
- *  placeholder icon on failure (an older template with no rendered preview, or a best-effort render
- *  that failed — see `renderTemplatePreview`'s own doc comment) — plain React state instead of a CSS
- *  sibling-selector trick, which would need to match an inline `style` attribute's exact string form
+/** One grid tile — a `<video poster=...>` showing a real still frame (`templatePosterUrl`,
+ *  `renderTemplatePreview`'s own `poster.jpg`) until/unless it actually plays, not the browser's own
+ *  default first-frame decode an earlier version of this relied on: confirmed as a real, reported bug
+ *  that several browsers (mobile Safari included, with `preload="metadata"` and no `autoplay`) never
+ *  actually do, rendering the tile solid black. `hasPreview` tracks load success purely to swap in the
+ *  generic placeholder icon on failure (an older template with no rendered preview, or a best-effort
+ *  render that failed — see `renderTemplatePreview`'s own doc comment) — plain React state instead of a
+ *  CSS sibling-selector trick, which would need to match an inline `style` attribute's exact string form
  *  and is exactly the kind of "looks clever, breaks silently" fragility not worth it here. */
 function TemplateGridTile({
   template,
@@ -133,6 +136,7 @@ function TemplateGridTile({
         {hasPreview ? (
           <video
             src={templatePreviewUrl(template.id)}
+            poster={templatePosterUrl(template.id)}
             muted
             playsInline
             preload="metadata"
