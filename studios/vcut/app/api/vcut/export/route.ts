@@ -724,7 +724,21 @@ async function runExportJob(
           const windows = await renderKhmerClipWindows(clip, asset.textContent!, asset.textStyle!, {
             frameWidth: project.sequence.width,
             frameHeight: project.sequence.height,
-            fps: project.sequence.fps,
+            // `project.exportSettings.fps`, NOT `project.sequence.fps` — the latter is only the EDITING
+            // timeline's own rate (what `PlaybackEngine` previews at), a value the Export dialog's own
+            // "Frame rate" dropdown lets a user pick independently of. `buildExportPlan.ts` composites
+            // this clip's windows into a video graph that's CFR-normalized (`fps=${fps}` filters
+            // throughout) at `project.exportSettings.fps` specifically (its very first line destructures
+            // `fps` straight off `exportSettings`, and every downstream frame-rate-sensitive computation
+            // — including `pushKhmerTextOverlay`'s own `enable='between(t,...)'` gate width — uses that
+            // SAME value), so this has to match it exactly or the window-visibility-floor computed here
+            // silently targets the wrong frame period. A sequence recorded/imported at a higher native
+            // fps than the user's CHOSEN export fps (a common real combination — e.g. 60fps source,
+            // 30fps export for file size) previously passed too SMALL a floor, still leaving some
+            // genuinely short words narrower than a REAL output frame — the same "text blips
+            // sporadically" symptom surviving an earlier fix that only floored the gate width using this
+            // (wrong) fps in the first place.
+            fps: project.exportSettings.fps,
             customFonts: project.customFonts,
             renderFrame: harness.renderFrame,
           });
