@@ -13,7 +13,7 @@ import { VCUT_HOSTED } from "./auth";
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS, waitForFfmpegHeadroom } from "./ffmpegConcurrency";
 import { fontMetricsFor, fontsDirPath, generateThumbnail, runFfmpeg, textFontPath } from "./ffmpeg";
 import { importMediaBytes } from "./importMedia";
-import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, templateAudioPaths, userMediaPaths } from "./paths";
+import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, templateAudioPaths, uniqueFileName, userMediaPaths } from "./paths";
 import type { ProjectPaths } from "./paths";
 import { getProfile } from "./profiles";
 import { checkStorageQuota, insertUserMedia } from "./userMedia";
@@ -59,6 +59,17 @@ export async function bundleTemplateAudio(
   return Promise.all(
     assets.map(async (asset) => {
       if (!asset.templateBundledAudio) return asset;
+      if (asset.animation) {
+        // An animated sticker: its two files (animated PNG + preview sprite sheet) copied as they are —
+        // re-importing would probe the PNG as a still.
+        const spriteDir = asset.libraryMediaId ? userMediaPaths(ownerId).thumbnailsDir : sourceProjectPaths.thumbnailsDir;
+        const relPath = uniqueFileName(asset.relPath);
+        const spriteRelPath = uniqueFileName(asset.animation.spriteRelPath);
+        fs.copyFileSync(resolveAssetInputPath(sourceProjectPaths, libraryMediaDir, asset), resolveWithin(audioDirs.mediaDir, relPath));
+        fs.copyFileSync(resolveWithin(spriteDir, asset.animation.spriteRelPath), resolveWithin(audioDirs.thumbnailsDir, spriteRelPath));
+        const { libraryMediaId: _library, ...rest } = asset;
+        return { ...rest, relPath, animation: { ...asset.animation, spriteRelPath }, templateBundledAudio: true as const };
+      }
       const bytes = fs.readFileSync(resolveAssetInputPath(sourceProjectPaths, libraryMediaDir, asset));
       // `importMediaBytes` needs its `suggestedName` param to carry a REAL extension — it's the only
       // thing that tells it what kind of file this even is (see that function's own doc comment). A
@@ -281,6 +292,7 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
   return Promise.all(
     assets.map(async (asset) => {
       if (!asset.templateBundledAudio) return asset;
+      if (asset.animation) return copyTemplateStickerToLibrary(audioDirs, newOwnerId, profile?.plan ?? "free", asset);
       const bytes = fs.readFileSync(resolveWithin(audioDirs.mediaDir, asset.relPath));
       await checkStorageQuota(newOwnerId, profile?.plan ?? "free", bytes.byteLength);
       const libraryPaths = ensureUserMediaDirs(newOwnerId);
@@ -317,6 +329,47 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
       return fresh;
     })
   );
+}
+
+/** `resolveTemplateBundledAudio`'s animated-sticker case: copies the sticker's animated PNG and sprite
+ *  sheet from the template into the new owner's library as they are, hidden like any sticker added
+ *  from the Stickers tool (see `importAnimatedImageBytes`). */
+async function copyTemplateStickerToLibrary(
+  audioDirs: { mediaDir: string; thumbnailsDir: string },
+  newOwnerId: string,
+  plan: Parameters<typeof checkStorageQuota>[1],
+  asset: Asset
+): Promise<Asset> {
+  const animation = asset.animation!;
+  const sourcePath = resolveWithin(audioDirs.mediaDir, asset.relPath);
+  const spriteSourcePath = resolveWithin(audioDirs.thumbnailsDir, animation.spriteRelPath);
+  const sizeBytes = fs.statSync(sourcePath).size + fs.statSync(spriteSourcePath).size;
+  await checkStorageQuota(newOwnerId, plan, sizeBytes);
+  const libraryPaths = ensureUserMediaDirs(newOwnerId);
+  const relPath = uniqueFileName(asset.relPath);
+  const spriteRelPath = uniqueFileName(animation.spriteRelPath);
+  fs.copyFileSync(sourcePath, resolveWithin(libraryPaths.mediaDir, relPath));
+  fs.copyFileSync(spriteSourcePath, resolveWithin(libraryPaths.thumbnailsDir, spriteRelPath));
+  const { templateBundledAudio: _bundled, ...rest } = asset;
+  const fresh: Asset = { ...rest, relPath, sizeBytes, animation: { ...animation, spriteRelPath }, hiddenFromLibrary: true, libraryMediaId: asset.id };
+  await insertUserMedia(newOwnerId, {
+    id: fresh.id,
+    kind: "image",
+    name: fresh.name,
+    relPath,
+    thumbnailRelPath: null,
+    filmstripRelPath: null,
+    waveformRelPath: null,
+    duration: 0,
+    width: fresh.width ?? null,
+    height: fresh.height ?? null,
+    fps: null,
+    hasAudio: false,
+    sizeBytes,
+    aiGeneration: null,
+    hidden: true,
+  });
+  return fresh;
 }
 
 export interface TemplateRow {

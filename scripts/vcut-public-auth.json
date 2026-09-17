@@ -1,0 +1,5 @@
+{
+  "//": "VCut's PUBLIC Supabase client settings — the project URL and anon key vcut.io already ships to every browser (role: anon, protected by row-level security). Read at build time by the desktop app (scripts/build-vcut-desktop.mjs) and the Android app (apps/mobile/vite.config.ts), which have no deploy-time environment of their own to take them from. Never put a service-role key here.",
+  "supabaseUrl": "https://jochvtsuyvyqbbxixvdj.supabase.co",
+  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvY2h2dHN1eXZ5cWJieGl4dmRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0OTQ3ODgsImV4cCI6MjEwNDA3MDc4OH0.L33rhAVfuopgVXZOruBzmoZ75hQN-Ytm_8rBbKZ7tiM"
+}

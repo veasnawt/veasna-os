@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
 
@@ -14,7 +14,12 @@ import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
  *  which neither an emailed magic link nor a registered OAuth redirect URI can tolerate. Both sign-in
  *  methods below redirect back to this exact page (preserving `?desktop=1`) rather than `/projects`,
  *  so Supabase's client can finish the token exchange from the URL here same as any normal web
- *  sign-in — the ONLY thing this flag changes is what happens next, once `user` becomes non-null. */
+ *  sign-in — the ONLY thing this flag changes is what happens next, once `user` becomes non-null.
+ *  The Android app uses the same mode (`packages/vcut/src/api/nativeAuth.ts`) — Google refuses to sign
+ *  anyone in inside an app's WebView.
+ *
+ *  `&provider=google`: start Google sign-in straight away (the app's own "Continue with Google" button
+ *  already was the choice) — unless this browser is already signed in, which hands off immediately. */
 export default function LoginPage() {
   // `useSearchParams` opts the tree it's called in into client-side-only rendering — Next requires a
   // `Suspense` boundary around any component that calls it, or the production build fails.
@@ -29,11 +34,14 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDesktop = searchParams.get("desktop") === "1";
+  const autoGoogle = searchParams.get("provider") === "google";
   const { user } = useSupabaseSession();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
+  const autoGoogleStarted = useRef(false);
 
   // Already signed in (e.g. followed a bookmarked /login link, or the magic-link/OAuth redirect just
   // landed and Supabase's client already parsed the session out of the URL). For a normal web visit,
@@ -51,9 +59,24 @@ function LoginPageInner() {
       const session = data.session;
       if (!session) return;
       const params = new URLSearchParams({ access_token: session.access_token, refresh_token: session.refresh_token });
-      window.location.href = `vcut://auth-callback#${params.toString()}`;
+      const url = `vcut://auth-callback#${params.toString()}`;
+      // Also shown as a button: browsers (Chrome on Android especially) may block a script-driven jump
+      // into an app that no tap started, and a desktop browser's "Open VCut?" prompt can be dismissed.
+      setHandoffUrl(url);
+      window.location.href = url;
     });
   }, [user, isDesktop, router]);
+
+  // `user === null` (not `undefined`) means the session check finished and nobody's signed in here.
+  useEffect(() => {
+    if (!autoGoogle || user !== null || autoGoogleStarted.current) return;
+    autoGoogleStarted.current = true;
+    // Drop `provider` first, so pressing Back from Google's page shows the choices rather than bouncing
+    // straight back to Google again.
+    window.history.replaceState(null, "", isDesktop ? "/login?desktop=1" : "/login");
+    void continueWithGoogle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, when the session check settles
+  }, [autoGoogle, user]);
 
   async function sendMagicLink() {
     const supabase = getSupabaseBrowserClient();
@@ -99,7 +122,21 @@ function LoginPageInner() {
         <h1 className="mt-3 text-center text-lg font-semibold">Sign in to VCut</h1>
         <p className="mt-1.5 text-center text-xs text-white/40">Your projects, on any device.</p>
 
-        {sent ? (
+        {user && isDesktop ? (
+          <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] p-5 text-center text-sm text-white/70">
+            <p>
+              Signed in{user.email ? <> as <span className="text-white">{user.email}</span></> : null}.
+            </p>
+            {handoffUrl && (
+              <a href={handoffUrl} className="btn-brand-gradient mt-4 block w-full rounded-md py-2.5 text-sm font-semibold text-white">
+                Open VCut
+              </a>
+            )}
+            <p className="mt-3 text-xs text-white/40">You can close this tab once VCut opens.</p>
+          </div>
+        ) : autoGoogle && !error ? (
+          <p className="mt-8 text-center text-sm text-white/50">Opening Google…</p>
+        ) : sent ? (
           <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] p-5 text-center text-sm text-white/70">
             Check <span className="text-white">{email}</span> for a sign-in link.
           </div>

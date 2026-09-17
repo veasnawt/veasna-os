@@ -1,7 +1,19 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { MAX_ANIMATION_SECONDS, planAnimation, spriteGrid, type AssetStickerSource } from "@veasnawt/vcut/src/project/stickers";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
-import { generateFilmstrip, generateThumbnail, generateWaveform, probeMedia, remuxForDuration } from "./ffmpeg";
+import {
+  convertToAnimatedPng,
+  extractFirstFramePng,
+  generateFilmstrip,
+  generateSpriteSheet,
+  generateThumbnail,
+  generateWaveform,
+  probeAnimatedImage,
+  probeMedia,
+  remuxForDuration,
+} from "./ffmpeg";
 import { kindForExtension } from "./mediaFormats";
 import { ApiError, resolveWithin, uniqueFileName } from "./paths";
 
@@ -88,6 +100,73 @@ export async function importMediaBytes(paths: MediaWriteTarget, bytes: Buffer, s
   }
 
   return asset;
+}
+
+/** Turns a downloaded sticker or GIF (the Stickers tool — always the provider's GIF rendition, which
+ *  every FFmpeg build here can decode) into an ANIMATED image asset: a looping animated PNG at
+ *  `relPath` for export, plus the preview sprite sheet and frame timing in `Asset.animation` (see
+ *  `stickers.ts`). A source with a single frame comes out as an ordinary still PNG instead. Hidden from
+ *  the media library — it's reached again through the Stickers tool, and a library row can't carry
+ *  `animation`, so re-adding it from there would place a still. */
+export async function importAnimatedImageBytes(
+  paths: MediaWriteTarget,
+  bytes: Buffer,
+  suggestedName: string,
+  stickerSource: AssetStickerSource
+): Promise<Asset> {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "vcut-sticker-"));
+  const created: string[] = [];
+  try {
+    const sourcePath = path.join(workDir, `source${path.extname(suggestedName).toLowerCase() || ".gif"}`);
+    fs.writeFileSync(sourcePath, bytes);
+    const probe = await probeAnimatedImage(sourcePath);
+    const baseName = `${path.basename(suggestedName, path.extname(suggestedName)) || "sticker"}.png`;
+
+    if (probe.frames < 2) {
+      const stillPath = path.join(workDir, "still.png");
+      await extractFirstFramePng(sourcePath, stillPath);
+      const asset = await importMediaBytes(paths, fs.readFileSync(stillPath), baseName);
+      return { ...asset, hiddenFromLibrary: true, stickerSource };
+    }
+
+    const plan = planAnimation(probe);
+    const fileName = uniqueFileName(baseName);
+    const destination = resolveWithin(paths.mediaDir, fileName);
+    created.push(destination);
+    await convertToAnimatedPng(sourcePath, destination, plan, MAX_ANIMATION_SECONDS);
+
+    // Resampling can land a frame off the plan; the sprite sheet and timing follow what's really there.
+    const frameCount = (await probeAnimatedImage(destination)).frames;
+    if (frameCount < 2) throw new ApiError(400, "That sticker has no animation to import", "sticker-empty");
+    const grid = spriteGrid(frameCount, plan.exportWidth, plan.exportHeight);
+
+    const id = `a_${crypto.randomUUID().slice(0, 8)}`;
+    const spriteRelPath = `${id}-sprite.webp`;
+    const spritePath = resolveWithin(paths.thumbnailsDir, spriteRelPath);
+    created.push(spritePath);
+    await generateSpriteSheet(destination, spritePath, grid);
+
+    return {
+      id,
+      kind: "image",
+      name: suggestedName,
+      relPath: fileName,
+      duration: 0,
+      width: plan.exportWidth,
+      height: plan.exportHeight,
+      hasAudio: false,
+      sizeBytes: fs.statSync(destination).size + fs.statSync(spritePath).size,
+      importedAt: Date.now(),
+      hiddenFromLibrary: true,
+      animation: { frameCount, fps: plan.fps, spriteRelPath, ...grid },
+      stickerSource,
+    };
+  } catch (err) {
+    for (const file of created) fs.rmSync(file, { force: true });
+    throw err;
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 /** Downloads a remote URL's bytes for `importMediaBytes` — both the stock-search-result case

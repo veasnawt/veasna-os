@@ -176,3 +176,17 @@ export function getPexelsApiKey(): string | null {
   if (VCUT_HOSTED) return process.env[HOSTED_PEXELS_API_KEY_ENV_VAR]?.trim() || null;
   return loadVstudioEnv()[PEXELS_LOCAL_ENV_VAR]?.trim() || null;
 }
+
+/** The Stickers tool's two providers (`stickers/route.ts`) — same founder-owned, server-side shape as
+ *  Pexels: a Railway variable hosted, `.env.vcut` locally. Each is independently optional; a missing
+ *  key just leaves that provider out of the panel. KLIPY is free; GIPHY's production key is a paid
+ *  license, which is why GIPHY picks cost credits. */
+export function getKlipyApiKey(): string | null {
+  if (VCUT_HOSTED) return process.env.VCUT_HOSTED_KLIPY_API_KEY?.trim() || null;
+  return loadVstudioEnv().KLIPY_API_KEY?.trim() || null;
+}
+
+export function getGiphyApiKey(): string | null {
+  if (VCUT_HOSTED) return process.env.VCUT_HOSTED_GIPHY_API_KEY?.trim() || null;
+  return loadVstudioEnv().GIPHY_API_KEY?.trim() || null;
+}

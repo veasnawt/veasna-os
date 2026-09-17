@@ -14,3 +14,6 @@ export { getReplicateToken as getReplicateTokenForGeneration } from "./inpaintEn
 // Stock media search (`stock/route.ts`, Pexels) — re-exported for the same "one place that spells out
 // the underlying env var" reason as `getReplicateTokenForGeneration` above.
 export { getPexelsApiKey } from "./inpaintEnvFile";
+
+// Stickers tool providers (`stickers/route.ts`) — same re-export reasoning.
+export { getGiphyApiKey, getKlipyApiKey } from "./inpaintEnvFile";

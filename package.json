@@ -18,7 +18,7 @@
     "build:desktop": "pnpm --filter universe build && pnpm --filter @veasnawt/desktop package",
     "publish:desktop": "pnpm --filter universe build && pnpm --filter @veasnawt/desktop release",
     "dev:vcut-desktop": "concurrently -k -n next,electron -c blue,magenta \"pnpm dev:vcut\" \"wait-on http://127.0.0.1:3002 && pnpm --filter @veasnawt/vcut-desktop dev\"",
-    "build:vcut-desktop": "pnpm --filter vcut build && pnpm --filter @veasnawt/vcut-desktop package"
+    "build:vcut-desktop": "node scripts/build-vcut-desktop.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -2,7 +2,17 @@ import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { buildFilmstripArgs, buildMaskImageArgs, buildMaskVideoArgs, buildThumbnailArgs, buildWaveformArgs } from "@veasnawt/vcut/src/export/ffmpegCommands";
+import {
+  buildAnimatedImageProbeArgs,
+  buildAnimatedPngArgs,
+  buildFilmstripArgs,
+  buildFirstFramePngArgs,
+  buildMaskImageArgs,
+  buildMaskVideoArgs,
+  buildSpriteSheetArgs,
+  buildThumbnailArgs,
+  buildWaveformArgs,
+} from "@veasnawt/vcut/src/export/ffmpegCommands";
 import { readAssFontMetrics } from "@veasnawt/vcut/src/project/fonts";
 import type { AssFontMetrics } from "@veasnawt/vcut/src/project/fonts";
 import { ApiError, VCUT_ROOT } from "./paths";
@@ -367,6 +377,68 @@ export async function generateThumbnail(input: string, output: string, atSeconds
       resolve(!err && fs.existsSync(output))
     );
   });
+}
+
+/** An animated image's size and frame timing, from its frames themselves (see
+ *  `buildAnimatedImageProbeArgs`). */
+export interface AnimatedImageProbe {
+  width: number;
+  height: number;
+  /** Seconds, end of the last frame. */
+  duration: number;
+  frames: number;
+}
+
+export async function probeAnimatedImage(filePath: string): Promise<AnimatedImageProbe> {
+  const stdout = await new Promise<string>((resolve, reject) => {
+    execFile(ffprobeBinary(), buildAnimatedImageProbeArgs(filePath), { maxBuffer: 20 * 1024 * 1024, timeout: 30_000 }, (err, out) =>
+      err ? reject(new ApiError(400, "That sticker couldn't be read", "unreadable-sticker")) : resolve(out)
+    );
+  });
+  const data = JSON.parse(stdout) as {
+    streams?: { width?: number; height?: number }[];
+    packets?: { pts_time?: string; duration_time?: string }[];
+  };
+  const stream = data.streams?.[0];
+  const packets = data.packets ?? [];
+  if (!stream?.width || !stream?.height || packets.length === 0) {
+    throw new ApiError(400, "That sticker couldn't be read", "unreadable-sticker");
+  }
+  const duration = packets.reduce((end, p) => Math.max(end, Number(p.pts_time ?? 0) + Number(p.duration_time ?? 0)), 0);
+  return { width: stream.width, height: stream.height, duration, frames: packets.length };
+}
+
+function runFfmpegToFile(args: string[], output: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(ffmpegBinary(), args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, _out, stderr) => {
+      if (!err && fs.existsSync(output)) return resolve();
+      console.error("[vcut] sticker conversion failed:", String(stderr).slice(-800));
+      reject(new ApiError(500, "That sticker couldn't be converted", "sticker-conversion-failed"));
+    });
+  });
+}
+
+/** Animated source → the looping animated PNG export reads. See `buildAnimatedPngArgs`. */
+export function convertToAnimatedPng(
+  input: string,
+  output: string,
+  plan: { fps: number; frameCount: number; exportWidth: number; exportHeight: number },
+  maxSeconds: number
+): Promise<void> {
+  return runFfmpegToFile(buildAnimatedPngArgs(input, output, plan, maxSeconds), output, 90_000);
+}
+
+/** Animated PNG → the preview sprite sheet. See `buildSpriteSheetArgs`. */
+export function generateSpriteSheet(
+  input: string,
+  output: string,
+  grid: { columns: number; rows: number; frameWidth: number; frameHeight: number }
+): Promise<void> {
+  return runFfmpegToFile(buildSpriteSheetArgs(input, output, grid), output, 60_000);
+}
+
+export function extractFirstFramePng(input: string, output: string): Promise<void> {
+  return runFfmpegToFile(buildFirstFramePngArgs(input, output), output, 30_000);
 }
 
 /** Generates ONE sprite-sheet image containing several frames evenly spaced across the source's
