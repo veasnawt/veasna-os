@@ -558,12 +558,18 @@ function TemplateSection({
   const [src, setSrc] = useState(() => templateFullPreviewUrl(template.id));
   const triedFallback = useRef(false);
 
+  // Re-runs on `src` too, not just `active`: swapping to the fallback file starts a new load, which
+  // cancels a `play()` already issued against the old one. The template you tapped is active from the
+  // first render, so its `play()` always lands before the `preview-full.mp4` request 404s — and with
+  // `active` never changing afterwards, nothing asked again, leaving it paused on its first frame
+  // until you scrolled away and back (reproduced; most templates saved before full previews existed
+  // take this path). Sections further down finish falling back long before they become active.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (active) void video.play().catch(() => {});
     else video.pause();
-  }, [active]);
+  }, [active, src]);
 
   return (
     <div ref={ref} data-template-id={template.id} className="relative flex h-full w-full snap-start snap-always items-center justify-center">
