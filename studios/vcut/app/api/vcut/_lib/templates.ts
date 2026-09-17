@@ -5,6 +5,7 @@ import { getSupabaseAdminClient } from "@veasnawt/auth/server";
 import { buildExportPlan } from "@veasnawt/vcut/src/export/buildExportPlan";
 import { trimProjectToRange } from "@veasnawt/vcut/src/export/trimForExport";
 import { sequenceDuration } from "@veasnawt/vcut/src/project/createProject";
+import { isSoundEffectAsset } from "@veasnawt/vcut/src/project/sfx";
 import type { Asset, Project } from "@veasnawt/vcut/src/project/types";
 import type { TemplateProjectData } from "@veasnawt/vcut/src/project/template";
 import { resolveAssetInputPath } from "./assetInput";
@@ -69,7 +70,9 @@ export async function bundleTemplateAudio(
       // its own, so an ordinary asset's behavior here is completely unchanged.
       const suggestedName = path.extname(asset.name) ? asset.name : `${asset.name}${path.extname(asset.relPath)}`;
       const fresh = await importMediaBytes(audioDirs, bytes, suggestedName);
-      return { ...fresh, id: asset.id, templateBundledAudio: true as const };
+      // Carried over explicitly: this re-import is a brand-new asset, and a sound effect has to stay
+      // recognizable as one (see `Asset.soundEffect`).
+      return { ...fresh, id: asset.id, templateBundledAudio: true as const, ...(isSoundEffectAsset(asset) ? { soundEffect: true as const } : null) };
     })
   );
 }
@@ -288,7 +291,7 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
       // runs) already references `asset.id` — silently keeping `importMediaBytes`'s own different id
       // instead left that clip pointing at an asset that no longer existed in `project.assets` at all,
       // so the resulting project's preview/export both played with no audio whatsoever.
-      const fresh: Asset = { ...imported, id: asset.id };
+      const fresh: Asset = { ...imported, id: asset.id, ...(isSoundEffectAsset(asset) ? { soundEffect: true as const } : null) };
       await insertUserMedia(newOwnerId, {
         id: fresh.id,
         kind: fresh.kind as "video" | "audio" | "image",
