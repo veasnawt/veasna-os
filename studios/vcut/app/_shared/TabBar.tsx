@@ -16,15 +16,20 @@ interface Tab {
  *  for. Each takes `active` so filled-vs-outline can be a single component, matching the selected-tab
  *  convention every mobile OS tab bar uses. */
 function HomeIcon({ active }: { active: boolean }) {
+  // Its own filled shape rather than the outline's paths with `strokeWidth={0}` like the other icons:
+  // the roof is a stroke-only line with nothing to fill, so zeroing the stroke erased it and left just
+  // the notched body square.
+  if (active) {
+    return (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M11.36 3.53a1 1 0 0 1 1.28 0l8 6.67A1 1 0 0 1 20 12h-1v7a1 1 0 0 1-1 1h-4v-6h-4v6H6a1 1 0 0 1-1-1v-7H4a1 1 0 0 1-.64-1.77Z" />
+      </svg>
+    );
+  }
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 0 : 1.8}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
       <path d="M3 11.5 12 4l9 7.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"
-        fill={active ? "currentColor" : "none"}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
