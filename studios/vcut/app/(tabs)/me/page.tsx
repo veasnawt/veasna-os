@@ -160,7 +160,7 @@ export default function MePage() {
             <p className="mt-1 text-[11px] text-white/35">Refills {new Date(status.creditsResetAt).toLocaleDateString()}</p>
           </div>
 
-          {error && <p className="mt-3 text-xs text-rose-300">{error}</p>}
+          {error && <p className="mt-3 text-xs text-amber-200/80">{error}</p>}
 
           <button
             onClick={() => void (isPro ? manageBilling() : upgrade())}
@@ -180,7 +180,7 @@ export default function MePage() {
               </div>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
                 <div
-                  className={`h-full rounded-full ${usagePercent > 90 ? "bg-rose-400" : "bg-sky-400"}`}
+                  className={`h-full rounded-full ${usagePercent > 90 ? "bg-amber-400" : "bg-sky-400"}`}
                   style={{ width: `${usagePercent}%` }}
                 />
               </div>

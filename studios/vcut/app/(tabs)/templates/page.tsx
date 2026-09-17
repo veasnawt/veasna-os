@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { startCheckout } from "@veasnawt/vcut/src/api/billing";
 import { Avatar } from "../../_shared/Avatar";
 import { authFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 import { TemplateViewer } from "../../_shared/TemplateViewer";
@@ -27,23 +28,50 @@ export default function TemplatesPage() {
   const [mode, setMode] = useState<FeedMode>("discover");
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "My Templates" is Pro-only server-side (`requirePro`), so a Free account's request always comes
+  // back 402 `pro-required` — an expected answer, not a failure, and shown as an invitation rather
+  // than an error line.
+  const [needsPro, setNeedsPro] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setTemplates(null);
     setError(null);
+    setNeedsPro(false);
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
     authFetch(url)
       .then(async (res) => {
         if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
+          const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+          if (body?.code === "pro-required") {
+            if (!cancelled) setNeedsPro(true);
+            return;
+          }
           throw new Error(body?.error ?? `Couldn't load templates (${res.status}).`);
         }
         const body = (await res.json()) as { templates: TemplateRow[] };
-        setTemplates(body.templates);
+        if (!cancelled) setTemplates(body.templates);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Couldn't load templates."));
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load templates.");
+      });
+    // Switching tabs mid-request would otherwise let the slower, now-stale response land last.
+    return () => {
+      cancelled = true;
+    };
   }, [mode]);
+
+  async function upgrade() {
+    setUpgrading(true);
+    try {
+      window.location.href = await startCheckout();
+    } catch {
+      setError("Couldn't start checkout — try again in a moment.");
+      setUpgrading(false);
+    }
+  }
 
   function removeLocally(id: string) {
     setTemplates((prev) => prev?.filter((t) => t.id !== id) ?? null);
@@ -76,9 +104,32 @@ export default function TemplatesPage() {
         </button>
       </div>
 
-      {error && <p className="mt-4 text-xs text-rose-300">{error}</p>}
+      {error && <p className="mt-4 text-xs text-amber-200/80">{error}</p>}
 
-      {templates === null ? (
+      {needsPro ? (
+        <div className="mt-6 max-w-md rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-sm font-medium text-white">Save your own templates with Pro</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/50">
+            Turn any project into a reusable template and share it with other creators. Browsing and using templates in
+            Discover is free.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => void upgrade()}
+              disabled={upgrading}
+              className="rounded-md bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-400 disabled:opacity-60"
+            >
+              {upgrading ? "One moment…" : "Upgrade to Pro"}
+            </button>
+            <button
+              onClick={() => setMode("discover")}
+              className="rounded-md border border-white/15 px-3.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/5"
+            >
+              Browse Discover
+            </button>
+          </div>
+        </div>
+      ) : error ? null : templates === null ? (
         <p className="mt-6 text-xs text-white/40">Loading…</p>
       ) : templates.length === 0 ? (
         <p className="mt-6 text-xs text-white/40">

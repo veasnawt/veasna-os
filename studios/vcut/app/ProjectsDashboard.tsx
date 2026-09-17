@@ -297,7 +297,7 @@ export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; 
           )}
         </div>
 
-        {error && <p className="mt-4 text-xs text-rose-300">{error}</p>}
+        {error && <p className="mt-4 text-xs text-amber-200/80">{error}</p>}
 
         <div className="mt-6 flex items-center justify-end gap-2">
           <button
@@ -418,7 +418,7 @@ export function ProjectsDashboard() {
         </button>
       </header>
 
-      {error && <p className="text-xs text-rose-300">{error}</p>}
+      {error && <p className="text-xs text-amber-200/80">{error}</p>}
 
       {projects !== null && projects.length > 0 && (
         <div className="relative max-w-sm">
@@ -446,7 +446,8 @@ export function ProjectsDashboard() {
 
       <section>
         {projects === null ? (
-          <p className="text-xs text-white/40">Loading…</p>
+          // A failed load already says so above — "Loading…" under it would never go away.
+          !error && <p className="text-xs text-white/40">Loading…</p>
         ) : projects.length === 0 ? (
           <p className="text-xs text-white/40">No projects yet — create one above.</p>
         ) : filtered && filtered.length === 0 ? (

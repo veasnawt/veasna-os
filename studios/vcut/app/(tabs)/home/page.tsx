@@ -54,7 +54,7 @@ export default function HomePage() {
         </Link>
       </div>
 
-      {error && <p className="mt-4 text-xs text-rose-300">{error}</p>}
+      {error && <p className="mt-4 text-xs text-amber-200/80">{error}</p>}
 
       <div className="mt-8">
         <div className="flex items-center justify-between">
@@ -67,7 +67,8 @@ export default function HomePage() {
         </div>
 
         {recent === null ? (
-          <p className="mt-4 text-xs text-white/40">Loading…</p>
+          // A failed load already says so above — "Loading…" under it would never go away.
+          !error && <p className="mt-4 text-xs text-white/40">Loading…</p>
         ) : recent.length === 0 ? (
           <p className="mt-4 text-xs text-white/40">No projects yet — create one above to get started.</p>
         ) : (

@@ -132,7 +132,7 @@ function LoginPageInner() {
               />
             </label>
 
-            {error && <p className="text-xs text-rose-300">{error}</p>}
+            {error && <p className="text-xs text-amber-200/80">{error}</p>}
 
             <button
               onClick={() => void sendMagicLink()}

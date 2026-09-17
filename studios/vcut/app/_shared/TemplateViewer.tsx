@@ -139,6 +139,8 @@ export function TemplateViewer({
   });
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [comments, setComments] = useState<Map<string, CommentRow[]>>(new Map());
+  // Template id whose comments last failed to load — cleared on the next open, which retries.
+  const [commentsFailedFor, setCommentsFailedFor] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState("");
   const [postingComment, setPostingComment] = useState(false);
 
@@ -242,12 +244,14 @@ export function TemplateViewer({
   function openComments(id: string) {
     setCommentsOpenFor(id);
     if (comments.has(id)) return;
+    setCommentsFailedFor(null);
     authFetch(`/api/vcut/templates/${encodeURIComponent(id)}/comments`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { comments: CommentRow[] } | null) => {
         if (body) setComments((prev) => new Map(prev).set(id, body.comments));
+        else setCommentsFailedFor(id);
       })
-      .catch(() => {});
+      .catch(() => setCommentsFailedFor(id));
   }
 
   async function postComment() {
@@ -434,7 +438,11 @@ export function TemplateViewer({
 
               <div className="flex-1 overflow-y-auto px-4 py-3">
                 {!comments.has(commentsTemplate.id) ? (
-                  <p className="text-xs text-white/40">Loading…</p>
+                  commentsFailedFor === commentsTemplate.id ? (
+                    <p className="text-xs text-amber-200/80">Couldn&apos;t load comments — try again in a moment.</p>
+                  ) : (
+                    <p className="text-xs text-white/40">Loading…</p>
+                  )
                 ) : comments.get(commentsTemplate.id)!.length === 0 ? (
                   <p className="text-xs text-white/40">No comments yet — be the first.</p>
                 ) : (

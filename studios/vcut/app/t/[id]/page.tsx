@@ -45,6 +45,7 @@ export default function PublicTemplatePage() {
   const [info, setInfo] = useState<TemplateInfo | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [comments, setComments] = useState<CommentRow[] | null>(null);
+  const [commentsFailed, setCommentsFailed] = useState(false);
   const [commentInput, setCommentInput] = useState("");
   const [posting, setPosting] = useState(false);
   const [liking, setLiking] = useState(false);
@@ -64,8 +65,9 @@ export default function PublicTemplatePage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { comments: CommentRow[] } | null) => {
         if (body) setComments(body.comments);
+        else setCommentsFailed(true);
       })
-      .catch(() => {});
+      .catch(() => setCommentsFailed(true));
   }, [params.id]);
 
   async function useTemplate() {
@@ -220,7 +222,11 @@ export default function PublicTemplatePage() {
           <div className="mt-8 flex-1">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-white/40">Comments</p>
             {comments === null ? (
-              <p className="text-xs text-white/40">Loading…</p>
+              commentsFailed ? (
+                <p className="text-xs text-amber-200/80">Couldn&apos;t load comments — try again in a moment.</p>
+              ) : (
+                <p className="text-xs text-white/40">Loading…</p>
+              )
             ) : comments.length === 0 ? (
               <p className="text-xs text-white/40">No comments yet.</p>
             ) : (
