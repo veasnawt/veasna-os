@@ -307,10 +307,11 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
         hasAudio: fresh.hasAudio,
         sizeBytes: fresh.sizeBytes,
         aiGeneration: null,
-        // Deliberately visible in "All my media" — see this function's own doc comment: landing it in
-        // the library at all (not just the project) is what makes it count as something the new owner
-        // genuinely owns, the same as any other library item.
-        hidden: false,
+        // Visible in "All my media" — see this function's own doc comment: landing it in the library at
+        // all (not just the project) is what makes it count as something the new owner genuinely owns.
+        // Except a sound effect, hidden like one added from the SFX panel: it's part of the template's
+        // edit, not music someone picked, and would otherwise clutter every audio list in the library.
+        hidden: isSoundEffectAsset(asset),
       });
       fresh.libraryMediaId = fresh.id;
       return fresh;
