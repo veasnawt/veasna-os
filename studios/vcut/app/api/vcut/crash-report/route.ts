@@ -21,6 +21,9 @@ export const POST = localRoute(async (req) => {
   }
 
   const entry = { time: new Date().toISOString(), ...body };
+  // Also to stdout: on the hosted deploy the file below lives inside the container's volume, where
+  // nobody reads it — the platform's log stream is the only place a client report is actually visible.
+  console.error("[vcut] client report:", JSON.stringify(entry).slice(0, 8000));
   try {
     fs.mkdirSync(VCUT_ROOT, { recursive: true });
     const logPath = path.join(VCUT_ROOT, "crash.log");
