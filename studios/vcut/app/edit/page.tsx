@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { VCutApp } from "@veasnawt/vcut";
+import { TemplateDraftApp, VCutApp } from "@veasnawt/vcut";
 
 /** The editor's real entry point — embedded by a host app (BP Studio's Create page, today) via an
  *  `<iframe>` pointed at `${vcutUrl}/edit?projectId=...&projectName=...`. VCut no longer knows
@@ -15,6 +15,9 @@ function EditPageContent() {
   const params = useSearchParams();
   const projectId = params.get("projectId");
   const projectName = params.get("projectName");
+  // "Use this template" lands here with a template, not a project — see `TemplateDraftApp`: the project
+  // is only created once media is picked, then this page is replaced with that project's own URL.
+  const templateId = params.get("templateId");
 
   // Only VCut's own standalone page (`/`) has a project list to go back to — a host app like BP
   // Studio embeds this exact same route in its own `<iframe>`, with no equivalent list of its own, so
@@ -33,6 +36,23 @@ function EditPageContent() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStandalone(window.self === window.top);
   }, []);
+
+  if (!projectId && templateId) {
+    return (
+      <main className="flex h-dvh flex-col overflow-hidden bg-[#0a0c10]">
+        <div className="min-h-0 min-w-0 flex-1">
+          <TemplateDraftApp
+            templateId={templateId}
+            onHome={standalone ? () => router.push("/") : undefined}
+            onProjectCreated={(id, name) =>
+              // `replace`, not `push`: Back from the new project shouldn't land on a draft of it.
+              router.replace(`/edit?projectId=${encodeURIComponent(id)}&projectName=${encodeURIComponent(name)}`)
+            }
+          />
+        </div>
+      </main>
+    );
+  }
 
   if (!projectId) {
     return (

@@ -308,21 +308,12 @@ export function TemplateViewer({
     }
   }
 
-  async function useTemplate(template: TemplateRow) {
+  // Opens the template as an unsaved draft — no project is created until media is actually picked for
+  // it (see `TemplateDraftApp`).
+  function startFromTemplate(template: TemplateRow) {
     if (creating) return;
     setCreating(true);
-    try {
-      const res = await authFetch("/api/vcut/project", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: template.name, templateId: template.id }),
-      });
-      if (!res.ok) throw new Error();
-      const body = (await res.json()) as { project: { bpProjectId: string; name: string } };
-      router.push(`/edit?projectId=${encodeURIComponent(body.project.bpProjectId)}&projectName=${encodeURIComponent(body.project.name)}`);
-    } catch {
-      setCreating(false);
-    }
+    router.push(`/edit?templateId=${encodeURIComponent(template.id)}&projectName=${encodeURIComponent(template.name)}`);
   }
 
   async function confirmDelete() {
@@ -409,7 +400,7 @@ export function TemplateViewer({
             social={social.get(template.id)}
             creating={creating}
             publishing={publishingId === template.id}
-            onUseTemplate={() => void useTemplate(template)}
+            onUseTemplate={() => void startFromTemplate(template)}
             onToggleFavorite={() => toggleFavorite(template.id)}
             onToggleLike={() => void toggleLike(template.id)}
             onOpenComments={() => openComments(template.id)}

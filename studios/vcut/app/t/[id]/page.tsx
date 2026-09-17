@@ -70,25 +70,16 @@ export default function PublicTemplatePage() {
       .catch(() => setCommentsFailed(true));
   }, [params.id]);
 
-  async function useTemplate() {
+  async function startFromTemplate() {
     if (!info || creating) return;
     if (!user) {
       router.push("/login");
       return;
     }
+    // Opens the template as an unsaved draft — no project is created until media is actually picked
+    // for it (see `TemplateDraftApp`).
     setCreating(true);
-    try {
-      const res = await authFetch("/api/vcut/project", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: info.name, templateId: info.id }),
-      });
-      if (!res.ok) throw new Error();
-      const body = (await res.json()) as { project: { bpProjectId: string; name: string } };
-      router.push(`/edit?projectId=${encodeURIComponent(body.project.bpProjectId)}&projectName=${encodeURIComponent(body.project.name)}`);
-    } catch {
-      setCreating(false);
-    }
+    router.push(`/edit?templateId=${encodeURIComponent(info.id)}&projectName=${encodeURIComponent(info.name)}`);
   }
 
   async function toggleLike() {
@@ -212,7 +203,7 @@ export default function PublicTemplatePage() {
           </div>
 
           <button
-            onClick={() => void useTemplate()}
+            onClick={() => void startFromTemplate()}
             disabled={creating}
             className="btn-brand-gradient mt-5 w-full rounded-md py-2.5 text-center text-sm font-semibold text-white disabled:cursor-default disabled:opacity-60"
           >

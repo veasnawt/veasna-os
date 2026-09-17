@@ -53,16 +53,15 @@ export const GET = localRoute(async (req) => {
     kindParam === "thumbnail" || kindParam === "export" || kindParam === "lut" || kindParam === "customFont" || kindParam === "customSfx"
       ? kindParam
       : "media";
-  if (!projectId || !relPath) throw new ApiError(400, "Missing projectId or relPath", "missing-params");
-
   // `library=1` means this file lives in the CURRENT user's account-wide library
   // (`users/<id>/media`/`.../thumbnails`), not this project's own folder — see
-  // `Asset.libraryMediaId`'s own doc comment. `projectId` is still required and still checked above
-  // (via `localRoute`'s own ownership check) even for a library file, since it's what anchors this
-  // request to a real project the caller actually owns in the first place; the library directory
-  // resolved below always belongs to that SAME owner; only `kind === "media" | "thumbnail"` ever apply
-  // to a library file (no library-only export/lut/font/sfx concept exists).
+  // `Asset.libraryMediaId`'s own doc comment. The library directory is resolved from the signed-in
+  // session alone, so `projectId` is optional for a library file: a template opened as a draft
+  // (`TemplateDraftApp`) shows your library before any project exists. When one IS sent it's still
+  // ownership-checked by `localRoute` as before. Only `kind === "media" | "thumbnail"` ever apply to a
+  // library file (no library-only export/lut/font/sfx concept exists).
   const isLibrary = url.searchParams.get("library") === "1";
+  if (!relPath || (!projectId && !isLibrary)) throw new ApiError(400, "Missing projectId or relPath", "missing-params");
   let baseDir: string;
   if (isLibrary) {
     if (!VCUT_HOSTED) throw new ApiError(400, "Library media isn't available here", "library-unavailable");
@@ -70,7 +69,7 @@ export const GET = localRoute(async (req) => {
     const libraryPaths = userMediaPaths(user.id);
     baseDir = kind === "thumbnail" ? libraryPaths.thumbnailsDir : libraryPaths.mediaDir;
   } else {
-    const paths = projectPaths(projectId);
+    const paths = projectPaths(projectId!);
     baseDir =
       kind === "thumbnail"
         ? paths.thumbnailsDir
