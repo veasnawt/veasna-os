@@ -5,7 +5,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // accepting the default) before ever submitting a real build. Picked to match this repo's existing
 // "Veasna OS" branding; change here if that's not the intended final id.
 const config: CapacitorConfig = {
-  appId: "com.veasnaos.vcut",
+  appId: "com.veasnawt.vcut",
   appName: "VCut",
   webDir: "dist",
   android: {

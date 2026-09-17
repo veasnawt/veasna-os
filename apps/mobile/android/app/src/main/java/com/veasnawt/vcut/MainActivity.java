@@ -1,4 +1,4 @@
-package com.veasnaos.vcut;
+package com.veasnawt.vcut;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
