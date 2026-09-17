@@ -7,13 +7,15 @@ import { buildExtractClipArgs } from "@veasnawt/vcut/src/export/ffmpegCommands";
 import { findAsset, findClip } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
+import { resolveAssetInputPath } from "../_lib/assetInput";
 import { ffmpegAvailable, ffmpegBinary, generateFilmstrip, generateMaskImage, generateMaskVideo, generateThumbnail, probeMedia, runFfmpeg } from "../_lib/ffmpeg";
+import { importMediaBytes } from "../_lib/importMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
 import { getInpaintKeyStatus, getActiveInpaintToken } from "../_lib/inpaintEnvFile";
 import { getLocalSetupStatus, REPO_DIR, VENV_PYTHON } from "../_lib/localModel";
-import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName, userMediaPaths } from "../_lib/paths";
 import { HOSTED_ORIGIN } from "../_lib/stripe";
 
 /** Credits per second of a Remove Object job's OUTPUT video (rounded up) — `bria/video-erase-object`
@@ -439,12 +441,199 @@ async function runLocalPrediction(
   return fs.promises.readFile(resultPath);
 }
 
+/** Runs one FFmpeg invocation to completion — for the short image-pipeline conversions below, which
+ *  need no progress reporting of their own. */
+function execFfmpeg(args: string[], failureMessage: string, timeoutMs = 60_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(ffmpegBinary(), args, { timeout: timeoutMs }, (err) => (err ? reject(new ApiError(500, failureMessage, "image-convert-failed")) : resolve()));
+  });
+}
+
+/** File extension for an eraser's returned image bytes, sniffed from the content — providers don't
+ *  promise one format (PNG, JPEG or WebP), and FFmpeg reads a still most reliably with the right one. */
+function imageExtensionFor(bytes: Buffer): string {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return ".png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return ".jpg";
+  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return ".webp";
+  return ".png";
+}
+
+/** Replicate's `bria/eraser` — Bria's still-image object removal: an image plus a binary mask (white =
+ *  erase), no prompt, returns the cleaned image. Input names are from the model's live schema (fetched
+ *  2026-09-17: `image`/`image_url`, `mask`/`mask_url`, output a single URI). Hosted mode passes plain
+ *  public URLs to this job's scratch files for the same reason `runInpaintPrediction` does — Bria's own
+ *  servers can't fetch Replicate's private uploads — and local mode falls back to Replicate's upload. */
+async function runReplicateImageErase(
+  bpProjectId: string,
+  jobId: string,
+  imagePath: string,
+  maskPath: string,
+  token: string,
+  signal: AbortSignal,
+  onProgress: (fraction: number) => void
+): Promise<Buffer> {
+  const replicate = new Replicate({ auth: token });
+  const input = VCUT_HOSTED
+    ? {
+        image_url: `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-src.png`,
+        mask_url: `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-mask.png`,
+      }
+    : {
+        image: new File([await fs.promises.readFile(imagePath)], path.basename(imagePath), { type: "image/png" }),
+        mask: new File([await fs.promises.readFile(maskPath)], path.basename(maskPath), { type: "image/png" }),
+      };
+  const model = await replicate.models.get("bria", "eraser");
+  const version = model.latest_version?.id;
+  if (!version) throw new ApiError(502, "Replicate's image object-removal model has no runnable version", "replicate-model-unavailable");
+  const result = await replicate.run(`bria/eraser:${version}`, { input, signal }, (prediction) => {
+    onProgress(prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
+  });
+  const output = Array.isArray(result) ? result[0] : result;
+  // The client returns a `FileOutput` (with `blob()`) by default; a plain URL string is handled too.
+  if (output && typeof (output as { blob?: unknown }).blob === "function") {
+    const blob = await (output as { blob: () => Promise<Blob> }).blob();
+    return Buffer.from(await blob.arrayBuffer());
+  }
+  if (typeof output === "string") {
+    const res = await fetch(output, { signal });
+    if (!res.ok) throw new ApiError(502, `Downloading the Replicate result failed (${res.status})`, "download-failed");
+    return Buffer.from(await res.arrayBuffer());
+  }
+  throw new ApiError(502, "Replicate's prediction had no usable output image", "replicate-predict-failed");
+}
+
+/** fal.ai's `fal-ai/bria/eraser` — the same Bria still-image eraser (`image_url` + `mask_url`, returns
+ *  `{ image: { url } }`), uploaded through fal's own storage like `runFalPrediction`'s video inputs. */
+async function runFalImageErase(
+  imagePath: string,
+  maskPath: string,
+  token: string,
+  signal: AbortSignal,
+  onUploadProgress: (fraction: number) => void,
+  onPredictProgress: (fraction: number) => void
+): Promise<Buffer> {
+  fal.config({ credentials: token });
+  const [image, mask] = await Promise.all([fs.promises.readFile(imagePath), fs.promises.readFile(maskPath)]);
+  onUploadProgress(0);
+  const imageUrl = await fal.storage.upload(new Blob([image], { type: "image/png" }));
+  onUploadProgress(0.5);
+  const maskUrl = await fal.storage.upload(new Blob([mask], { type: "image/png" }));
+  onUploadProgress(1);
+  const result = await fal.subscribe("fal-ai/bria/eraser", {
+    input: { image_url: imageUrl, mask_url: maskUrl },
+    abortSignal: signal,
+    onQueueUpdate: (status) => {
+      onPredictProgress(status.status === "COMPLETED" ? 1 : status.status === "IN_PROGRESS" ? 0.6 : 0.1);
+    },
+  });
+  const outputUrl = (result.data as { image?: { url?: string } })?.image?.url;
+  if (!outputUrl) throw new ApiError(502, "fal.ai's prediction had no usable output image", "fal-predict-failed");
+  const downloadRes = await fetch(outputUrl, { headers: { "User-Agent": "VCut/1.0 (+https://github.com/veasnawt/vcut)" }, signal });
+  if (!downloadRes.ok) throw new ApiError(502, `Downloading the fal.ai result failed (${downloadRes.status})`, "download-failed");
+  return Buffer.from(await downloadRes.arrayBuffer());
+}
+
+/** Remove Object on an IMAGE clip — the still-image counterpart of the video pipeline in
+ *  `runInpaintJob`, which calls this once it has resolved the clip's source file and credentials.
+ *  Normalizes the source to PNG (whatever it was imported as), draws the same white-box mask the video
+ *  path uses, and runs the provider's own image eraser (Replicate/fal: Bria Eraser). The local provider
+ *  (ProPainter) has no still-image mode, so the image goes through it as a one-second still video and a
+ *  frame comes back out. The result is scaled back to the source's own size — so the clip's transform
+ *  and crop still line up — and imported like any other image into the project's own media. */
+async function removeObjectFromImage(
+  job: InpaintJob,
+  bpProjectId: string,
+  paths: ReturnType<typeof ensureProjectDirs>,
+  asset: Asset,
+  sourcePath: string,
+  rect: { x: number; y: number; width: number; height: number },
+  activeProvider: "replicate" | "fal" | "local",
+  token: string | null,
+  scratchPrefix: string,
+  localOutputDir: string
+): Promise<Asset> {
+  const srcPng = `${scratchPrefix}-src.png`;
+  const maskPng = `${scratchPrefix}-mask.png`;
+  const stillVideo = `${scratchPrefix}-still.mp4`;
+  const erasedRaw = `${scratchPrefix}-erased`;
+  const finalPng = `${scratchPrefix}-final.png`;
+  const scratch = [srcPng, maskPng, stillVideo, finalPng];
+  try {
+    setStageProgress(job, "extracting", 0);
+    await execFfmpeg(["-y", "-i", sourcePath, "-frames:v", "1", srcPng], "Could not read that image");
+    const probe = await probeMedia(srcPng);
+    const width = probe.width;
+    const height = probe.height;
+    if (!width || !height) throw new ApiError(500, "Could not read the image's dimensions", "extract-failed");
+    setStageProgress(job, "extracting", 1);
+
+    let erased: Buffer;
+    if (activeProvider === "local") {
+      // ProPainter wants even dimensions and a real (if still) video — padded, never scaled, so the
+      // mask's pixel coordinates stay exactly where they were drawn.
+      const paddedWidth = Math.ceil(width / 2) * 2;
+      const paddedHeight = Math.ceil(height / 2) * 2;
+      await execFfmpeg(
+        ["-y", "-loop", "1", "-framerate", "10", "-i", srcPng, "-t", "1", "-vf", `pad=${paddedWidth}:${paddedHeight}`, "-c:v", "libx264", "-pix_fmt", "yuv420p", stillVideo],
+        "Could not prepare the image for the local model"
+      );
+      if (!(await generateMaskImage(maskPng, paddedWidth, paddedHeight, rect))) throw new ApiError(500, "Could not generate the mask", "mask-failed");
+      setStageProgress(job, "masking", 1);
+      setStageProgress(job, "uploading", 1);
+      const outVideo = await runLocalPrediction(stillVideo, maskPng, localOutputDir, 10, job.abortController.signal, (fraction) =>
+        setStageProgress(job, "predicting", fraction)
+      );
+      const outVideoPath = `${scratchPrefix}-still-out.mp4`;
+      scratch.push(outVideoPath);
+      await fs.promises.writeFile(outVideoPath, outVideo);
+      const framePath = `${scratchPrefix}-still-frame.png`;
+      scratch.push(framePath);
+      await execFfmpeg(["-y", "-ss", "0.5", "-i", outVideoPath, "-frames:v", "1", "-vf", `crop=${width}:${height}:0:0`, framePath], "Could not read the local model's result");
+      erased = await fs.promises.readFile(framePath);
+    } else {
+      if (!(await generateMaskImage(maskPng, width, height, rect))) throw new ApiError(500, "Could not generate the mask", "mask-failed");
+      setStageProgress(job, "masking", 1);
+      if (job.abortController.signal.aborted) throw new ApiError(499, "Cancelled", "cancelled");
+      erased =
+        activeProvider === "fal"
+          ? await runFalImageErase(
+              srcPng,
+              maskPng,
+              token!,
+              job.abortController.signal,
+              (fraction) => setStageProgress(job, "uploading", fraction),
+              (fraction) => setStageProgress(job, "predicting", fraction)
+            )
+          : (setStageProgress(job, "uploading", 1),
+            await runReplicateImageErase(bpProjectId, job.id, srcPng, maskPng, token!, job.abortController.signal, (fraction) =>
+              setStageProgress(job, "predicting", fraction)
+            ));
+    }
+
+    setStageProgress(job, "downloading", 0.5);
+    const erasedPath = `${erasedRaw}${imageExtensionFor(erased)}`;
+    scratch.push(erasedPath);
+    await fs.promises.writeFile(erasedPath, erased);
+    setStageProgress(job, "downloading", 1);
+
+    setStageProgress(job, "importing", 0);
+    await execFfmpeg(["-y", "-i", erasedPath, "-frames:v", "1", "-vf", `scale=${width}:${height}`, finalPng], "Could not read the erased image");
+    const baseName = asset.name.replace(/\.[^.]+$/, "");
+    const imported = await importMediaBytes(paths, await fs.promises.readFile(finalPng), `${baseName}-object-removed.png`);
+    imported.name = `${baseName} (object removed)`;
+    return imported;
+  } finally {
+    for (const scratchFile of scratch) fs.rm(scratchFile, { force: true }, () => {});
+  }
+}
+
 async function runInpaintJob(
   job: InpaintJob,
   bpProjectId: string,
   clipId: string,
   rect: { x: number; y: number; width: number; height: number },
-  backgroundPrompt: string | undefined
+  backgroundPrompt: string | undefined,
+  libraryMediaDir: string | null
 ) {
   const paths = ensureProjectDirs(bpProjectId);
   const scratchPrefix = path.join(paths.scratchDir, job.id);
@@ -462,16 +651,27 @@ async function runInpaintJob(
     const found = findClip(project, clipId);
     if (!found) throw new ApiError(400, "That clip no longer exists in the project", "clip-missing");
     const asset = findAsset(project, found.clip.assetId);
-    if (!asset || asset.kind !== "video") throw new ApiError(400, "That clip's media is missing or isn't a video", "asset-missing");
+    if (!asset || (asset.kind !== "video" && asset.kind !== "image")) {
+      throw new ApiError(400, "That clip's media is missing or isn't a video or image", "asset-missing");
+    }
     if (asset.offline) throw new ApiError(400, "That clip's media file is offline", "asset-offline");
 
-    const sourcePath = resolveWithin(paths.mediaDir, asset.relPath);
+    // Through the shared resolver, not the project's own media folder alone — on the hosted deploy an
+    // upload lives in the owner's LIBRARY, which the old `paths.mediaDir` lookup could never find.
+    const sourcePath = resolveAssetInputPath(paths, libraryMediaDir, asset);
     let token: string | null = null;
     if (activeProvider === "local") {
       if (!getLocalSetupStatus().ready) throw new ApiError(400, "Set up the local model first", "local-not-ready");
     } else {
       token = getActiveInpaintToken();
       if (!token) throw new ApiError(400, `Set your ${activeProvider === "fal" ? "fal.ai" : "Replicate"} API key first`, "no-api-key");
+    }
+
+    if (asset.kind === "image") {
+      job.asset = await removeObjectFromImage(job, bpProjectId, paths, asset, sourcePath, rect, activeProvider, token, scratchPrefix, localOutputDir);
+      job.status = "done";
+      job.progress = 1;
+      return;
     }
 
     // --- extracting ---
@@ -681,16 +881,22 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
   if (!found) throw new ApiError(400, "That clip no longer exists in the project", "clip-missing");
   if (found.track.kind !== "video") throw new ApiError(400, "Remove Object only works on a video track", "wrong-track-kind");
   const asset = findAsset(project, found.clip.assetId);
-  if (!asset || asset.kind !== "video") throw new ApiError(400, "That clip's media is missing or isn't a video", "asset-missing");
+  if (!asset || (asset.kind !== "video" && asset.kind !== "image")) {
+    throw new ApiError(400, "That clip's media is missing or isn't a video or image", "asset-missing");
+  }
 
   // See `REMOVE_OBJECT_CREDITS_PER_SECOND`'s own comment: only the "replicate" provider is billed by
   // output-second, so only it prices per-second here — the clip's own requested duration IS the real
   // output duration, since each individual chunk this ends up split into (`runChunkedInpaintPrediction`)
   // is always ≤5s and so never actually needs `auto_trim` to shorten anything.
   const clipSeconds = found.clip.sourceOut - found.clip.sourceIn;
+  // An image is one erase regardless of how long its clip is on the timeline — priced as the minimum,
+  // a single second's worth.
   const cost =
     keyStatus.activeProvider === "replicate"
-      ? Math.max(REMOVE_OBJECT_CREDITS_PER_SECOND, Math.ceil(clipSeconds) * REMOVE_OBJECT_CREDITS_PER_SECOND)
+      ? asset.kind === "image"
+        ? REMOVE_OBJECT_CREDITS_PER_SECOND
+        : Math.max(REMOVE_OBJECT_CREDITS_PER_SECOND, Math.ceil(clipSeconds) * REMOVE_OBJECT_CREDITS_PER_SECOND)
       : REMOVE_OBJECT_FLAT_COST;
 
   // Every upfront check above has passed — see `captions/route.ts`'s identical comment for why this
@@ -714,7 +920,7 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
   job.notify = notifier.notify;
   jobs.set(id, job);
 
-  void runInpaintJob(job, bpProjectId, body.clipId, rect, body.backgroundPrompt);
+  void runInpaintJob(job, bpProjectId, body.clipId, rect, body.backgroundPrompt, VCUT_HOSTED && user ? userMediaPaths(user.id).mediaDir : null);
 
   return Response.json({ jobId: id });
 });

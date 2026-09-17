@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 // chunk's own scratch-file fetch was rejected with a 400 (this regex simply never matched), which
 // Bria's backend then reported as the exact same "Failed to load video" 422 the ORIGINAL (pre-faststart)
 // bug did — a completely different root cause producing an identical-looking symptom.
-const JOB_FILE_RE = /^[0-9a-f-]{36}(?:-chunk\d+)?-(?:src|mask)\.mp4$/i;
+// `.png` for an image clip's own source/mask (`removeObjectFromImage`, sent to `bria/eraser`).
+const JOB_FILE_RE = /^[0-9a-f-]{36}(?:-chunk\d+)?-(?:src|mask)\.(mp4|png)$/i;
 
 /** Serves a running Remove Object job's own scratch VIDEO or MASK file (never anything else in the
  *  project) to an external caller — specifically `bria/video-erase-object`'s own backend, confirmed
@@ -40,6 +41,7 @@ export const GET = publicAssetRoute(async (req: Request, context: { params: Prom
   if (!fs.existsSync(filePath)) throw new ApiError(404, "That job's file is no longer available", "scratch-file-missing");
 
   const stat = fs.statSync(filePath);
+  const contentType = match[1].toLowerCase() === "png" ? "image/png" : "video/mp4";
   // Range support alongside `-movflags +faststart` (see `buildExtractClipArgs`'s own comment) —
   // `faststart` means a sequential read no longer NEEDS seeking, but a decoder is still free to
   // issue Range requests (many do, to probe size or read ahead), and answering those with a plain
@@ -60,7 +62,7 @@ export const GET = publicAssetRoute(async (req: Request, context: { params: Prom
         return new Response(new Uint8Array(buf), {
           status: 206,
           headers: {
-            "Content-Type": "video/mp4",
+            "Content-Type": contentType,
             "Content-Range": `bytes ${start}-${end}/${stat.size}`,
             "Content-Length": String(buf.length),
             "Accept-Ranges": "bytes",
@@ -74,7 +76,7 @@ export const GET = publicAssetRoute(async (req: Request, context: { params: Prom
   return new Response(new Uint8Array(fs.readFileSync(filePath)), {
     status: 200,
     headers: {
-      "Content-Type": "video/mp4",
+      "Content-Type": contentType,
       "Content-Length": String(stat.size),
       "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",

@@ -1,9 +1,16 @@
 import { execFile } from "child_process";
 import fs from "fs";
+import os from "os";
+import path from "path";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
-import { ffmpegBinary, generateWaveform, probeMedia } from "../../_lib/ffmpeg";
+import { resolveAssetInputPath } from "../../_lib/assetInput";
+import { requireSessionUser, VCUT_HOSTED } from "../../_lib/auth";
+import { ffmpegBinary } from "../../_lib/ffmpeg";
+import { importMediaBytes } from "../../_lib/importMedia";
 import { localRoute } from "../../_lib/localOnly";
-import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName } from "../../_lib/paths";
+import { ApiError, ensureProjectDirs, ensureUserMediaDirs, userMediaPaths } from "../../_lib/paths";
+import { getProfile } from "../../_lib/profiles";
+import { checkStorageQuota, insertUserMedia } from "../../_lib/userMedia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,62 +30,82 @@ export const dynamic = "force-dynamic";
  *  its own file unconditionally, with no reference count across OTHER assets that might point at the
  *  same path, so a shared file would risk one asset's delete breaking the other's still-in-use clip.
  *
- *  So this exists as an optional, separate step: probe the source, encode a genuinely independent
- *  AAC/m4a copy of ONLY its audio stream, generate a real waveform for it, and hand back a normal,
- *  freshly-"imported"-shaped `Asset` — the client swaps the extracted clip over to reference THIS asset
- *  once it resolves, same "land the real result once ready" precedent `VoiceoverRecorder`'s own async
- *  finalize step already sets. A slower, better-looking upgrade path, not a correctness requirement. */
+ *  So this encodes a genuinely independent AAC/m4a copy of ONLY the source's audio stream and imports
+ *  it exactly like an upload of that file (`importMediaBytes`: probe, waveform) — on the hosted deploy
+ *  into the user's own library, quota-checked, the same as `media/route.ts`'s own upload path — and
+ *  hands back that normal `Asset`; the client swaps the extracted clip over to it once it resolves.
+ *
+ *  The source is resolved through the shared `resolveAssetInputPath`, not the project's own media
+ *  folder alone. It used to be the latter, which failed for every video uploaded on the hosted deploy —
+ *  those live in the user's LIBRARY — and the client dropped that failure silently, so the extracted
+ *  clip never became audio (found in production: both extracted clips still pointing at a video were
+ *  library-backed; the one that had upgraded predated the library). */
 export const POST = localRoute(async (req) => {
   const projectId = new URL(req.url).searchParams.get("projectId");
   if (!projectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
   const paths = ensureProjectDirs(projectId);
 
-  const body = (await req.json().catch(() => ({}))) as { relPath?: string; name?: string };
+  const body = (await req.json().catch(() => ({}))) as Partial<Pick<Asset, "relPath" | "name" | "libraryMediaId" | "bundledSfx">>;
   if (!body.relPath) throw new ApiError(400, "Missing relPath", "missing-rel-path");
-  const sourcePath = resolveWithin(paths.mediaDir, body.relPath);
+  const user = VCUT_HOSTED ? await requireSessionUser(req) : null;
+  const sourcePath = resolveAssetInputPath(paths, user ? userMediaPaths(user.id).mediaDir : null, {
+    relPath: body.relPath,
+    libraryMediaId: body.libraryMediaId,
+    bundledSfx: body.bundledSfx,
+  });
   if (!fs.existsSync(sourcePath)) throw new ApiError(404, "That media file no longer exists", "source-missing");
 
   const baseName = (body.name || "Audio").replace(/\.[^./\\]+$/, "");
-  const fileName = uniqueFileName(`${baseName}.m4a`);
-  const destination = resolveWithin(paths.mediaDir, fileName);
-
-  await new Promise<void>((resolve, reject) => {
-    execFile(
-      ffmpegBinary(),
-      // `-vn`: drop the video stream entirely. Always re-encoded to AAC (never `-c:a copy`) — the
-      // source's own audio codec varies too widely (Opus in a WebM recording, PCM in some MOVs, ...)
-      // for a stream copy to reliably land in an `.m4a` container that plays back everywhere the rest
-      // of this app's own audio assets already do.
-      ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", destination],
-      { timeout: 120_000 },
-      (err) => (err ? reject(new ApiError(500, "Could not extract audio from that clip", "extract-failed")) : resolve())
-    );
-  });
-  if (!fs.existsSync(destination)) throw new ApiError(500, "Could not extract audio from that clip", "extract-failed");
-
-  let probe;
+  const scratchPath = path.join(os.tmpdir(), `vcut-extract-${crypto.randomUUID()}.m4a`);
   try {
-    probe = await probeMedia(destination);
-  } catch (err) {
-    fs.rmSync(destination, { force: true });
-    throw err;
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        ffmpegBinary(),
+        // `-vn`: drop the video stream entirely. Always re-encoded to AAC (never `-c:a copy`) — the
+        // source's own audio codec varies too widely (Opus in a WebM recording, PCM in some MOVs, ...)
+        // for a stream copy to reliably land in an `.m4a` container that plays back everywhere the rest
+        // of this app's own audio assets already do.
+        ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", scratchPath],
+        { timeout: 120_000 },
+        (err) => (err ? reject(new ApiError(500, "Could not extract audio from that clip", "extract-failed")) : resolve())
+      );
+    });
+    if (!fs.existsSync(scratchPath)) throw new ApiError(500, "Could not extract audio from that clip", "extract-failed");
+    const bytes = fs.readFileSync(scratchPath);
+    const fileName = `${baseName} (Audio).m4a`;
+
+    if (user) {
+      const profile = await getProfile(user.id);
+      await checkStorageQuota(user.id, profile?.plan ?? "free", bytes.byteLength);
+      const asset = await importMediaBytes(ensureUserMediaDirs(user.id), bytes, fileName);
+      if (asset.kind !== "audio") throw new ApiError(500, "Unexpected asset kind from extracted audio", "unexpected-asset-kind");
+      asset.name = `${baseName} (Audio)`;
+      await insertUserMedia(user.id, {
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.name,
+        relPath: asset.relPath,
+        thumbnailRelPath: asset.thumbnailRelPath ?? null,
+        filmstripRelPath: asset.filmstripRelPath ?? null,
+        waveformRelPath: asset.waveformRelPath ?? null,
+        duration: asset.duration,
+        width: asset.width ?? null,
+        height: asset.height ?? null,
+        fps: asset.fps ?? null,
+        hasAudio: asset.hasAudio,
+        sizeBytes: asset.sizeBytes,
+        aiGeneration: null,
+        // A real file the user made, like an upload — so it belongs in "All my media" too.
+        hidden: false,
+      });
+      asset.libraryMediaId = asset.id;
+      return Response.json({ asset });
+    }
+
+    const asset = await importMediaBytes(paths, bytes, fileName);
+    asset.name = `${baseName} (Audio)`;
+    return Response.json({ asset });
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
   }
-
-  const asset: Asset = {
-    id: `a_${crypto.randomUUID().slice(0, 8)}`,
-    kind: "audio",
-    name: `${baseName} (Audio)`,
-    relPath: fileName,
-    duration: probe.duration,
-    hasAudio: probe.hasAudio,
-    sizeBytes: fs.statSync(destination).size,
-    importedAt: Date.now(),
-  };
-
-  const waveformName = `${asset.id}-waveform.png`;
-  if (await generateWaveform(destination, resolveWithin(paths.thumbnailsDir, waveformName))) {
-    asset.waveformRelPath = waveformName;
-  }
-
-  return Response.json({ asset });
 });

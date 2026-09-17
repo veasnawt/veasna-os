@@ -13,7 +13,11 @@ import { resolveWithin, type ProjectPaths } from "./paths";
  *  resolution, and duplicating it was already an awkward temptation the moment the second caller
  *  showed up. `libraryMediaDir` is `null` on desktop/local dev, where the library concept doesn't
  *  exist at all and `libraryMediaId` is consequently never set on any asset there. */
-export function resolveAssetInputPath(paths: ProjectPaths, libraryMediaDir: string | null, asset: Asset): string {
+export function resolveAssetInputPath(
+  paths: ProjectPaths,
+  libraryMediaDir: string | null,
+  asset: Pick<Asset, "relPath" | "libraryMediaId" | "bundledSfx">
+): string {
   if (asset.bundledSfx) return sfxAssetPath(asset.relPath);
   const dir = asset.libraryMediaId && libraryMediaDir ? libraryMediaDir : paths.mediaDir;
   return resolveWithin(dir, asset.relPath);
