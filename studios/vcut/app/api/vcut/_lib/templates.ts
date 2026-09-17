@@ -12,7 +12,7 @@ import { VCUT_HOSTED } from "./auth";
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS, waitForFfmpegHeadroom } from "./ffmpegConcurrency";
 import { fontMetricsFor, fontsDirPath, generateThumbnail, runFfmpeg, textFontPath } from "./ffmpeg";
 import { importMediaBytes } from "./importMedia";
-import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, userMediaPaths } from "./paths";
+import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, templateAudioPaths, userMediaPaths } from "./paths";
 import type { ProjectPaths } from "./paths";
 import { getProfile } from "./profiles";
 import { checkStorageQuota, insertUserMedia } from "./userMedia";
@@ -182,8 +182,8 @@ async function renderOneTemplateFile(
  *  render fails (missing ffmpeg, an unreadable source file, an empty timeline) — same "a missing
  *  thumbnail costs a flat-color clip, not a failed import" tolerance `generateThumbnail`/
  *  `generateWaveform` already established elsewhere in this codebase. A template missing `preview.mp4`
- *  shows a generic placeholder tile; missing `poster.jpg` alone just falls back to whatever the
- *  browser's own default first-frame behavior manages; missing `preview-full.mp4` falls back to
+ *  shows a generic placeholder tile; missing `poster.jpg` alone is regenerated on first request (see
+ *  `ensureTemplatePoster`); missing `preview-full.mp4` falls back to
  *  `preview.mp4` in the viewer (see `TemplateViewer.tsx`'s own fallback). */
 export async function renderTemplatePreview(
   templateId: string,
@@ -210,14 +210,7 @@ export async function renderTemplatePreview(
       audioBitrateKbps: TEMPLATE_PREVIEW_AUDIO_KBPS,
     };
     await renderOneTemplateFile(previewProject, previewPath, paths, libraryMediaDir);
-
-    try {
-      // A small fixed offset, not 0 — a clip's own fade-in (common on the very first frame of a
-      // template) would otherwise make the poster itself a plain black square.
-      await generateThumbnail(previewPath, path.join(dir, "poster.jpg"), 0.1);
-    } catch (err) {
-      console.error("[vcut] templates: poster generation failed for", templateId, err);
-    }
+    await ensureTemplatePoster(templateId);
   } catch (err) {
     console.error("[vcut] templates: preview render failed for", templateId, err);
   }
@@ -227,6 +220,45 @@ export async function renderTemplatePreview(
   } catch (err) {
     console.error("[vcut] templates: full preview render failed for", templateId, err);
   }
+}
+
+/** In-flight poster generations, keyed by template id — a Templates grid requests every tile's poster
+ *  at once, so without this a template missing its poster would spawn one ffmpeg per concurrent
+ *  request instead of one total. */
+const posterJobs = new Map<string, Promise<string | null>>();
+
+/** Path to a template's `poster.jpg`, generating it first from the already-rendered `preview.mp4` if
+ *  it doesn't exist yet — `null` if there's no preview to grab a frame from, or ffmpeg failed. Called
+ *  at save time by `renderTemplatePreview` AND lazily by `poster/route.ts`, which is what backfills
+ *  every template saved before poster generation existed (a real gap found in production: 10 of 20
+ *  saved templates had a `preview.mp4` but no `poster.jpg`, so their grid tile rendered solid black
+ *  on Safari) and self-heals any later one whose save-time grab failed. Written to a temp name and
+ *  renamed into place, so a concurrent request can never serve a half-written JPEG. */
+export function ensureTemplatePoster(templateId: string): Promise<string | null> {
+  const { dir } = templateAudioPaths(templateId);
+  const posterPath = path.join(dir, "poster.jpg");
+  if (fs.existsSync(posterPath)) return Promise.resolve(posterPath);
+  const previewPath = path.join(dir, "preview.mp4");
+  if (!fs.existsSync(previewPath)) return Promise.resolve(null);
+
+  let job = posterJobs.get(templateId);
+  if (!job) {
+    job = (async () => {
+      const tmpPath = path.join(dir, `poster.${process.pid}.${Date.now()}.tmp.jpg`);
+      // A small fixed offset, not 0 — a clip's own fade-in (common on the very first frame of a
+      // template) would otherwise make the poster itself a plain black square.
+      const ok = await generateThumbnail(previewPath, tmpPath, 0.1);
+      if (!ok) {
+        fs.rmSync(tmpPath, { force: true });
+        console.error("[vcut] templates: poster generation failed for", templateId);
+        return null;
+      }
+      fs.renameSync(tmpPath, posterPath);
+      return posterPath;
+    })().finally(() => posterJobs.delete(templateId));
+    posterJobs.set(templateId, job);
+  }
+  return job;
 }
 
 /** The reverse of `bundleTemplateAudio` — copies each `Asset.templateBundledAudio` entry

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { Avatar } from "../../_shared/Avatar";
-import { authFetch, displayNameOrFallback, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
+import { authFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 
 interface CreatorInfo {
   id: string;
@@ -182,7 +182,14 @@ export default function CreatorPage() {
                   className="group mb-3 block w-full break-inside-avoid overflow-hidden rounded-lg border border-white/10 bg-white/[0.03]"
                 >
                   <div className="aspect-[9/16] w-full bg-black">
-                    <video src={templatePreviewUrl(tpl.id)} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                    <video
+                      src={templatePreviewUrl(tpl.id)}
+                      poster={templatePosterUrl(tpl.id)}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                   <p className="truncate px-2 py-1.5 text-xs text-white/80">{tpl.name}</p>
                 </a>

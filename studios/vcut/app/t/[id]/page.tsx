@@ -7,6 +7,7 @@ import { Avatar } from "../../_shared/Avatar";
 import {
   authFetch,
   displayNameOrFallback,
+  templatePosterUrl,
   templatePreviewUrl,
   type CommentRow,
 } from "../../_shared/hostedClient";
@@ -158,7 +159,14 @@ export default function PublicTemplatePage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col bg-[#0a0c10] px-4 py-8 text-white sm:py-12">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-xl bg-black">
-        <video src={templatePreviewUrl(params.id)} controls loop playsInline className="h-full w-full object-contain" />
+        <video
+          src={templatePreviewUrl(params.id)}
+          poster={templatePosterUrl(params.id)}
+          controls
+          loop
+          playsInline
+          className="h-full w-full object-contain"
+        />
       </div>
 
       {info && (
