@@ -29,22 +29,26 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
   return Response.json({ templates });
 });
 
-/** `{ name, projectId }` — sanitizes the given project (see `sanitizeProjectForTemplate`'s own doc
- *  comment: every clip's timing/effects/transitions survive; a video/image clip's real file is replaced
- *  with a fillable placeholder, while an audio clip's real file is bundled with the template itself via
- *  `bundleTemplateAudio` below) and saves the result as a new template row. `checkProjectOwnership` is
- *  the same ownership check `localRoute`'s own generic `?projectId=`
+/** `{ name, projectId, keepAssetIds? }` — sanitizes the given project (see
+ *  `sanitizeProjectForTemplate`'s own doc comment: every clip's timing/effects/transitions survive; a
+ *  video/image clip's real file is replaced with a fillable placeholder, while an audio clip's real
+ *  file is bundled with the template itself via `bundleTemplateAudio` below) and saves the result as a
+ *  new template row. `keepAssetIds` is `SaveAsTemplateDialog.tsx`'s own checklist — the ids of
+ *  candidate slots the author chose to KEEP fixed instead, bundled the same way audio already is
+ *  rather than becoming a fillable placeholder. `checkProjectOwnership` is the same ownership check
+ *  `localRoute`'s own generic `?projectId=`
  *  gate would give for free — done explicitly here since this route isn't wrapped in `localRoute` at
  *  all (Pro-gating needs to run first, and `hostedOnlyRoute` has no project-ownership concept of its
  *  own to layer that on top of). */
 export const POST = hostedOnlyRoute(async (req, user) => {
   await requirePro(user.id);
-  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string };
+  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string; keepAssetIds?: unknown };
   const projectId = body.projectId;
   if (!projectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
   await checkProjectOwnership(user.id, projectId);
 
   const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 120) : "Untitled template";
+  const keepAssetIds = new Set(Array.isArray(body.keepAssetIds) ? body.keepAssetIds.filter((id): id is string => typeof id === "string") : []);
   const paths = ensureProjectDirs(projectId);
   if (!fs.existsSync(paths.projectFile)) throw new ApiError(404, "Project not found", "project-not-found");
   const project = deserializeProject(fs.readFileSync(paths.projectFile, "utf8"));
@@ -57,7 +61,7 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   // `renderTemplatePreview`'s own doc comment.
   await renderTemplatePreview(id, project, paths, userMediaPaths(user.id).mediaDir);
 
-  const sanitized = sanitizeProjectForTemplate(project);
+  const sanitized = sanitizeProjectForTemplate(project, keepAssetIds);
   // Copies each bundled-audio asset's real file into this template's own permanent storage — see
   // `bundleTemplateAudio`'s own doc comment. Everything else in `sanitized` (placeholders, text/color)
   // passes through unchanged.

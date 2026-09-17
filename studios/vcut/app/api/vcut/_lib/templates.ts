@@ -281,11 +281,16 @@ export function ensureTemplatePoster(templateId: string): Promise<string | null>
  *  path every other hosted-mode import goes through — `media/route.ts`'s own upload handler included —
  *  rather than a plain project-local file), replacing it with a completely normal, real, library-backed
  *  asset (`templateBundledAudio` gone entirely — by the time anything else sees it, it's
- *  indistinguishable from any other imported audio file, per that field's own doc comment). Landing it
- *  in the library, not just the project, is what makes it show up in "All my media" and count against
- *  the new owner's own storage quota like everything else they own — the same consistency
- *  `Asset.libraryMediaId`'s own doc comment already establishes for every other asset kind. Called
- *  once, right after `buildProjectFromTemplate`, from `project/route.ts`'s own POST handler. */
+ *  indistinguishable from any other imported file, per that field's own doc comment — its name is a
+ *  holdover from when audio/stickers were the only two kinds this covered; a fixed, non-slot video/
+ *  image clip the template's author chose to keep (`SaveAsTemplateDialog.tsx`'s own checklist) goes
+ *  through this exact same generic branch too now). Landing it in the library, not just the project,
+ *  is what makes it show up in "All my media" and count against the new owner's own storage quota like
+ *  everything else they own — the same consistency `Asset.libraryMediaId`'s own doc comment already
+ *  establishes for every other asset kind, EXCEPT a kept video/image clip, hidden there the same way a
+ *  sticker already is: the new owner never picked it themselves, so it would only ever clutter their
+ *  library, findable only inside this one project's own timeline either way. Called once, right after
+ *  `buildProjectFromTemplate`, from `project/route.ts`'s own POST handler. */
 export async function resolveTemplateBundledAudio(templateId: string, newOwnerId: string, assets: Asset[]): Promise<Asset[]> {
   const audioDirs = ensureTemplateAudioDirs(templateId);
   const profile = await getProfile(newOwnerId);
@@ -297,12 +302,14 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
       await checkStorageQuota(newOwnerId, profile?.plan ?? "free", bytes.byteLength);
       const libraryPaths = ensureUserMediaDirs(newOwnerId);
       const imported = await importMediaBytes(libraryPaths, bytes, asset.name);
-      if (imported.kind !== "audio") throw new ApiError(500, "Unexpected asset kind from template audio", "unexpected-asset-kind");
+      if (imported.kind !== "audio" && imported.kind !== "video" && imported.kind !== "image") {
+        throw new ApiError(500, "Unexpected asset kind from a template's own bundled media", "unexpected-asset-kind");
+      }
       // `id: asset.id` — NOT `imported`'s own freshly-minted one. A real, reported bug otherwise: the
-      // audio CLIP (built by `buildProjectFromTemplate`, already returned before this function ever
-      // runs) already references `asset.id` — silently keeping `importMediaBytes`'s own different id
-      // instead left that clip pointing at an asset that no longer existed in `project.assets` at all,
-      // so the resulting project's preview/export both played with no audio whatsoever.
+      // CLIP (built by `buildProjectFromTemplate`, already returned before this function ever runs)
+      // already references `asset.id` — silently keeping `importMediaBytes`'s own different id instead
+      // left that clip pointing at an asset that no longer existed in `project.assets` at all, so the
+      // resulting project's preview/export both played back with that clip simply missing.
       const fresh: Asset = { ...imported, id: asset.id, ...(isSoundEffectAsset(asset) ? { soundEffect: true as const } : null) };
       await insertUserMedia(newOwnerId, {
         id: fresh.id,
@@ -321,9 +328,10 @@ export async function resolveTemplateBundledAudio(templateId: string, newOwnerId
         aiGeneration: null,
         // Visible in "All my media" — see this function's own doc comment: landing it in the library at
         // all (not just the project) is what makes it count as something the new owner genuinely owns.
-        // Except a sound effect, hidden like one added from the SFX panel: it's part of the template's
-        // edit, not music someone picked, and would otherwise clutter every audio list in the library.
-        hidden: isSoundEffectAsset(asset),
+        // Except a sound effect (hidden like one added from the SFX panel — part of the template's
+        // edit, not music someone picked) or a kept, non-slot video/image clip (hidden like a sticker —
+        // the new owner never picked it themselves either).
+        hidden: isSoundEffectAsset(asset) || fresh.kind === "video" || fresh.kind === "image",
       });
       fresh.libraryMediaId = fresh.id;
       return fresh;
