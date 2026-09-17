@@ -64,8 +64,10 @@ export const POST = localRoute(async (req) => {
         // `-vn`: drop the video stream entirely. Always re-encoded to AAC (never `-c:a copy`) — the
         // source's own audio codec varies too widely (Opus in a WebM recording, PCM in some MOVs, ...)
         // for a stream copy to reliably land in an `.m4a` container that plays back everywhere the rest
-        // of this app's own audio assets already do.
-        ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", scratchPath],
+        // of this app's own audio assets already do. `+faststart` puts the index at the front, so a
+        // media element (the iOS preview's own fallback for audio it can't decode) can start playing
+        // without first reading the end of a long file.
+        ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", scratchPath],
         { timeout: 120_000 },
         (err) => (err ? reject(new ApiError(500, "Could not extract audio from that clip", "extract-failed")) : resolve())
       );
