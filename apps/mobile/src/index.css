@@ -25,6 +25,16 @@ body {
 #root {
   height: 100dvh;
   box-sizing: border-box;
+}
+
+/* Android is deliberately excluded here (see main.tsx's `data-platform` attribute): its WebView is
+   already pushed down/in by a REAL native margin from capacitor.config.ts's
+   `adjustMarginsForEdgeToEdge: "force"`, set directly from the system-bar/cutout insets. Applying this
+   `env()` padding there too double-counts the same inset — confirmed on a real device as a visible
+   gray gap between the status bar and the app header, exactly the height of one extra safe-area
+   inset. iOS's WKWebView has no equivalent native margin, so it still needs this padding to avoid
+   drawing under the notch/status bar. */
+html:not([data-platform="android"]) #root {
   padding-top: env(safe-area-inset-top);
   padding-right: env(safe-area-inset-right);
   padding-bottom: env(safe-area-inset-bottom);
