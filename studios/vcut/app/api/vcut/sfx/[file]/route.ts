@@ -35,6 +35,14 @@ export const GET = publicAssetRoute(async (_req, context: { params: Promise<{ fi
       // Bundled app assets, never user content that could change under this URL — safe to cache
       // aggressively, same reasoning as fonts/[file]/route.ts's identical header.
       "Cache-Control": "public, max-age=31536000, immutable",
+      // The native (Capacitor) shell now calls this cross-origin (`client.ts`'s `sfxAssetUrl` resolves
+      // to an absolute `https://vcut.io` URL there, having no server of its own to serve a relative one
+      // from) — an `<audio src>` never needed this, but `SfxPanel.tsx`'s own `fetch().blob()` fallback
+      // and native export's own file-download DO: a plain cross-origin `fetch()` reading the response
+      // body is blocked without it. Safe unconditionally, same reasoning `withCors` (`_lib/localOnly.ts`)
+      // already gives for billing: this is bearer-token-free, fully public, identical content for every
+      // caller — nothing here a permissive origin could leak.
+      "Access-Control-Allow-Origin": "*",
     },
   });
 });
