@@ -361,6 +361,24 @@ function ensureFfmpegBinaries(outDir) {
     }
   }
 
+  // `ffprobe-static` ships a prebuilt binary for EVERY platform/arch it supports (win32/darwin/linux ×
+  // x64/ia32/arm64/...) — ~330MB total. Next's own standalone tracer apparently already narrows this
+  // down to just the binary this build actually runs on when it traces the package directly (this
+  // loop's `if (!existsSync(entry))` branch above never firing means nothing here needed pruning) —
+  // but `hoistPnpmPackage`'s plain recursive copy has no such platform awareness, so a run that DOES
+  // hit the hoist fallback ships every platform's binary and blows well past NSIS's own 32-bit mmap
+  // ceiling for the installer's solid-LZMA compression pass (confirmed live: `Internal compiler error
+  // #12345: error creating mmap` on a ~311MB payload with all platforms present, gone once this
+  // pruning runs and the payload drops under ~400MB total). Pruned unconditionally, not just inside
+  // the hoist branch above — cheap no-op if the trace already got it right, and it means this can
+  // never regress silently again the way the hoist path just did.
+  const ffprobeBinDir = path.join(outDir, "node_modules", "ffprobe-static", "bin");
+  if (existsSync(ffprobeBinDir)) {
+    for (const plat of readdirSync(ffprobeBinDir)) {
+      if (plat !== process.platform) rmSync(path.join(ffprobeBinDir, plat), { recursive: true, force: true });
+    }
+  }
+
   const isWindows = process.platform === "win32";
   const ffmpegBinary = path.join(outDir, "node_modules", "ffmpeg-static", isWindows ? "ffmpeg.exe" : "ffmpeg");
   const ffprobeDir = path.join(outDir, "node_modules", "ffprobe-static", "bin", process.platform, process.arch);
