@@ -3,7 +3,7 @@ import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
-import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
+import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
@@ -51,6 +51,11 @@ interface AiVideoJob {
   stage: Stage;
   progress: number;
   asset?: import("@veasnawt/vcut/src/project/types").Asset;
+  /** Set only when `deliverBytes` was requested at job start — see `POST`'s own doc comment (same
+   *  "desktop/mobile need the actual bytes back, not just a vcut.io library reference" reasoning
+   *  `ai-image/route.ts`'s own `deliverBytes` already covers for the synchronous case). Carried in the
+   *  SSE stream's final `done` payload alongside `asset`, once set. */
+  bytesBase64?: string;
   error?: string;
   ownerId?: string;
   spentAmount: number;
@@ -95,8 +100,15 @@ function setStageProgress(job: AiVideoJob, stage: Stage, fraction: number) {
   job.notify();
 }
 
-async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: string, aspectRatio: AspectRatio, ownerId: string | undefined) {
-  const paths = ensureProjectDirs(bpProjectId);
+async function runAiVideoJob(
+  job: AiVideoJob,
+  bpProjectId: string | null,
+  prompt: string,
+  aspectRatio: AspectRatio,
+  ownerId: string | undefined,
+  deliverBytes: boolean
+) {
+  const paths = bpProjectId ? ensureProjectDirs(bpProjectId) : null;
   try {
     const token = getReplicateTokenForGeneration();
     if (!token) throw new ApiError(500, "AI video generation isn't configured on this server", "ai-video-not-configured");
@@ -170,10 +182,14 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
             built.libraryMediaId = built.id;
             return built;
           })()
-        : await importMediaBytes(paths, bytes, suggestedName);
+        : await (async () => {
+            if (!paths) throw new ApiError(400, "Missing projectId", "missing-project-id");
+            return importMediaBytes(paths, bytes, suggestedName);
+          })();
     setStageProgress(job, "importing", 1);
 
     job.asset = asset;
+    if (deliverBytes) job.bytesBase64 = bytes.toString("base64");
     job.status = "done";
     job.progress = 1;
   } catch (err) {
@@ -193,11 +209,15 @@ async function runAiVideoJob(job: AiVideoJob, bpProjectId: string, prompt: strin
   }
 }
 
-export const POST = hostedCreditGatedRoute("ai-video", AI_VIDEO_CREDITS_PER_GENERATION, async (req, user, spend) => {
+/** `POST /api/vcut/ai-video?projectId=...` `{prompt, aspectRatio, deliverBytes}` — starts the job.
+ *  CORS-enabled (`hostedCreditGatedRouteCors`, always requires a session): desktop/mobile call this on
+ *  the live vcut.io deployment now, same reasoning as `ai-image/route.ts`'s own `deliverBytes` — no
+ *  public-CDN escape hatch exists for a generation call, so the caller asks for the raw bytes back
+ *  once the job finishes (see `AiVideoJob.bytesBase64`) instead of only a vcut.io library reference. */
+export const POST = hostedCreditGatedRouteCors("ai-video", AI_VIDEO_CREDITS_PER_GENERATION, async (req, user, spend) => {
   const bpProjectId = new URL(req.url).searchParams.get("projectId");
-  if (!bpProjectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
 
-  const body = (await req.json().catch(() => null)) as { prompt?: string; aspectRatio?: string } | null;
+  const body = (await req.json().catch(() => null)) as { prompt?: string; aspectRatio?: string; deliverBytes?: boolean } | null;
   const prompt = body?.prompt?.trim();
   if (!prompt) throw new ApiError(400, "Enter a prompt first", "missing-prompt");
   const aspectRatio: AspectRatio = ASPECT_RATIOS.includes(body?.aspectRatio as AspectRatio) ? (body!.aspectRatio as AspectRatio) : "9:16";
@@ -221,7 +241,7 @@ export const POST = hostedCreditGatedRoute("ai-video", AI_VIDEO_CREDITS_PER_GENE
   job.notify = notifier.notify;
   jobs.set(id, job);
 
-  void runAiVideoJob(job, bpProjectId, prompt, aspectRatio, user?.id).catch(() => {
+  void runAiVideoJob(job, bpProjectId, prompt, aspectRatio, user.id, Boolean(body?.deliverBytes)).catch(() => {
     // `runAiVideoJob` already handles its own errors internally — this only guarantees an unexpected
     // throw inside it can never become an unhandled rejection.
   });
@@ -229,7 +249,12 @@ export const POST = hostedCreditGatedRoute("ai-video", AI_VIDEO_CREDITS_PER_GENE
   return Response.json({ jobId: id });
 });
 
-export const GET = hostedSessionRoute(async (req, user) => {
+/** CORS-enabled (`hostedSessionRouteCors`): desktop/mobile watch their job's progress on the live
+ *  vcut.io deployment directly now. `EventSource` can't attach a custom `Authorization` header — the
+ *  client falls back to a `?token=` query param instead (`client.ts`'s own `sseUrl`), which
+ *  `requireSessionUser` already accepts; CORS here doesn't relax that, it only lets the browser accept
+ *  the response body from a different origin at all. */
+export const GET = hostedSessionRouteCors(async (req, user) => {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) throw new ApiError(400, "Missing jobId", "missing-job-id");
   const job = jobs.get(jobId);
@@ -246,6 +271,7 @@ export const GET = hostedSessionRoute(async (req, user) => {
           progress: job.progress,
           ...(job.error ? { error: job.error } : null),
           ...(job.asset ? { asset: job.asset } : null),
+          ...(job.bytesBase64 ? { bytesBase64: job.bytesBase64 } : null),
         };
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
@@ -263,7 +289,7 @@ export const GET = hostedSessionRoute(async (req, user) => {
   });
 });
 
-export const DELETE = hostedSessionRoute(async (req, user) => {
+export const DELETE = hostedSessionRouteCors(async (req, user) => {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) throw new ApiError(400, "Missing jobId", "missing-job-id");
   const job = jobs.get(jobId);
@@ -274,6 +300,10 @@ export const DELETE = hostedSessionRoute(async (req, user) => {
   return Response.json({ ok: true });
 });
 
-export const HEAD = hostedSessionRoute(async () => {
+export const HEAD = hostedSessionRouteCors(async () => {
   return new Response(null, { status: getReplicateTokenForGeneration() ? 204 : 503 });
 });
+
+/** The browser's own CORS preflight — see `hostedCreditGatedRouteCors`'s/`hostedSessionRouteCors`'s
+ *  own doc comments. */
+export const OPTIONS = corsPreflight;
