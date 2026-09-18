@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ProjectsDashboard } from "./ProjectsDashboard";
 import { useSupabaseSession } from "@veasnawt/auth";
 
 const HOSTED = process.env.NEXT_PUBLIC_VCUT_HOSTED === "true";
@@ -85,12 +84,21 @@ function LandingPage() {
 }
 
 /** Rendered from `/` — what this actually shows depends entirely on `NEXT_PUBLIC_VCUT_HOSTED`
- *  (see `client.ts`'s own doc comment on the same flag): unset (desktop's bundled build, local dev)
- *  renders `ProjectsDashboard` directly, EXACTLY the behavior `/` always had before hosted mode
- *  existed — no accounts, no redirect, nothing new. Set (the public web deployment) makes `/` a
- *  marketing landing page instead, since a signed-out visitor there has nothing to dashboard; the
- *  project list moves to `/projects`, reachable once signed in. */
+ *  (see `client.ts`'s own doc comment on the same flag). Unset (desktop's bundled build, local dev)
+ *  redirects straight to `/home` — the same Home/Projects/Templates/Me tabbed shell the hosted web
+ *  app already gives a signed-in visitor, so desktop gets the identical tab bar instead of the old
+ *  bare `ProjectsDashboard` with no chrome around it. No auth gate needed here (unlike the hosted
+ *  branch below): `(tabs)/layout.tsx`'s own sign-in redirect only fires `HOSTED && user === null`,
+ *  a no-op when unhosted. Set (the public web deployment) makes `/` a marketing landing page instead,
+ *  since a signed-out visitor there has nothing to dashboard; the project list moves to `/projects`,
+ *  reachable once signed in. */
 export default function Home() {
-  if (!HOSTED) return <ProjectsDashboard />;
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!HOSTED) router.replace("/home");
+  }, [router]);
+
+  if (!HOSTED) return null; // redirecting
   return <LandingPage />;
 }

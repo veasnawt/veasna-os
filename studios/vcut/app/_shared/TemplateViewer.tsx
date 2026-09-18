@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { ConfirmDialog } from "@veasnawt/vcut/src/ui/ConfirmDialog";
 import { Avatar } from "./Avatar";
-import { authFetch, displayNameOrFallback, templateFullPreviewUrl, templatePreviewUrl, type CommentRow, type TemplateRow } from "./hostedClient";
+import { centralAuthFetch, displayNameOrFallback, templateFullPreviewUrl, templatePreviewUrl, type CommentRow, type TemplateRow } from "./hostedClient";
 
 const FAVORITES_STORAGE_KEY = "vcut-favorite-templates";
 const MUTED_STORAGE_KEY = "vcut-template-viewer-muted";
@@ -180,7 +180,7 @@ export function TemplateViewer({
   // rely on what `templates` was seeded with.
   useEffect(() => {
     if (!activeId || social.has(activeId)) return;
-    authFetch(`/api/vcut/templates/${encodeURIComponent(activeId)}`)
+    centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(activeId)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then(
         (
@@ -222,7 +222,7 @@ export function TemplateViewer({
       return next;
     });
     try {
-      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
+      const res = await centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
       if (!res.ok) throw new Error();
     } catch {
       // Roll back — a real, reported bug otherwise: a failed write (the server down, a transient
@@ -245,7 +245,7 @@ export function TemplateViewer({
     setCommentsOpenFor(id);
     if (comments.has(id)) return;
     setCommentsFailedFor(null);
-    authFetch(`/api/vcut/templates/${encodeURIComponent(id)}/comments`)
+    centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(id)}/comments`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { comments: CommentRow[] } | null) => {
         if (body) setComments((prev) => new Map(prev).set(id, body.comments));
@@ -260,7 +260,7 @@ export function TemplateViewer({
     if (!templateId || !body || postingComment) return;
     setPostingComment(true);
     try {
-      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(templateId)}/comments`, {
+      const res = await centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(templateId)}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
@@ -290,7 +290,7 @@ export function TemplateViewer({
       return new Map(prev).set(templateId, { ...current, commentCount: Math.max(0, current.commentCount - 1) });
     });
     try {
-      await authFetch(`/api/vcut/templates/${encodeURIComponent(templateId)}/comments/${encodeURIComponent(commentId)}`, {
+      await centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(templateId)}/comments/${encodeURIComponent(commentId)}`, {
         method: "DELETE",
       });
     } catch {
@@ -320,7 +320,7 @@ export function TemplateViewer({
     if (!pendingDelete) return;
     setDeleting(true);
     try {
-      const res = await authFetch(`/api/vcut/templates?id=${encodeURIComponent(pendingDelete.id)}`, { method: "DELETE" });
+      const res = await centralAuthFetch(`/api/vcut/templates?id=${encodeURIComponent(pendingDelete.id)}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       onDeleted(pendingDelete.id);
       setPendingDelete(null);
@@ -334,7 +334,7 @@ export function TemplateViewer({
     setPublishingId(template.id);
     try {
       const nextValue = !template.isPublic;
-      const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(template.id)}`, {
+      const res = await centralAuthFetch(`/api/vcut/templates/${encodeURIComponent(template.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isPublic: nextValue }),

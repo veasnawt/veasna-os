@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { startCheckout } from "@veasnawt/vcut/src/api/billing";
 import { Avatar } from "../../_shared/Avatar";
-import { authFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
+import { centralAuthFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 import { TemplateViewer } from "../../_shared/TemplateViewer";
 
 type FeedMode = "mine" | "discover";
@@ -41,7 +41,7 @@ export default function TemplatesPage() {
     setError(null);
     setNeedsPro(false);
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
-    authFetch(url)
+    centralAuthFetch(url)
       .then(async (res) => {
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;

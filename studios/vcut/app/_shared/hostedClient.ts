@@ -33,6 +33,36 @@ export async function authFetch(input: string, init?: RequestInit): Promise<Resp
   return fetch(input, { ...init, headers: retryHeaders });
 }
 
+/** `authFetch`'s counterpart for the templates routes specifically — those are `hostedOnlyRoute` on
+ *  the SERVER regardless of who's calling (see `_lib/localOnly.ts`'s own doc comment: templates only
+ *  ever live on the one live vcut.io deployment, there's no local/desktop concept of a saved template),
+ *  so unlike every other call in this file, a relative `!HOSTED` request would always 404 rather than
+ *  correctly hitting "nothing local to protect." Same fix `packages/vcut/src/api/client.ts`'s own
+ *  `centralFetch` and `billing.ts`'s `billingFetch` already got for the identical reason (Stock/
+ *  Stickers/AI-generation/billing) — always attach the token, and go straight to the live deployment
+ *  when this build isn't it. Confirmed as a real, reported gap: turning on desktop's own tab bar
+ *  surfaced "Not available outside the hosted web deployment." on its Templates tab, not a 404 that
+ *  silently degraded to an empty list. */
+export async function centralAuthFetch(input: string, init?: RequestInit): Promise<Response> {
+  const token = await getAccessToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const url = HOSTED ? input : `https://vcut.io${input}`;
+  return fetch(url, { ...init, headers });
+}
+
+/** `centralAuthFetch`'s `<video src>`/`<img src>` counterpart — for the same class of route (a
+ *  template's own preview/poster, which — like the routes `centralAuthFetch` covers — only ever lives
+ *  on the hosted deployment). A plain `src` attribute can't attach an `Authorization` header, so this
+ *  appends the cached token as `?token=` instead (same fallback `thumbnailUrl` above already uses for
+ *  project-scoped media, just also routed to the live deployment when `!HOSTED` rather than staying
+ *  relative — templates have no local/desktop copy for a relative URL to correctly point at). */
+function centralAssetUrl(base: string): string {
+  const token = getCachedAccessToken();
+  const withToken = token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  return HOSTED ? withToken : `https://vcut.io${withToken}`;
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -68,10 +98,7 @@ export function thumbnailUrl(projectId: string, thumbnail: ProjectSummary["thumb
  *  a generic placeholder tile rather than a broken video in that case, same as `AssetThumbnail`'s own
  *  handling of an asset with no thumbnail. */
 export function templatePreviewUrl(templateId: string): string {
-  const base = `/api/vcut/templates/${encodeURIComponent(templateId)}/preview`;
-  if (!HOSTED) return base;
-  const token = getCachedAccessToken();
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  return centralAssetUrl(`/api/vcut/templates/${encodeURIComponent(templateId)}/preview`);
 }
 
 /** A real still frame for the grid tile's own `<video poster=...>` — see `poster/route.ts`'s own doc
@@ -79,20 +106,14 @@ export function templatePreviewUrl(templateId: string): string {
  *  with no `poster` attribute at all) doesn't reliably work. Same `?token=` hosted-mode fallback as
  *  `templatePreviewUrl` above, for the identical reason. */
 export function templatePosterUrl(templateId: string): string {
-  const base = `/api/vcut/templates/${encodeURIComponent(templateId)}/poster`;
-  if (!HOSTED) return base;
-  const token = getCachedAccessToken();
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  return centralAssetUrl(`/api/vcut/templates/${encodeURIComponent(templateId)}/poster`);
 }
 
 /** The full-screen swipe viewer's own source — `renderTemplatePreview`'s `preview-full.mp4`, the
  *  template's real full duration at its own real export quality, NOT the short low-bitrate loop
  *  `templatePreviewUrl` serves for the grid tile's background. Same `?token=` hosted-mode fallback. */
 export function templateFullPreviewUrl(templateId: string): string {
-  const base = `/api/vcut/templates/${encodeURIComponent(templateId)}/preview-full`;
-  if (!HOSTED) return base;
-  const token = getCachedAccessToken();
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  return centralAssetUrl(`/api/vcut/templates/${encodeURIComponent(templateId)}/preview-full`);
 }
 
 /** A small, fixed palette (not an arbitrary HSL-from-hash) — picking from real, pre-tuned colors avoids

@@ -66,6 +66,9 @@ importers:
       '@capacitor/share':
         specifier: ^7.0.0
         version: 7.0.4(@capacitor/core@7.6.8)
+      '@veasnawt/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@veasnawt/vcut':
         specifier: workspace:*
         version: link:../../packages/vcut

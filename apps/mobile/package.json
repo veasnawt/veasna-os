@@ -18,6 +18,7 @@
     "@capacitor/filesystem": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
     "@capacitor/share": "^7.0.0",
+    "@veasnawt/auth": "workspace:*",
     "@veasnawt/vcut": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
