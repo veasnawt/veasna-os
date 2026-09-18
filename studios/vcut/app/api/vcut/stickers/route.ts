@@ -3,7 +3,7 @@ import { refundCredits } from "../_lib/credits";
 import { getGiphyApiKey, getKlipyApiKey } from "../_lib/externalMediaEnv";
 import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { downloadMediaUrl, importAnimatedImageBytes } from "../_lib/importMedia";
-import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
+import { corsPreflight, hostedCreditGatedRoute, hostedSessionRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 import { isAllowedStickerDownload, klipyCustomerId, searchStickerProvider } from "../_lib/stickerProviders";
@@ -39,8 +39,9 @@ function parseType(value: unknown): StickerType {
 
 /** `GET /api/vcut/stickers?availability=1` → which providers are configured, and what GIPHY costs.
  *  `GET /api/vcut/stickers?provider=klipy|giphy&type=stickers|gifs&q=...&page=1` → results (trending
- *  when `q` is empty). */
-export const GET = hostedSessionRoute(async (req, user) => {
+ *  when `q` is empty). CORS-enabled (`hostedSessionRouteCors`): desktop and mobile call this directly
+ *  on the live vcut.io deployment now — see that wrapper's own doc comment. */
+export const GET = hostedSessionRouteCors(async (req, user) => {
   const url = new URL(req.url);
   if (url.searchParams.get("availability")) {
     return Response.json({ klipy: Boolean(getKlipyApiKey()), giphy: Boolean(getGiphyApiKey()), giphyCredits: VCUT_HOSTED ? GIPHY_ITEM_CREDITS : 0 });
@@ -123,3 +124,9 @@ export const POST = hostedCreditGatedRoute("giphy-sticker", GIPHY_ITEM_CREDITS, 
   const asset = await importAnimatedImageBytes(ensureProjectDirs(projectId), bytes, suggestedName, stickerSource);
   return Response.json({ asset });
 });
+
+/** The browser's own CORS preflight for `GET`'s now-cross-origin `Authorization` header — see
+ *  `hostedSessionRouteCors`'s own doc comment. `POST` doesn't need this: it's still only ever called
+ *  same-origin (desktop's own local server), unchanged. Mobile's own GIPHY charge goes through the
+ *  separate `stickers/charge` route instead — see that route's own doc comment for why. */
+export const OPTIONS = corsPreflight;

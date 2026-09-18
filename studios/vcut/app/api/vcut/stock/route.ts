@@ -1,7 +1,7 @@
 import { getPexelsApiKey } from "../_lib/externalMediaEnv";
 import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
-import { hostedSessionRoute, localRoute } from "../_lib/localOnly";
+import { corsPreflight, hostedSessionRouteCors, localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
@@ -116,8 +116,11 @@ const RESULTS_PER_PAGE = 24;
 /** `GET /api/vcut/stock?type=image|video&q=...&page=1` — proxied through this server (never called
  *  directly from the client), same "server is the one place that talks to the provider, keeping the
  *  client thin and the provider swappable" shape every other stock/AI route here uses — this time
- *  ALSO the place that actually protects the real secret key, unlike Commons' keyless predecessor. */
-export const GET = hostedSessionRoute(async (req) => {
+ *  ALSO the place that actually protects the real secret key, unlike Commons' keyless predecessor.
+ *  CORS-enabled (`hostedSessionRouteCors`, not the plain `hostedSessionRoute`): desktop and mobile call
+ *  this directly on the live vcut.io deployment now rather than assuming their own local server has
+ *  this key configured — see that wrapper's own doc comment. */
+export const GET = hostedSessionRouteCors(async (req) => {
   const apiKey = getPexelsApiKey();
   if (!apiKey) throw new ApiError(500, "Stock search isn't configured on this server", "stock-not-configured");
 
@@ -252,3 +255,8 @@ export const POST = localRoute(async (req) => {
   const asset = await importMediaBytes(paths, bytes, suggestedName);
   return Response.json({ asset });
 });
+
+/** The browser's own CORS preflight for `GET`'s now-cross-origin `Authorization` header — see
+ *  `hostedSessionRouteCors`'s own doc comment. `POST` doesn't need this: it's still only ever called
+ *  same-origin (desktop's own local server), unchanged. */
+export const OPTIONS = corsPreflight;

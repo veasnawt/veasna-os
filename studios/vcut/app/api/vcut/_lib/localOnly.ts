@@ -316,6 +316,77 @@ export function hostedCreditGatedRoute<T extends unknown[]>(
   };
 }
 
+/** `hostedCreditGatedRoute`'s CORS-enabled twin — for the rare route that charges real credits AND
+ *  must be reachable cross-origin. Today that's exactly one route: `stickers/charge`, used ONLY when
+ *  the calling device already downloaded+imported a GIPHY item itself (mobile has no local server to
+ *  relay the download through — see `client.ts`'s `importStickerResult`) and just needs the ALREADY-
+ *  PICKED item's cost charged for real, server-side. Deliberately requires a session even outside
+ *  `VCUT_HOSTED` mode (`requireSessionUser` unconditionally, not gated behind `VCUT_HOSTED` the way
+ *  `hostedCreditGatedRoute`'s own local branch is) — there is no "local" meaning for a route whose only
+ *  reason to exist is charging a REMOTE credits balance; a caller that isn't the hosted deployment
+ *  itself always means desktop/mobile reaching across to it, never same-machine local dev. */
+export function hostedCreditGatedRouteCors<T extends unknown[]>(
+  feature: string,
+  cost: number,
+  handler: (req: Request, user: SessionUser, spend: (amount?: number) => Promise<void>, ...rest: T) => Promise<Response>
+): (req: Request, ...rest: T) => Promise<Response> {
+  return async (req: Request, ...rest: T) => {
+    let user: SessionUser;
+    try {
+      user = await requireSessionUser(req);
+    } catch (err) {
+      return withCors(errorResponse(err));
+    }
+    async function spend(amount?: number): Promise<void> {
+      const spent = await spendCredits(user.id, feature, amount ?? cost);
+      if (!spent) throw new InsufficientCreditsError(feature);
+    }
+    try {
+      return withCors(await handler(req, user, spend, ...rest));
+    } catch (err) {
+      return withCors(errorResponse(err));
+    }
+  };
+}
+
+/** `hostedSessionRoute`'s CORS-enabled twin — for a route that, like billing's four routes, is now
+ *  ALSO expected to be called cross-origin: desktop and mobile route their stock/sticker/AI SEARCH
+ *  calls straight to the live `vcut.io` deployment instead of assuming a local server exists (see
+ *  `packages/vcut/src/api/client.ts`'s `centralFetch`), since the secret provider keys (Pexels/KLIPY/
+ *  GIPHY/Replicate) only ever live on that one deployment now — desktop/mobile no longer get their own
+ *  local-key config UI (retired; see `useHostedCreditsGate.ts`'s own doc comment). Same bearer-token-
+ *  only auth as `hostedSessionRoute` (never a cookie), so a permissive origin is exactly as safe here
+ *  as `withCors`'s own doc comment already argues for billing. Kept as a SEPARATE function from
+ *  `hostedSessionRoute` rather than adding CORS to it unconditionally — several routes still using the
+ *  plain version were never audited for "safe to expose cross-origin" and shouldn't silently gain it as
+ *  a side effect of one route's own need. Only apply this to a route file's `GET`, and re-export
+ *  `corsPreflight` as that same file's `OPTIONS` — the POST/import side of these routes stays on
+ *  `hostedCreditGatedRoute`/`localRoute` unchanged, since downloading the picked result and importing
+ *  it happens client-side now (a plain, unauthenticated fetch straight from the provider's own public
+ *  CDN — Pexels/KLIPY/GIPHY all serve picked results over plain public URLs, confirmed against each
+ *  route's own existing SSRF allowlist), not through this server at all. */
+export function hostedSessionRouteCors<T extends unknown[]>(
+  handler: (req: Request, user: SessionUser | null, ...rest: T) => Promise<Response>
+): (req: Request, ...rest: T) => Promise<Response> {
+  return async (req: Request, ...rest: T) => {
+    let user: SessionUser | null = null;
+    if (VCUT_HOSTED) {
+      try {
+        user = await requireSessionUser(req);
+      } catch (err) {
+        return withCors(errorResponse(err));
+      }
+    } else if (!isLocalRequest(req)) {
+      return localOnlyResponse();
+    }
+    try {
+      return withCors(await handler(req, user, ...rest));
+    } catch (err) {
+      return withCors(errorResponse(err));
+    }
+  };
+}
+
 /** The `GET`/`DELETE`/`HEAD` counterpart to `hostedCreditGatedRoute` above — same gate, no spend
  *  (polling progress, cancelling, or checking availability isn't NEW usage; the POST that started the
  *  job already paid for it). Passes `user` through so the route itself can check a job's own
