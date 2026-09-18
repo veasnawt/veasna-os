@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>VCut needs camera access to record video directly into your project.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VCut needs microphone access to record voiceovers for your project.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
