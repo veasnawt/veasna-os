@@ -1,8 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
-import Replicate from "replicate";
-import { fal } from "@fal-ai/client";
 import { buildExtractClipArgs } from "@veasnawt/vcut/src/export/ffmpegCommands";
 import { findAsset, findClip } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
@@ -13,10 +11,9 @@ import { importMediaBytes } from "../_lib/importMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
-import { getInpaintKeyStatus, getActiveInpaintToken } from "../_lib/inpaintEnvFile";
+import { getInpaintKeyStatus } from "../_lib/inpaintEnvFile";
 import { getLocalSetupStatus, REPO_DIR, VENV_PYTHON } from "../_lib/localModel";
 import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName, userMediaPaths } from "../_lib/paths";
-import { HOSTED_ORIGIN } from "../_lib/stripe";
 
 /** Credits per second of a Remove Object job's OUTPUT video (rounded up) — `bria/video-erase-object`
  *  itself bills Replicate usage at $0.05/second of generated output, so pricing per second here
@@ -161,48 +158,58 @@ function setStageProgress(job: InpaintJob, stage: Stage, fraction: number) {
  *  local/desktop has no publicly-reachable server to host these from, so it falls back to Replicate's
  *  own upload (best effort, matching this route's pre-existing local-mode behavior; not addressed by
  *  this pass since the hosted deployment is what real paying users hit). */
+/** Calls the new CORS-enabled `inpaint/predict/route.ts` on the live vcut.io deployment — the ONLY
+ *  part of Remove Object that actually needs the secret Replicate token, which no longer lives on this
+ *  (desktop's own local) server at all. Replaces what used to be a direct `Replicate` SDK call here;
+ *  everything ELSE about this job (extraction, masking, chunking, stitching, the local ProPainter path)
+ *  is completely unchanged — see this route's own top-of-file doc comment for the full "why" and
+ *  `inpaint/predict/route.ts`'s own doc comment for the server side. `accessToken` is the user's own
+ *  Supabase session token, relayed from the browser tab that started this job (see `POST`'s own doc
+ *  comment) — this LOCAL server process has no session of its own to attach otherwise. */
+async function callRemotePredict(
+  accessToken: string,
+  kind: "video" | "image",
+  primaryPath: string,
+  maskPath: string,
+  costSeconds: number,
+  signal: AbortSignal
+): Promise<Buffer> {
+  const [primaryBytes, maskBytes] = await Promise.all([fs.promises.readFile(primaryPath), fs.promises.readFile(maskPath)]);
+  const res = await fetch("https://vcut.io/api/vcut/inpaint/predict", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      kind,
+      [kind === "image" ? "imageBase64" : "videoBase64"]: primaryBytes.toString("base64"),
+      maskBase64: maskBytes.toString("base64"),
+      costSeconds,
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    throw new ApiError(res.status, body?.error ?? "Remove Object failed", body?.code ?? "inpaint-remote-failed");
+  }
+  const { resultBase64 } = (await res.json()) as { resultBase64: string };
+  return Buffer.from(resultBase64, "base64");
+}
+
+/** Coarse "started → done" progress for the remote call — same honesty-over-precision choice
+ *  `runLocalPrediction`'s own doc comment already makes for ProPainter: a single held-open HTTP
+ *  request to `inpaint/predict` has no intermediate status to report, unlike the old direct Replicate
+ *  SDK call's own polling callback. */
 async function runInpaintPrediction(
-  bpProjectId: string,
-  jobId: string,
+  accessToken: string,
   videoPath: string,
   maskPath: string,
-  token: string,
+  costSeconds: number,
   signal: AbortSignal,
   onProgress: (fraction: number) => void
 ): Promise<Buffer> {
-  const replicate = new Replicate({ auth: token });
-  const video_url = VCUT_HOSTED
-    ? `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-src.mp4`
-    : new File([await fs.promises.readFile(videoPath)], path.basename(videoPath), { type: "video/mp4" });
-  const mask_url = VCUT_HOSTED
-    ? `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-mask.mp4`
-    : new File([await fs.promises.readFile(maskPath)], path.basename(maskPath), { type: "video/mp4" });
-
-  // Same reasoning as the version-pinning this route used for ProPainter — resolving to the model's
-  // own `latest_version.id` and running the classic `owner/name:version` form works regardless of
-  // whether a given model happens to support the bare "owner/name" shorthand route.
-  const model = await replicate.models.get("bria", "video-erase-object");
-  const version = model.latest_version?.id;
-  if (!version) throw new ApiError(502, "Replicate's video object-removal model has no runnable version", "replicate-model-unavailable");
-
-  const result = await replicate.run(
-    `bria/video-erase-object:${version}`,
-    { input: { video_url, mask_url, auto_trim: true }, signal },
-    (prediction) => {
-      // Coarse status → fraction, the same mapping the hand-rolled poller used — Replicate's own API
-      // reports a status enum, not a fine-grained percentage.
-      onProgress(prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
-    }
-  );
-
-  // This model's own `Output` schema is a single URI string, not an array (unlike ProPainter's) —
-  // `Array.isArray` here is just defensive in case that ever changes, not evidence it currently does.
-  const output = Array.isArray(result) ? result[0] : result;
-  if (!output || typeof (output as { blob?: unknown }).blob !== "function") {
-    throw new ApiError(502, "Replicate's prediction had no usable output video", "replicate-predict-failed");
-  }
-  const blob = await (output as { blob: () => Promise<Blob> }).blob();
-  return Buffer.from(await blob.arrayBuffer());
+  onProgress(0.1);
+  const result = await callRemotePredict(accessToken, "video", videoPath, maskPath, costSeconds, signal);
+  onProgress(1);
+  return result;
 }
 
 /** `bria/video-erase-object`'s own hard cap: clips over 5 seconds get silently trimmed to their first
@@ -225,8 +232,7 @@ const BRIA_MAX_CHUNK_SECONDS = 5;
  *  genuinely costs more real Replicate compute, and the credit price reflects that rather than a flat
  *  rate regardless of length. */
 async function runChunkedInpaintPrediction(
-  bpProjectId: string,
-  jobId: string,
+  accessToken: string,
   sourcePath: string,
   sourceIn: number,
   sourceOut: number,
@@ -235,7 +241,6 @@ async function runChunkedInpaintPrediction(
   height: number,
   fps: number,
   rect: { x: number; y: number; width: number; height: number },
-  token: string,
   signal: AbortSignal,
   onProgress: (fraction: number) => void
 ): Promise<Buffer> {
@@ -263,11 +268,10 @@ async function runChunkedInpaintPrediction(
       if (!maskOk) throw new ApiError(500, `Could not generate chunk ${i + 1}/${numChunks}'s mask`, "mask-failed");
 
       const chunkBuffer = await runInpaintPrediction(
-        bpProjectId,
-        `${jobId}-chunk${i}`,
+        accessToken,
         chunkVideoPath,
         chunkMaskPath,
-        token,
+        chunkEnd - chunkStart,
         signal,
         (fraction) => onProgress((i + fraction) / numChunks)
       );
@@ -308,60 +312,6 @@ async function runChunkedInpaintPrediction(
   } finally {
     for (const p of chunkResultPaths) fs.rm(p, { force: true }, () => {});
   }
-}
-
-/** Runs fal.ai's VOID model (`fal-ai/void-video-inpainting`) — confirmed reachable from this network
- *  (a bare `curl -X POST https://fal.run/fal-ai/void-video-inpainting` returned a clean 401 JSON, not
- *  a Cloudflare block) unlike Replicate. Uses the official `@fal-ai/client` SDK for the same reason
- *  `runInpaintPrediction` does for Replicate — a mature published client sends its own real identity.
- *
- *  Unlike Replicate's `run()` (which auto-uploads a raw Buffer passed inline), VOID's own input schema
- *  wants `video_url`/`quad_mask_video_url` as already-hosted URL strings, so this calls
- *  `fal.storage.upload()` first for each file, then references the returned URLs in `fal.subscribe`'s
- *  input. Reuses the same binary black/white mask this feature already generates for Replicate — VOID
- *  documents its mask as a grayscale "quadmask" video, of which plain black/white is the simplest valid
- *  case (white = remove); revisit only if real output shows this needs a genuine multi-level mask. */
-async function runFalPrediction(
-  videoPath: string,
-  maskPath: string,
-  token: string,
-  backgroundPrompt: string | undefined,
-  signal: AbortSignal,
-  onUploadProgress: (fraction: number) => void,
-  onPredictProgress: (fraction: number) => void
-): Promise<Buffer> {
-  // Re-set per job — this app supports switching providers/keys at runtime, so a stale global config
-  // from an earlier job/key must never be trusted.
-  fal.config({ credentials: token });
-  const [video, mask] = await Promise.all([fs.promises.readFile(videoPath), fs.promises.readFile(maskPath)]);
-
-  onUploadProgress(0);
-  const videoUrl = await fal.storage.upload(new Blob([video]));
-  onUploadProgress(0.5);
-  const maskUrl = await fal.storage.upload(new Blob([mask]));
-  onUploadProgress(1);
-
-  const result = await fal.subscribe("fal-ai/void-video-inpainting", {
-    input: {
-      video_url: videoUrl,
-      quad_mask_video_url: maskUrl,
-      prompt: backgroundPrompt?.trim() || "the original, unedited background of the scene",
-    },
-    abortSignal: signal,
-    onQueueUpdate: (status) => {
-      onPredictProgress(status.status === "COMPLETED" ? 1 : status.status === "IN_PROGRESS" ? 0.6 : 0.1);
-    },
-  });
-
-  const outputUrl = (result.data as { video?: { url?: string } })?.video?.url;
-  if (!outputUrl) throw new ApiError(502, "fal.ai's prediction had no usable output video", "fal-predict-failed");
-
-  // Same defensive User-Agent this whole debugging session established matters for any server-side
-  // fetch to a media/CDN host fronting these providers — cheap insurance even though fal.ai's own
-  // domains weren't observed to need it.
-  const downloadRes = await fetch(outputUrl, { headers: { "User-Agent": "VCut/1.0 (+https://github.com/veasnawt/vcut)" }, signal });
-  if (!downloadRes.ok) throw new ApiError(502, `Downloading the fal.ai result failed (${downloadRes.status})`, "download-failed");
-  return Buffer.from(await downloadRes.arrayBuffer());
 }
 
 /** Runs ProPainter locally via the Python venv provisioned by `_lib/localModel.ts` — no network, no
@@ -463,74 +413,19 @@ function imageExtensionFor(bytes: Buffer): string {
  *  2026-09-17: `image`/`image_url`, `mask`/`mask_url`, output a single URI). Hosted mode passes plain
  *  public URLs to this job's scratch files for the same reason `runInpaintPrediction` does — Bria's own
  *  servers can't fetch Replicate's private uploads — and local mode falls back to Replicate's upload. */
+/** Same `callRemotePredict` relay as `runInpaintPrediction`, for the still-image eraser. Flat cost
+ *  (`costSeconds` irrelevant, `inpaint/predict/route.ts` ignores it for `kind: "image"`). */
 async function runReplicateImageErase(
-  bpProjectId: string,
-  jobId: string,
+  accessToken: string,
   imagePath: string,
   maskPath: string,
-  token: string,
   signal: AbortSignal,
   onProgress: (fraction: number) => void
 ): Promise<Buffer> {
-  const replicate = new Replicate({ auth: token });
-  const input = VCUT_HOSTED
-    ? {
-        image_url: `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-src.png`,
-        mask_url: `${HOSTED_ORIGIN}/api/vcut/inpaint/scratch-file/${encodeURIComponent(bpProjectId)}/${jobId}-mask.png`,
-      }
-    : {
-        image: new File([await fs.promises.readFile(imagePath)], path.basename(imagePath), { type: "image/png" }),
-        mask: new File([await fs.promises.readFile(maskPath)], path.basename(maskPath), { type: "image/png" }),
-      };
-  const model = await replicate.models.get("bria", "eraser");
-  const version = model.latest_version?.id;
-  if (!version) throw new ApiError(502, "Replicate's image object-removal model has no runnable version", "replicate-model-unavailable");
-  const result = await replicate.run(`bria/eraser:${version}`, { input, signal }, (prediction) => {
-    onProgress(prediction.status === "succeeded" ? 1 : prediction.status === "processing" ? 0.6 : 0.1);
-  });
-  const output = Array.isArray(result) ? result[0] : result;
-  // The client returns a `FileOutput` (with `blob()`) by default; a plain URL string is handled too.
-  if (output && typeof (output as { blob?: unknown }).blob === "function") {
-    const blob = await (output as { blob: () => Promise<Blob> }).blob();
-    return Buffer.from(await blob.arrayBuffer());
-  }
-  if (typeof output === "string") {
-    const res = await fetch(output, { signal });
-    if (!res.ok) throw new ApiError(502, `Downloading the Replicate result failed (${res.status})`, "download-failed");
-    return Buffer.from(await res.arrayBuffer());
-  }
-  throw new ApiError(502, "Replicate's prediction had no usable output image", "replicate-predict-failed");
-}
-
-/** fal.ai's `fal-ai/bria/eraser` — the same Bria still-image eraser (`image_url` + `mask_url`, returns
- *  `{ image: { url } }`), uploaded through fal's own storage like `runFalPrediction`'s video inputs. */
-async function runFalImageErase(
-  imagePath: string,
-  maskPath: string,
-  token: string,
-  signal: AbortSignal,
-  onUploadProgress: (fraction: number) => void,
-  onPredictProgress: (fraction: number) => void
-): Promise<Buffer> {
-  fal.config({ credentials: token });
-  const [image, mask] = await Promise.all([fs.promises.readFile(imagePath), fs.promises.readFile(maskPath)]);
-  onUploadProgress(0);
-  const imageUrl = await fal.storage.upload(new Blob([image], { type: "image/png" }));
-  onUploadProgress(0.5);
-  const maskUrl = await fal.storage.upload(new Blob([mask], { type: "image/png" }));
-  onUploadProgress(1);
-  const result = await fal.subscribe("fal-ai/bria/eraser", {
-    input: { image_url: imageUrl, mask_url: maskUrl },
-    abortSignal: signal,
-    onQueueUpdate: (status) => {
-      onPredictProgress(status.status === "COMPLETED" ? 1 : status.status === "IN_PROGRESS" ? 0.6 : 0.1);
-    },
-  });
-  const outputUrl = (result.data as { image?: { url?: string } })?.image?.url;
-  if (!outputUrl) throw new ApiError(502, "fal.ai's prediction had no usable output image", "fal-predict-failed");
-  const downloadRes = await fetch(outputUrl, { headers: { "User-Agent": "VCut/1.0 (+https://github.com/veasnawt/vcut)" }, signal });
-  if (!downloadRes.ok) throw new ApiError(502, `Downloading the fal.ai result failed (${downloadRes.status})`, "download-failed");
-  return Buffer.from(await downloadRes.arrayBuffer());
+  onProgress(0.1);
+  const result = await callRemotePredict(accessToken, "image", imagePath, maskPath, 0, signal);
+  onProgress(1);
+  return result;
 }
 
 /** Remove Object on an IMAGE clip — the still-image counterpart of the video pipeline in
@@ -542,13 +437,12 @@ async function runFalImageErase(
  *  and crop still line up — and imported like any other image into the project's own media. */
 async function removeObjectFromImage(
   job: InpaintJob,
-  bpProjectId: string,
   paths: ReturnType<typeof ensureProjectDirs>,
   asset: Asset,
   sourcePath: string,
   rect: { x: number; y: number; width: number; height: number },
-  activeProvider: "replicate" | "fal" | "local",
-  token: string | null,
+  activeProvider: "replicate" | "local",
+  accessToken: string | null,
   scratchPrefix: string,
   localOutputDir: string
 ): Promise<Asset> {
@@ -594,20 +488,10 @@ async function removeObjectFromImage(
       if (!(await generateMaskImage(maskPng, width, height, rect))) throw new ApiError(500, "Could not generate the mask", "mask-failed");
       setStageProgress(job, "masking", 1);
       if (job.abortController.signal.aborted) throw new ApiError(499, "Cancelled", "cancelled");
-      erased =
-        activeProvider === "fal"
-          ? await runFalImageErase(
-              srcPng,
-              maskPng,
-              token!,
-              job.abortController.signal,
-              (fraction) => setStageProgress(job, "uploading", fraction),
-              (fraction) => setStageProgress(job, "predicting", fraction)
-            )
-          : (setStageProgress(job, "uploading", 1),
-            await runReplicateImageErase(bpProjectId, job.id, srcPng, maskPng, token!, job.abortController.signal, (fraction) =>
-              setStageProgress(job, "predicting", fraction)
-            ));
+      setStageProgress(job, "uploading", 1);
+      erased = await runReplicateImageErase(accessToken!, srcPng, maskPng, job.abortController.signal, (fraction) =>
+        setStageProgress(job, "predicting", fraction)
+      );
     }
 
     setStageProgress(job, "downloading", 0.5);
@@ -632,14 +516,18 @@ async function runInpaintJob(
   bpProjectId: string,
   clipId: string,
   rect: { x: number; y: number; width: number; height: number },
-  backgroundPrompt: string | undefined,
-  libraryMediaDir: string | null
+  libraryMediaDir: string | null,
+  accessToken: string | null
 ) {
   const paths = ensureProjectDirs(bpProjectId);
   const scratchPrefix = path.join(paths.scratchDir, job.id);
   const extractedPath = `${scratchPrefix}-src.mp4`;
   const resultPath = `${scratchPrefix}-result.mp4`;
-  const { activeProvider } = getInpaintKeyStatus();
+  // A saved `"fal"` preference from before self-supplied keys were retired is treated the same as
+  // `"replicate"` now — see `inpaint/predict/route.ts`'s own doc comment for why there's no reason to
+  // keep funding two redundant cloud vendors from one shared credits pool.
+  const savedProvider = getInpaintKeyStatus().activeProvider;
+  const activeProvider: "replicate" | "local" = savedProvider === "local" ? "local" : "replicate";
   // Only the local provider's CLI wants a static image; the two cloud providers want a mask video —
   // see `buildMaskImageArgs`'s own comment for why a single frame is enough either way.
   const maskPath = activeProvider === "local" ? `${scratchPrefix}-mask.png` : `${scratchPrefix}-mask.mp4`;
@@ -659,16 +547,14 @@ async function runInpaintJob(
     // Through the shared resolver, not the project's own media folder alone — on the hosted deploy an
     // upload lives in the owner's LIBRARY, which the old `paths.mediaDir` lookup could never find.
     const sourcePath = resolveAssetInputPath(paths, libraryMediaDir, asset);
-    let token: string | null = null;
     if (activeProvider === "local") {
       if (!getLocalSetupStatus().ready) throw new ApiError(400, "Set up the local model first", "local-not-ready");
-    } else {
-      token = getActiveInpaintToken();
-      if (!token) throw new ApiError(400, `Set your ${activeProvider === "fal" ? "fal.ai" : "Replicate"} API key first`, "no-api-key");
+    } else if (!accessToken) {
+      throw new ApiError(401, "Sign in required", "unauthorized");
     }
 
     if (asset.kind === "image") {
-      job.asset = await removeObjectFromImage(job, bpProjectId, paths, asset, sourcePath, rect, activeProvider, token, scratchPrefix, localOutputDir);
+      job.asset = await removeObjectFromImage(job, paths, asset, sourcePath, rect, activeProvider, accessToken, scratchPrefix, localOutputDir);
       job.status = "done";
       job.progress = 1;
       return;
@@ -721,20 +607,10 @@ async function runInpaintJob(
         job.abortController.signal,
         (fraction) => setStageProgress(job, "predicting", fraction)
       );
-    } else if (activeProvider === "fal") {
-      resultBuffer = await runFalPrediction(
-        extractedPath,
-        maskPath,
-        token!,
-        backgroundPrompt,
-        job.abortController.signal,
-        (fraction) => setStageProgress(job, "uploading", fraction),
-        (fraction) => setStageProgress(job, "predicting", fraction)
-      );
     } else {
-      // The SDK's one `run()` call covers Files-API upload, creating the prediction, AND polling it to
-      // completion — see `runInpaintPrediction`'s own comment for why this replaced three separate
-      // hand-rolled fetch calls. No separate upload stage to report, so it's marked complete up front.
+      // The `predict` route's one call covers uploading, running the prediction, AND downloading the
+      // result — see `runInpaintPrediction`'s own comment. No separate upload stage to report, so it's
+      // marked complete up front.
       setStageProgress(job, "uploading", 1);
       const clipDuration = extractedProbe.duration || extractDuration;
       // Over `bria/video-erase-object`'s own 5-second cap — chunk it (extracting straight from the
@@ -744,8 +620,7 @@ async function runInpaintJob(
       resultBuffer =
         clipDuration > BRIA_MAX_CHUNK_SECONDS
           ? await runChunkedInpaintPrediction(
-              bpProjectId,
-              job.id,
+              accessToken!,
               sourcePath,
               found.clip.sourceIn,
               found.clip.sourceOut,
@@ -754,11 +629,10 @@ async function runInpaintJob(
               extractedProbe.height,
               extractedProbe.fps ?? 30,
               rect,
-              token!,
               job.abortController.signal,
               (fraction) => setStageProgress(job, "predicting", fraction)
             )
-          : await runInpaintPrediction(bpProjectId, job.id, extractedPath, maskPath, token!, job.abortController.signal, (fraction) =>
+          : await runInpaintPrediction(accessToken!, extractedPath, maskPath, clipDuration, job.abortController.signal, (fraction) =>
               setStageProgress(job, "predicting", fraction)
             );
     }
@@ -857,19 +731,23 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
 
   const availability = ffmpegAvailable();
   if (!availability.available) throw new ApiError(500, availability.reason ?? "FFmpeg is unavailable", "ffmpeg-missing");
-  const keyStatus = getInpaintKeyStatus();
-  if (!keyStatus.configured[keyStatus.activeProvider]) {
-    throw new ApiError(400, `Set your ${keyStatus.activeProvider === "fal" ? "fal.ai" : "Replicate"} API key first`, "no-api-key");
+  // See `runInpaintJob`'s own identical normalization — a saved `"fal"` preference from before
+  // self-supplied keys were retired runs the same as `"replicate"` now.
+  const savedProvider = getInpaintKeyStatus().activeProvider;
+  const activeProvider: "replicate" | "local" = savedProvider === "local" ? "local" : "replicate";
+  if (activeProvider === "local" && !getInpaintKeyStatus().configured.local) {
+    throw new ApiError(400, "Set up the local model first", "local-not-ready");
   }
 
   const body = (await req.json().catch(() => ({}))) as {
     clipId?: string;
     rect?: { x: number; y: number; width: number; height: number };
-    backgroundPrompt?: string;
+    accessToken?: string;
   };
   if (!body.clipId) throw new ApiError(400, "Missing clipId", "missing-clip-id");
   const rect = body.rect;
   if (!rect || !(rect.width > 0) || !(rect.height > 0)) throw new ApiError(400, "Missing or invalid rect", "missing-rect");
+  if (activeProvider === "replicate" && !body.accessToken) throw new ApiError(401, "Sign in required", "unauthorized");
 
   // Validated up front (clip exists, is a video clip, media is present) so a bad request fails
   // immediately rather than after a job APPEARS to have started — same reasoning `export/route.ts`
@@ -893,14 +771,18 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
   // An image is one erase regardless of how long its clip is on the timeline — priced as the minimum,
   // a single second's worth.
   const cost =
-    keyStatus.activeProvider === "replicate"
+    activeProvider === "replicate"
       ? asset.kind === "image"
         ? REMOVE_OBJECT_CREDITS_PER_SECOND
         : Math.max(REMOVE_OBJECT_CREDITS_PER_SECOND, Math.ceil(clipSeconds) * REMOVE_OBJECT_CREDITS_PER_SECOND)
       : REMOVE_OBJECT_FLAT_COST;
 
-  // Every upfront check above has passed — see `captions/route.ts`'s identical comment for why this
-  // is the right moment to actually spend, not automatically before the handler even started.
+  // This LOCAL job registration's own `spend()` is a no-op outside real hosted mode (see
+  // `hostedCreditGatedRoute`'s own doc comment) — desktop's local server is never `VCUT_HOSTED`, so
+  // this never actually charges anything here. The REAL charge now happens on the remote
+  // `inpaint/predict` call(s) this job makes (once, or once per chunk) — see that route's own doc
+  // comment. Kept here anyway (harmless) so a genuinely hosted caller of this same route (if one ever
+  // existed) would still be gated the usual way.
   await spend(cost);
 
   const id = crypto.randomUUID();
@@ -920,7 +802,14 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
   job.notify = notifier.notify;
   jobs.set(id, job);
 
-  void runInpaintJob(job, bpProjectId, body.clipId, rect, body.backgroundPrompt, VCUT_HOSTED && user ? userMediaPaths(user.id).mediaDir : null);
+  void runInpaintJob(
+    job,
+    bpProjectId,
+    body.clipId,
+    rect,
+    VCUT_HOSTED && user ? userMediaPaths(user.id).mediaDir : null,
+    body.accessToken ?? null
+  );
 
   return Response.json({ jobId: id });
 });
@@ -985,11 +874,13 @@ export const DELETE = hostedSessionRoute(async (req, user) => {
   return Response.json({ ok: true });
 });
 
-/** Reports whether "Remove Object" is usable at all right now — FFmpeg present AND the active
- *  provider has a key saved — so the Inspector section can explain what's missing instead of offering
- *  a dead button. */
+/** Reports whether THIS MACHINE can do the local half — FFmpeg present, and if the local (ProPainter)
+ *  provider is selected, that it's actually set up. The "replicate" cloud half's own availability is a
+ *  separate, remote check now (`inpaint/predict/route.ts`'s own HEAD) — `client.ts`'s
+ *  `inpaintAvailable()` combines both, same shape as `captionsAvailable()`. */
 export const HEAD = hostedSessionRoute(async () => {
-  const keyStatus = getInpaintKeyStatus();
-  const available = ffmpegAvailable().available && keyStatus.configured[keyStatus.activeProvider];
+  const savedProvider = getInpaintKeyStatus().activeProvider;
+  const local = savedProvider === "local" ? getLocalSetupStatus().ready : true;
+  const available = ffmpegAvailable().available && local;
   return new Response(null, { status: available ? 204 : 503 });
 });
