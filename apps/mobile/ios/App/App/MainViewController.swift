@@ -12,5 +12,6 @@ import Capacitor
 class MainViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         (bridge as? CapacitorBridge)?.registerPluginInstance(FfmpegPlugin())
+        (bridge as? CapacitorBridge)?.registerPluginInstance(MicPermissionPlugin())
     }
 }

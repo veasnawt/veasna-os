@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		29D1A50A40B1707107E0A71C /* FfmpegPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA647576D05712837A7185C /* FfmpegPlugin.swift */; };
+		0E035FB7A2491CE4F7BE26E6 /* MicPermissionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 278F067BEDC80E2F7605353F /* MicPermissionPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -22,6 +23,7 @@
 /* Begin PBXFileReference section */
 		044365DEF444CEDA56A9583D /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		2EA647576D05712837A7185C /* FfmpegPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FfmpegPlugin.swift; sourceTree = "<group>"; };
+		278F067BEDC80E2F7605353F /* MicPermissionPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicPermissionPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +88,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				2EA647576D05712837A7185C /* FfmpegPlugin.swift */,
+				278F067BEDC80E2F7605353F /* MicPermissionPlugin.swift */,
 				044365DEF444CEDA56A9583D /* MainViewController.swift */,
 			);
 			path = App;
@@ -215,6 +218,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				29D1A50A40B1707107E0A71C /* FfmpegPlugin.swift in Sources */,
+				0E035FB7A2491CE4F7BE26E6 /* MicPermissionPlugin.swift in Sources */,
 				A10D779AF370D15656265A4C /* MainViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

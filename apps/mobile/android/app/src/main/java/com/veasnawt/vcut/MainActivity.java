@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FfmpegPlugin.class);
         registerPlugin(AuthCallbackPlugin.class);
+        registerPlugin(MicPermissionPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

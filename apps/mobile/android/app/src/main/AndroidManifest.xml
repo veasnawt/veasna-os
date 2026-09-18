@@ -57,4 +57,20 @@
          the OS Settings app either, since a permission the manifest never declares has nothing there to
          toggle on. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Required alongside RECORD_AUDIO above, for a subtler reason: Capacitor's OWN vendored
+         `BridgeWebChromeClient.onPermissionRequest` (node_modules @capacitor/android, not our code)
+         requests MODIFY_AUDIO_SETTINGS and RECORD_AUDIO TOGETHER as one batch for any audio-capture
+         getUserMedia call, then ANDs every permission in that batch — if ANY of them comes back `false`,
+         the whole request is denied, calling `request.deny()` regardless of what the user does on the
+         REAL RECORD_AUDIO dialog. A permission the manifest never declares can never be granted (Android
+         auto-denies it silently, no dialog, every time) — so leaving MODIFY_AUDIO_SETTINGS undeclared
+         meant `getUserMedia` was ALWAYS rejected with `NotAllowedError` on Android, unconditionally,
+         even with RECORD_AUDIO itself genuinely granted. Confirmed directly against the vendored source,
+         not inferred: a real device test kept getting "NotAllowedError: Permission denied" straight
+         through this app's own separate `MicPermissionPlugin.request()` reporting RECORD_AUDIO as
+         "granted" — the only way BOTH of those are true at once. MODIFY_AUDIO_SETTINGS is a "normal"
+         (non-dangerous) permission: once declared, it's auto-granted at install with no runtime prompt
+         of its own, so this fixes the AND without adding any new dialog the user has to answer. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 </manifest>
