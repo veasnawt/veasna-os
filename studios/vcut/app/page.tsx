@@ -45,23 +45,17 @@ function LandingPage() {
           >
             Start editing — it&rsquo;s free
           </Link>
-          {/* GitHub Releases on the dedicated veasnawt/vcut repo (packages/vcut's own submodule
-              repo, now public) rather than hosting the installer ourselves — free, and the
-              standard place a desktop app's own users already expect to find installers/
-              changelogs. Deliberately NOT veasna-os (the whole monorepo this app lives inside) —
-              that repo's releases would eventually mix in whatever else gets packaged there too,
-              which already happened once with a since-deleted "VStudio" release from before this
-              app's own rename. This repo has nothing else to ever conflict with.
-              NOT `/releases/latest` — a real, confirmed bug: that repo's Releases page interleaves
-              desktop (vcut-desktop-vX.Y.Z) AND mobile (vcut-mobile-vX.Y.Z) tags, and GitHub's own
-              "latest" is just whichever of the two was PUBLISHED most recently, not "latest of
-              whichever kind this link means." Mobile v0.2.1 published a minute after desktop v0.2.1
-              silently turned this into a Windows user clicking "Download Desktop App" and getting an
-              Android APK. Pointing at the specific desktop tag instead is unambiguous — the tradeoff
-              is this literal needs bumping by hand on every future desktop release (no code compares
-              this to package.json — it's a plain string like the rest of this marketing page). */}
+          {/* `/dl/desktop` — this app's own tiny redirect route (see its own doc comment), not a raw
+              GitHub link: the installer lives in GitHub Releases on the dedicated veasnawt/vcut repo
+              (packages/vcut's own submodule repo, now public — free hosting, and the standard place a
+              desktop app's own users already expect installers/changelogs), but that repo ALSO carries
+              mobile's releases in the same tag namespace, which made both a raw `/releases/latest` link
+              (real, confirmed bug: served an Android APK to a Windows visitor once) and a hardcoded
+              version-pinned link (correct today, silently stale on the very next desktop release) the
+              wrong choice. The redirect route resolves the real latest desktop release fresh every
+              time, so this link needs no maintenance at all going forward. */}
           <a
-            href="https://github.com/veasnawt/vcut/releases/tag/vcut-desktop-v0.2.2"
+            href="/dl/desktop"
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-md border border-white/15 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
