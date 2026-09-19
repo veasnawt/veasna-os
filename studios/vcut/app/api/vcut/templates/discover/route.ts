@@ -1,4 +1,4 @@
-import { hostedOnlyRoute } from "../../_lib/localOnly";
+import { corsPreflight, hostedOnlyRoute } from "../../_lib/localOnly";
 import { getPublicProfiles } from "../../_lib/profiles";
 import { listPublicTemplates } from "../../_lib/templates";
 import { getCommentCounts, getLikeCounts, getLikedSet } from "../../_lib/templateSocial";
@@ -35,3 +35,14 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
   }));
   return Response.json({ templates: rows });
 });
+
+// Desktop/mobile call this cross-origin (`centralAuthFetch`/`client.ts`'s own central routing — see
+// each platform's own doc comments on why templates only ever live on the hosted deployment). The
+// `Authorization` header those callers attach makes this a non-simple CORS request, so the browser
+// sends a real preflight OPTIONS first — `hostedOnlyRoute` already puts CORS headers on the GET's own
+// response via `withCors`, but that alone doesn't answer the preflight itself; without this, the
+// preflight has no CORS headers of its own, fails, and the real GET never fires at all (surfaces as a
+// bare "Failed to fetch," not a 401/403 — confirmed as a real, reported bug on desktop's own packaged
+// build, not theoretical). Same fix `stock/route.ts`/`ai-image/route.ts` already needed for the
+// identical reason.
+export const OPTIONS = corsPreflight;

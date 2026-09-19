@@ -1,4 +1,4 @@
-import { hostedOnlyRoute, publicSessionRoute } from "../../_lib/localOnly";
+import { corsPreflight, hostedOnlyRoute, publicSessionRoute, withCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 import { getPublicProfile } from "../../_lib/profiles";
 import { getCommentCounts, getLikeCounts, getLikedSet } from "../../_lib/templateSocial";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  *  Discover/viewer UI calls as a signed-in user — same route, same `getViewableTemplate` visibility
  *  check either way (an empty-string viewer id can never match a real owner_id, so it naturally
  *  degrades to "must be public" for an anonymous request). */
-export const GET = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string }> }) => {
+const getTemplate = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
   const template = await getViewableTemplate(id, user?.id ?? "");
   const [creator, likeCounts, commentCounts, likedSet] = await Promise.all([
@@ -35,6 +35,12 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
   });
 });
 
+// `publicSessionRoute` (deliberately — see this route's own doc comment above) adds no CORS handling of
+// its own, unlike `hostedOnlyRoute`'s automatic `withCors`. Desktop/mobile call this cross-origin like
+// every other template route, so both the response AND the preflight need it added explicitly here —
+// see `templates/discover/route.ts`'s own doc comment on the identical preflight gap.
+export const GET = async (req: Request, context: { params: Promise<{ id: string }> }) => withCors(await getTemplate(req, context));
+
 /** `{ isPublic: boolean }` — publish/unpublish one of YOUR OWN templates (Phase 2's opt-in sharing,
  *  see `is_public`'s own migration comment). Pro-gated the same as every other template MUTATION in
  *  this app (`templates/route.ts`'s POST/DELETE) — only browsing/using an ALREADY-public template
@@ -48,3 +54,5 @@ export const PATCH = hostedOnlyRoute(async (req, user, context: { params: Promis
   await setTemplatePublic(id, user.id, body.isPublic);
   return Response.json({ ok: true });
 });
+
+export const OPTIONS = corsPreflight;

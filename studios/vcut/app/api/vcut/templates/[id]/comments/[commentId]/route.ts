@@ -1,4 +1,4 @@
-import { hostedOnlyRoute } from "../../../../_lib/localOnly";
+import { corsPreflight, hostedOnlyRoute } from "../../../../_lib/localOnly";
 import { getViewableTemplate } from "../../../../_lib/templates";
 import { deleteComment } from "../../../../_lib/templateSocial";
 
@@ -16,3 +16,5 @@ export const DELETE = hostedOnlyRoute(async (_req, user, context: { params: Prom
   await deleteComment(commentId, user.id, template.ownerId);
   return Response.json({ ok: true });
 });
+
+export const OPTIONS = corsPreflight;

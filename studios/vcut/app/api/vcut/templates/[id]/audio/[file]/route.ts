@@ -1,5 +1,5 @@
 import fs from "fs";
-import { publicSessionRoute } from "../../../../_lib/localOnly";
+import { corsPreflight, publicSessionRoute, withCors } from "../../../../_lib/localOnly";
 import { ApiError, resolveWithin, templateAudioPaths } from "../../../../_lib/paths";
 import { getViewableTemplate } from "../../../../_lib/templates";
 
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  *  `[file]` is checked against the template's own real asset list rather than trusted as a raw path —
  *  same "known set, not a filesystem path" discipline `sfx/[file]/route.ts` already uses — so a request
  *  can't be used to probe or read anything outside what this template actually bundles. */
-export const GET = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string; file: string }> }) => {
+const getAudio = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string; file: string }> }) => {
   const { id, file } = await context.params;
   const template = await getViewableTemplate(id, user?.id ?? "");
   const known = template.project.assets.some((a) => a.templateBundledAudio && a.relPath === file);
@@ -46,12 +46,15 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
       // template-save time) — safe to cache aggressively, same reasoning `sfx/[file]/route.ts`'s
       // identical header already gives for its own bundled, immutable files.
       "Cache-Control": "public, max-age=31536000, immutable",
-      // Native's own `fetch().blob()` download (see this route's own top doc comment) needs this the
-      // same way `sfx/[file]/route.ts` already does — a plain cross-origin `fetch()` reading a response
-      // body is blocked without it. Safe unconditionally: bearer-token-gated by `getViewableTemplate`
-      // above, not by cookie, so a permissive origin leaks nothing a differently-configured CORS policy
-      // would have protected (same reasoning `withCors`'s own doc comment gives for billing).
-      "Access-Control-Allow-Origin": "*",
     },
   });
 });
+
+// `publicSessionRoute` adds no CORS of its own (see `templates/[id]/route.ts`'s identical GET wrapper
+// for the full "why") — wrapping here, rather than a raw header on just the success response the way an
+// earlier version of this route did, is what also covers the 403/404 error paths above (an unknown or
+// forbidden file used to come back with NO CORS header at all, which a cross-origin `fetch().blob()`
+// reads as an opaque network failure, not the real 403/404 — indistinguishable from this route being
+// down entirely). `OPTIONS` answers the preflight itself, same gap every other template route had.
+export const GET = async (req: Request, context: { params: Promise<{ id: string; file: string }> }) => withCors(await getAudio(req, context));
+export const OPTIONS = corsPreflight;

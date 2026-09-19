@@ -184,7 +184,12 @@ export function hostedDisabledRoute<T extends unknown[]>(
  *  requests, so a permissive origin is safe here the way it wouldn't be for a cookie-authenticated
  *  endpoint — there's no session to steal via a forged cross-site request when there's no session
  *  cookie to begin with. */
-function withCors(res: Response): Response {
+// Exported (not just used internally by `hostedOnlyRoute`/the other `*Cors` wrappers below) for the
+// rare route that needs CORS on its response WITHOUT switching its whole auth wrapper to one of those —
+// `templates/[id]/route.ts`'s own GET is `publicSessionRoute` deliberately (a genuinely anonymous-
+// friendly route the public `/t/[id]` share page depends on), but desktop/mobile also call it cross-
+// origin like every other template route, and `publicSessionRoute` itself adds no CORS handling at all.
+export function withCors(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");

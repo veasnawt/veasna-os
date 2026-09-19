@@ -1,4 +1,4 @@
-import { hostedOnlyRoute } from "../../../_lib/localOnly";
+import { corsPreflight, hostedOnlyRoute } from "../../../_lib/localOnly";
 import { getViewableTemplate, requirePro } from "../../../_lib/templates";
 
 export const runtime = "nodejs";
@@ -16,3 +16,8 @@ export const GET = hostedOnlyRoute(async (_req, user, context: { params: Promise
   if (template.ownerId === user.id) await requirePro(user.id);
   return Response.json({ name: template.name, project: template.project });
 });
+
+// `loadTemplateForDraft`'s native (mobile) branch calls this cross-origin with an Authorization header
+// — same preflight gap as every other template route, see `templates/discover/route.ts`'s own doc
+// comment.
+export const OPTIONS = corsPreflight;

@@ -2,7 +2,7 @@ import fs from "fs";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { newTemplateId, sanitizeProjectForTemplate } from "@veasnawt/vcut/src/project/template";
 import { checkProjectOwnership } from "../_lib/auth";
-import { hostedOnlyRoute } from "../_lib/localOnly";
+import { corsPreflight, hostedOnlyRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, userMediaPaths } from "../_lib/paths";
 import {
   bundleTemplateAudio,
@@ -80,3 +80,7 @@ export const DELETE = hostedOnlyRoute(async (req, user) => {
   await deleteOwnedTemplate(id, user.id);
   return Response.json({ ok: true });
 });
+
+// Answers the CORS preflight desktop/mobile's cross-origin `Authorization`-bearing calls trigger — see
+// `templates/discover/route.ts`'s own doc comment on this exact `OPTIONS` export for the full "why."
+export const OPTIONS = corsPreflight;
