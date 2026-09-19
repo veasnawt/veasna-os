@@ -51,9 +51,17 @@ function LandingPage() {
               changelogs. Deliberately NOT veasna-os (the whole monorepo this app lives inside) —
               that repo's releases would eventually mix in whatever else gets packaged there too,
               which already happened once with a since-deleted "VStudio" release from before this
-              app's own rename. This repo has nothing else to ever conflict with. */}
+              app's own rename. This repo has nothing else to ever conflict with.
+              NOT `/releases/latest` — a real, confirmed bug: that repo's Releases page interleaves
+              desktop (vcut-desktop-vX.Y.Z) AND mobile (vcut-mobile-vX.Y.Z) tags, and GitHub's own
+              "latest" is just whichever of the two was PUBLISHED most recently, not "latest of
+              whichever kind this link means." Mobile v0.2.1 published a minute after desktop v0.2.1
+              silently turned this into a Windows user clicking "Download Desktop App" and getting an
+              Android APK. Pointing at the specific desktop tag instead is unambiguous — the tradeoff
+              is this literal needs bumping by hand on every future desktop release (no code compares
+              this to package.json — it's a plain string like the rest of this marketing page). */}
           <a
-            href="https://github.com/veasnawt/vcut/releases/latest"
+            href="https://github.com/veasnawt/vcut/releases/tag/vcut-desktop-v0.2.2"
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-md border border-white/15 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
