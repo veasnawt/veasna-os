@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { getBillingStatus, openBillingPortal, startCheckout, type BillingStatus } from "@veasnawt/vcut/src/api/billing";
+import { isDesktopSignInAvailable, openDesktopSignIn } from "@veasnawt/vcut/src/api/desktopAuth";
 import { Avatar } from "../../_shared/Avatar";
 import { authFetch, formatFileSize, HOSTED } from "../../_shared/hostedClient";
 
@@ -38,9 +39,18 @@ export default function MePage() {
     setLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === "km" ? "km" : "en");
   }, []);
 
+  // Plan/credits: works everywhere a session exists, not just the hosted deployment — `billing.ts`'s
+  // own `billingFetch` always calls the one live vcut.io billing backend directly, the same
+  // centrally-funded account infrastructure desktop's AI-generation credits already depend on. Split
+  // out from the hosted-only fetches below, which genuinely have no desktop equivalent (see each of
+  // their own routes' doc comments: no per-user library/profile storage exists outside vcut.io itself).
+  useEffect(() => {
+    if (!user) return;
+    void getBillingStatus().then(setStatus);
+  }, [user]);
+
   useEffect(() => {
     if (!HOSTED || !user) return;
-    void getBillingStatus().then(setStatus);
     authFetch("/api/vcut/media/library")
       .then((res) => (res.ok ? res.json() : null))
       .then((body: { usedBytes: number; capBytes: number } | null) => {
@@ -111,9 +121,22 @@ export default function MePage() {
     <main className="mx-auto max-w-sm px-4 py-8 sm:py-12">
       <h1 className="text-lg font-semibold text-white">Me</h1>
 
-      {HOSTED && user && (
-        <p className="mt-1.5 text-xs text-white/40">{user.email}</p>
+      {/* Desktop's own sign-in entry point — the hosted web build never reaches this: a signed-out
+          visitor there is already redirected to `/login` by `(tabs)/layout.tsx`'s own gate before this
+          page ever renders. Same `vcut://` system-browser round trip `VCutApp.tsx`'s header button
+          already uses; `(tabs)/layout.tsx` is what actually catches its return now (see that file's own
+          doc comment) so this works even though no project is open. */}
+      {!HOSTED && user === null && isDesktopSignInAvailable() && (
+        <div className="mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-sm font-medium text-white">Sign in to VCut</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/50">Sync your Pro plan and AI credits across devices.</p>
+          <button onClick={openDesktopSignIn} className="btn-brand-gradient mt-4 rounded-md px-3.5 py-2 text-xs font-semibold text-white">
+            Sign in
+          </button>
+        </div>
       )}
+
+      {user && <p className="mt-1.5 text-xs text-white/40">{user.email}</p>}
 
       {HOSTED && user && (
         <div className="mt-6 flex items-center gap-3">
@@ -141,9 +164,9 @@ export default function MePage() {
         <p className="mt-1.5 text-[11px] text-white/35">Shown on any template you publish — Discover, comments, and your own creator page.</p>
       )}
 
-      {HOSTED && !status && <p className="mt-8 text-center text-xs text-white/40">Loading…</p>}
+      {user && !status && <p className="mt-8 text-center text-xs text-white/40">Loading…</p>}
 
-      {HOSTED && status && (
+      {status && (
         <>
           <div className="mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-5">
             <div className="flex items-center justify-between">
@@ -208,9 +231,12 @@ export default function MePage() {
         </div>
       </div>
 
-      {HOSTED && user && (
+      {user && (
         <button
-          onClick={() => void signOut().then(() => router.replace("/login"))}
+          // Desktop has nowhere to redirect TO on sign-out (`/login` is the hosted web flow's own
+          // page — desktop's own sign-IN never navigates there either, see the button above); staying
+          // on this same tab with `user` now `null` is correct there, same as any other state change.
+          onClick={() => void signOut().then(() => HOSTED && router.replace("/login"))}
           className="mt-8 w-full rounded-md border border-white/10 py-2.5 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
         >
           Sign out

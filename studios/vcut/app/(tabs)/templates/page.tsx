@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { startCheckout } from "@veasnawt/vcut/src/api/billing";
+import { isDesktopSignInAvailable, openDesktopSignIn } from "@veasnawt/vcut/src/api/desktopAuth";
 import { Avatar } from "../../_shared/Avatar";
-import { centralAuthFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
+import { centralAuthFetch, displayNameOrFallback, HOSTED, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "../../_shared/hostedClient";
 import { TemplateViewer } from "../../_shared/TemplateViewer";
 
 type FeedMode = "mine" | "discover";
@@ -32,6 +33,11 @@ export default function TemplatesPage() {
   // back 402 `pro-required` — an expected answer, not a failure, and shown as an invitation rather
   // than an error line.
   const [needsPro, setNeedsPro] = useState(false);
+  // Desktop's Templates tab has no sign-in redirect the way the hosted web one does (`(tabs)/layout.tsx`
+  // only gates `HOSTED`) — a signed-out desktop request comes back a plain 401 here instead, which used
+  // to just render as inert error text with nothing to click. Tracked separately from `error` so this
+  // can show a real "Sign in" button instead.
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
@@ -40,10 +46,15 @@ export default function TemplatesPage() {
     setTemplates(null);
     setError(null);
     setNeedsPro(false);
+    setNeedsSignIn(false);
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
     centralAuthFetch(url)
       .then(async (res) => {
         if (!res.ok) {
+          if (res.status === 401) {
+            if (!cancelled) setNeedsSignIn(true);
+            return;
+          }
           const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
           if (body?.code === "pro-required") {
             if (!cancelled) setNeedsPro(true);
@@ -106,7 +117,27 @@ export default function TemplatesPage() {
 
       {error && <p className="mt-4 text-xs text-amber-200/80">{error}</p>}
 
-      {needsPro ? (
+      {needsSignIn ? (
+        <div className="mt-6 max-w-md rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-sm font-medium text-white">Sign in to browse Templates</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/50">Templates are shared through your VCut account.</p>
+          {HOSTED ? (
+            <a
+              href="/login"
+              className="mt-4 inline-block rounded-md bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-400"
+            >
+              Sign in
+            </a>
+          ) : isDesktopSignInAvailable() ? (
+            <button
+              onClick={openDesktopSignIn}
+              className="mt-4 rounded-md bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-400"
+            >
+              Sign in
+            </button>
+          ) : null}
+        </div>
+      ) : needsPro ? (
         <div className="mt-6 max-w-md rounded-xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-sm font-medium text-white">Save your own templates with Pro</p>
           <p className="mt-1.5 text-xs leading-relaxed text-white/50">

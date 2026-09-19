@@ -2,7 +2,8 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { useSupabaseSession } from "@veasnawt/auth";
+import { useSupabaseSession, getSupabaseBrowserClient } from "@veasnawt/auth";
+import { subscribeToDesktopAuthCallback } from "@veasnawt/vcut/src/api/desktopAuth";
 import { HOSTED } from "../_shared/hostedClient";
 import { TabBar, TabBarSpacer } from "../_shared/TabBar";
 
@@ -23,6 +24,19 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (HOSTED && user === null) router.replace("/login");
   }, [user, router]);
+
+  // Desktop's own sign-in round trip (`Me` tab's own button — see that page) lands back here through
+  // Electron's `vcut://auth-callback` handling in `main.ts`, same as `VCutApp.tsx`'s identical effect
+  // for when sign-in is triggered from INSIDE an open project. That one only runs while `VCutApp` is
+  // actually mounted (a project open) — this group's four tabs are reachable without ever opening one,
+  // so without this copy here too, the browser round trip would appear to hand off fine and then
+  // silently do nothing on return whenever it was started from Home/Projects/Templates/Me instead of
+  // the editor. A no-op everywhere `window.veasnaAuth` doesn't exist (hosted web, native mobile).
+  useEffect(() => {
+    return subscribeToDesktopAuthCallback(({ accessToken, refreshToken }) => {
+      void getSupabaseBrowserClient()?.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    });
+  }, []);
 
   if (HOSTED && user === undefined) {
     return <main className="flex min-h-dvh items-center justify-center bg-[#0a0c10] text-xs text-white/40">Loading…</main>;
