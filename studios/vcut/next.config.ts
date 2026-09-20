@@ -35,6 +35,22 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
+  // getUserMedia for voiceover recording needs microphone access. Railway's reverse proxy and
+  // browser defaults don't always set permissive Permissions-Policy headers — explicitly allowing
+  // microphone (and camera, for potential future use) from this origin ensures no intermediary can
+  // silently inject a restrictive policy that blocks the permission prompt entirely. This is a
+  // server-side response header, not a CSP meta tag, so it covers every page without needing per-
+  // route configuration.
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "Permissions-Policy", value: "microphone=(self), camera=(self), display-capture=(self)" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

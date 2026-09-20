@@ -7,7 +7,8 @@ import { clipDuration, findAsset, findClip, sequenceDuration } from "@veasnawt/v
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { ffmpegAvailable, ffmpegBinary, runFfmpeg } from "../_lib/ffmpeg";
 import { localRoute } from "../_lib/localOnly";
-import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { ApiError, ensureProjectDirs, userMediaPaths } from "../_lib/paths";
+import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 
 export const runtime = "nodejs";
@@ -26,8 +27,7 @@ export interface CaptionRange {
  *  `inpaint/route.ts`'s own extract/`inpaint/predict`-style split): this route does the part that can
  *  ONLY run on the machine that actually has the project's real media files — reading the project,
  *  extracting each range's audio via ffmpeg, concatenating them into one file. It genuinely CANNOT run
- *  on vcut.io's own server for a desktop user's project, so it stays local-only (`localRoute`, no
- *  CORS) exactly like every other file-touching route here.
+ *  on vcut.io's own server for a desktop user's project, so it uses `localRoute` (local access on desktop, authenticated project-owner access on hosted).
  *
  *  It does NOT transcribe anything — no secret key, no VAD, no chunking. `captions/transcribe/route.ts`
  *  (CORS-enabled, desktop calls it on the live vcut.io deployment) takes this route's own output
@@ -76,11 +76,10 @@ export const POST = localRoute(async (req) => {
   }
   if (ranges.length === 0) throw new ApiError(400, "There is nothing on the timeline to transcribe", "empty-range");
 
-  // Unlike the old single-route version, this route is now reached ONLY in local/desktop mode
-  // (`captions/transcribe/route.ts` is what a hosted caller — including desktop calling OUT to it —
-  // reaches instead), so there is no `VCUT_HOSTED && user`-owned account-wide library to resolve
-  // against here anymore — every asset lives under this project's own `mediaDir`.
-  const libraryMediaDir = null;
+  // Browser clients extract on the hosted server before calling the transcription route too.
+  // Resolve library-backed uploads (including voiceovers) from the authenticated owner's library,
+  // exactly like video export; local/desktop assets continue to use the project media directory.
+  const libraryMediaDir = VCUT_HOSTED ? userMediaPaths((await requireSessionUser(req)).id).mediaDir : null;
 
   const jobId = crypto.randomUUID();
   const audioPath = path.join(paths.scratchDir, `${jobId}-audio.mp3`);
