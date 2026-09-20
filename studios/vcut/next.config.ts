@@ -44,7 +44,7 @@ const nextConfig: NextConfig = {
   async headers() {
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' blob: data: https://*.supabase.co https://*.pexels.com https://images.pexels.com https://*.giphy.com https://*.klipy.com https://lh3.googleusercontent.com",
       "media-src 'self' blob: data: mediastream: https://*.pexels.com https://*.giphy.com https://*.klipy.com",
