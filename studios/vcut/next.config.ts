@@ -42,10 +42,31 @@ const nextConfig: NextConfig = {
   // server-side response header, not a CSP meta tag, so it covers every page without needing per-
   // route configuration.
   async headers() {
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' blob: data: https://*.supabase.co https://*.pexels.com https://images.pexels.com https://*.giphy.com https://*.klipy.com https://lh3.googleusercontent.com",
+      "media-src 'self' blob: data: mediastream: https://*.pexels.com https://*.giphy.com https://*.klipy.com",
+      "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://checkout.stripe.com https://api.pexels.com",
+      "font-src 'self' data:",
+      "worker-src 'self' blob:",
+      "frame-src 'self' https://checkout.stripe.com https://*.supabase.co",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self' https://*.supabase.co",
+    ];
+
     return [
       {
         source: "/(.*)",
         headers: [
+          { key: "Content-Security-Policy", value: cspDirectives.join("; ") },
+          { key: "Strict-Transport-Security", value: "max-age=86400; includeSubDomains" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "microphone=(self), camera=(self), display-capture=(self)" },
         ],
       },
