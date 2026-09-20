@@ -37,11 +37,19 @@ function LoginPageInner() {
   const autoGoogle = searchParams.get("provider") === "google";
   const { user } = useSupabaseSession();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordText, setShowPasswordText] = useState(false);
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
   const autoGoogleStarted = useRef(false);
+
+  function isPasswordAccount(emailStr: string): boolean {
+    const norm = emailStr.trim().toLowerCase();
+    return norm === "test@vcut.io" || norm.endsWith("@vcut.io");
+  }
 
   // Already signed in (e.g. followed a bookmarked /login link, or the magic-link/OAuth redirect just
   // landed and Supabase's client already parsed the session out of the URL). For a normal web visit,
@@ -86,6 +94,11 @@ function LoginPageInner() {
     }
     const trimmed = email.trim();
     if (!trimmed) return;
+    if (isPasswordAccount(trimmed)) {
+      setShowPassword(true);
+      setError(null);
+      return;
+    }
     setSending(true);
     setError(null);
     // Redirects back to THIS page (not `/projects`) when `isDesktop` — see this page's own top doc
@@ -100,6 +113,27 @@ function LoginPageInner() {
       return;
     }
     setSent(true);
+  }
+
+  async function handlePasswordSignIn() {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setError("Sign-in isn't configured for this deployment.");
+      return;
+    }
+    const trimmed = email.trim();
+    if (!trimmed || !password) return;
+    setSending(true);
+    setError(null);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: trimmed,
+      password,
+    });
+    setSending(false);
+    if (signInError) {
+      setError(signInError.message);
+      return;
+    }
   }
 
   async function continueWithGoogle() {
@@ -139,6 +173,66 @@ function LoginPageInner() {
         ) : sent ? (
           <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] p-5 text-center text-sm text-white/70">
             Check <span className="text-white">{email}</span> for a sign-in link.
+          </div>
+        ) : showPassword ? (
+          <div className="mt-8 space-y-3">
+            <div className="flex items-center justify-between rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
+              <span className="truncate font-medium text-white">{email}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPassword(false);
+                  setPassword("");
+                  setError(null);
+                }}
+                className="ml-2 font-medium text-sky-400 transition hover:text-sky-300"
+              >
+                Change
+              </button>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showPasswordText ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !sending) void handlePasswordSignIn();
+                }}
+                placeholder="Password"
+                autoFocus
+                autoComplete="current-password"
+                className="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2.5 pr-10 text-sm text-white placeholder:text-white/30 outline-none focus:border-sky-400"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswordText(!showPasswordText)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-white/40 transition hover:text-white/70"
+                aria-label={showPasswordText ? "Hide password" : "Show password"}
+              >
+                {showPasswordText ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </div>
+
+            {error && <p className="text-xs text-amber-200/80">{error}</p>}
+
+            <button
+              onClick={() => void handlePasswordSignIn()}
+              disabled={sending || !password}
+              className="btn-brand-gradient w-full rounded-md py-2.5 text-sm font-semibold text-white transition disabled:cursor-default disabled:opacity-50"
+            >
+              {sending ? "Signing in…" : "Sign in"}
+            </button>
           </div>
         ) : (
           <div className="mt-8 space-y-3">
