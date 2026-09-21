@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { filterMusicCatalog, VIRAL_MUSIC_CATALOG, type MusicCategory, type MusicTrack } from "@veasnawt/vcut/src/project/music";
 import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
-import { corsPreflight, hostedSessionRouteCors } from "../_lib/localOnly";
+import { corsPreflight, publicSessionRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
 import { sfxAssetPath } from "../_lib/sfx";
 import { getProfile } from "../_lib/profiles";
@@ -45,7 +45,7 @@ async function resolvePlayableAudio(title: string, artist?: string): Promise<str
 
 /** `GET /api/vcut/music?q=...&category=...`
  *  Returns real music tracks from iTunes Search API and YouTube Data API, plus local curated tracks. */
-export const GET = hostedSessionRouteCors(async (req) => {
+export const GET = publicSessionRouteCors(async (req) => {
   const url = new URL(req.url);
   if (url.searchParams.get("availability")) {
     return Response.json({ available: true });
@@ -121,7 +121,11 @@ export const GET = hostedSessionRouteCors(async (req) => {
             const rawTitle = i.snippet?.title || "YouTube Track";
             const cleanTitle = rawTitle.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
             const artistName = (i.snippet?.channelTitle || "YouTube").replace(/ - Topic$/i, "");
-            const audioPreview = await resolvePlayableAudio(cleanTitle, artistName);
+            let audioPreview = await resolvePlayableAudio(cleanTitle, artistName);
+            if (!audioPreview) {
+              audioPreview = await resolvePlayableAudio(cleanTitle);
+            }
+            if (!audioPreview) return null; // Only keep tracks that have playable audio streams
             return {
               id: `yt-${videoId}`,
               title: cleanTitle,
@@ -129,7 +133,7 @@ export const GET = hostedSessionRouteCors(async (req) => {
               category: (category === "all" ? "trending" : category) as Exclude<MusicCategory, "all">,
               duration: 180,
               tags: ["youtube", "trending"],
-              audioUrl: audioPreview || `https://www.youtube.com/watch?v=${videoId}`,
+              audioUrl: audioPreview,
               coverUrl: i.snippet?.thumbnails?.high?.url,
               featured: false,
             };
@@ -143,11 +147,14 @@ export const GET = hostedSessionRouteCors(async (req) => {
     }
   }
 
-  // Combine: featured local tracks first, followed by live API results (deduplicating by title)
+  // Combine: prioritize live external tracks (real songs from iTunes & YouTube)
+  // Real songs come first; local catalog acts as an instant/offline fallback.
   const seenTitles = new Set<string>();
   const combined: MusicTrack[] = [];
 
-  for (const track of [...localTracks, ...externalTracks]) {
+  const listToMerge = externalTracks.length > 0 ? [...externalTracks, ...localTracks] : localTracks;
+
+  for (const track of listToMerge) {
     const key = `${track.title.toLowerCase()}::${track.artist.toLowerCase()}`;
     if (!seenTitles.has(key)) {
       seenTitles.add(key);
@@ -160,7 +167,7 @@ export const GET = hostedSessionRouteCors(async (req) => {
 
 /** `POST /api/vcut/music?projectId=...`
  *  Downloads the requested music track and imports it into the project (or user media library). */
-export const POST = hostedSessionRouteCors(async (req, user) => {
+export const POST = publicSessionRouteCors(async (req, user) => {
   const bpProjectId = new URL(req.url).searchParams.get("projectId");
   const body = (await req.json().catch(() => ({}))) as {
     trackId?: string;
