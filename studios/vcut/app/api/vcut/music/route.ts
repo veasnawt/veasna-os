@@ -23,6 +23,26 @@ const CATEGORY_SEARCH_TERMS: Record<string, string> = {
   travel: "summer travel vlog acoustic chill",
 };
 
+async function resolvePlayableAudio(title: string, artist?: string): Promise<string | undefined> {
+  try {
+    const clean = `${title} ${artist ?? ""}`
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\(.*?\)|\[.*?\]|official|music|video|audio|lyrics/gi, "")
+      .trim();
+    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(clean)}&entity=song&limit=1`;
+    const res = await fetch(itunesUrl, { signal: AbortSignal.timeout(3500) });
+    if (res.ok) {
+      const data = (await res.json()) as { results?: Array<{ previewUrl?: string }> };
+      return data.results?.[0]?.previewUrl;
+    }
+  } catch {
+    // Ignore fallback errors
+  }
+  return undefined;
+}
+
 /** `GET /api/vcut/music?q=...&category=...`
  *  Returns real music tracks from iTunes Search API and YouTube Data API, plus local curated tracks. */
 export const GET = hostedSessionRouteCors(async (req) => {
@@ -80,32 +100,41 @@ export const GET = hostedSessionRouteCors(async (req) => {
     // Network timeout or offline - gracefully proceed with local tracks
   }
 
-  // 3. If YouTube Data API key is available and requested or needed, query YouTube
-  const youtubeApiKey = process.env.YOUTUBE_API_KEY;
-  if (youtubeApiKey && (url.searchParams.get("source") === "youtube" || (!externalTracks.length && query))) {
+  // 3. If YouTube Data API key is available (VCUT_HOSTED_YOUTUBE_API_KEY or YOUTUBE_API_KEY), query YouTube
+  const youtubeApiKey = process.env.VCUT_HOSTED_YOUTUBE_API_KEY || process.env.YOUTUBE_API_KEY;
+  if (youtubeApiKey) {
     try {
-      const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&q=${encodeURIComponent(searchTerm + " audio")}&key=${youtubeApiKey}&maxResults=15`;
+      const ytUrl = query
+        ? `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&q=${encodeURIComponent(searchTerm + " song")}&key=${youtubeApiKey}&maxResults=12`
+        : `https://www.googleapis.com/youtube/v3/videos?part=snippet&chart=mostPopular&videoCategoryId=10&key=${youtubeApiKey}&maxResults=12`;
       const ytRes = await fetch(ytUrl, { signal: AbortSignal.timeout(5000) });
       if (ytRes.ok) {
         const ytData = (await ytRes.json()) as { items?: Array<{
-          id?: { videoId?: string };
+          id?: { videoId?: string } | string;
           snippet?: { title?: string; channelTitle?: string; thumbnails?: { high?: { url?: string } } };
         }> };
 
         if (Array.isArray(ytData.items)) {
-          const ytTracks: MusicTrack[] = ytData.items
-            .filter((i) => i.id?.videoId)
-            .map((i) => ({
-              id: `yt-${i.id!.videoId!}`,
-              title: (i.snippet?.title || "YouTube Track").replace(/&quot;/g, '"').replace(/&#39;/g, "'"),
-              artist: i.snippet?.channelTitle || "YouTube",
+          const ytPromises = ytData.items.map(async (i) => {
+            const videoId = typeof i.id === "string" ? i.id : i.id?.videoId;
+            if (!videoId) return null;
+            const rawTitle = i.snippet?.title || "YouTube Track";
+            const cleanTitle = rawTitle.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+            const artistName = (i.snippet?.channelTitle || "YouTube").replace(/ - Topic$/i, "");
+            const audioPreview = await resolvePlayableAudio(cleanTitle, artistName);
+            return {
+              id: `yt-${videoId}`,
+              title: cleanTitle,
+              artist: artistName,
               category: (category === "all" ? "trending" : category) as Exclude<MusicCategory, "all">,
               duration: 180,
-              tags: ["youtube", "audio"],
-              audioUrl: `https://www.youtube.com/watch?v=${i.id!.videoId!}`,
+              tags: ["youtube", "trending"],
+              audioUrl: audioPreview || `https://www.youtube.com/watch?v=${videoId}`,
               coverUrl: i.snippet?.thumbnails?.high?.url,
               featured: false,
-            }));
+            };
+          });
+          const ytTracks = (await Promise.all(ytPromises)).filter(Boolean) as MusicTrack[];
           externalTracks = [...externalTracks, ...ytTracks];
         }
       }
@@ -147,12 +176,20 @@ export const POST = hostedSessionRouteCors(async (req, user) => {
 
   // Find track in catalog or use provided metadata
   const catalogTrack = VIRAL_MUSIC_CATALOG.find((t) => t.id === body.trackId);
-  const audioUrl = body.audioUrl || catalogTrack?.audioUrl;
+  let audioUrl = body.audioUrl || catalogTrack?.audioUrl;
   const title = body.title || catalogTrack?.title || "Music Track";
   const artist = body.artist || catalogTrack?.artist || "Unknown Artist";
 
   if (!audioUrl) {
     throw new ApiError(404, "Track audio URL not found", "track-not-found");
+  }
+
+  // If the audio URL points to YouTube or isn't a direct audio file, resolve playable audio stream
+  if (audioUrl.includes("youtube.com") || !audioUrl.match(/\.(mp3|m4a|aac|wav|ogg)/i)) {
+    const preview = await resolvePlayableAudio(title, artist);
+    if (preview) {
+      audioUrl = preview;
+    }
   }
 
   const paths = bpProjectId ? ensureProjectDirs(bpProjectId) : null;
