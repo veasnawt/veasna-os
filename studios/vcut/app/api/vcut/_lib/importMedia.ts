@@ -177,7 +177,12 @@ export async function importAnimatedImageBytes(
  *  one, and again against the real downloaded size regardless (a provider can omit or lie about that
  *  header). */
 export async function downloadMediaUrl(url: string, maxBytes = 200 * 1024 * 1024): Promise<Buffer> {
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    redirect: "follow",
+  });
   if (!res.ok) throw new ApiError(502, "Could not download that file", "download-failed");
   const contentLength = res.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) throw new ApiError(400, "That file is too large to import", "download-too-large");

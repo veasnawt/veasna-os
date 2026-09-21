@@ -23,12 +23,12 @@ export const dynamic = "force-dynamic";
  *  matching VCut's standard ~60% margin target. */
 const AI_BG_REMOVE_CREDITS = 3;
 
-const RMBG_OWNER = "briaai";
-const RMBG_NAME = "rmbg-1.4";
+const RMBG_PRIMARY_MODEL = "bria/remove-background";
+const RMBG_FALLBACK_MODEL = "lucataco/remove-bg";
 
 /** `POST /api/vcut/ai-background-remove?projectId=...`
  *  Accepts `{ assetId, clipId, deliverBytes, imageBase64 }`.
- *  Takes an image (or extracts the active video frame), runs AI subject cutout via RMBG-1.4,
+ *  Takes an image (or extracts the active video frame), runs AI subject cutout via BRIA background removal,
  *  and saves the resulting transparent PNG as a new Asset in the project. */
 export const POST = hostedCreditGatedRouteCors("ai-bg-remove", AI_BG_REMOVE_CREDITS, async (req, user, spend) => {
   const bpProjectId = new URL(req.url).searchParams.get("projectId");
@@ -101,15 +101,17 @@ export const POST = hostedCreditGatedRouteCors("ai-bg-remove", AI_BG_REMOVE_CRED
 
   let resultBuffer: Buffer;
   try {
-    const model = await replicate.models.get(RMBG_OWNER, RMBG_NAME);
-    const versionId = model.latest_version?.id;
-    if (!versionId) throw new ApiError(500, "RMBG model version not found", "model-version-missing");
-
-    const output = await replicate.run(`${RMBG_OWNER}/${RMBG_NAME}:${versionId}`, {
-      input: {
-        image: inputDataUri,
-      },
-    });
+    let output: unknown;
+    try {
+      output = await replicate.run(RMBG_PRIMARY_MODEL as `${string}/${string}`, {
+        input: { image: inputDataUri },
+      });
+    } catch (primaryErr) {
+      console.warn("bria/remove-background failed, falling back to lucataco/remove-bg", primaryErr);
+      output = await replicate.run(RMBG_FALLBACK_MODEL as `${string}/${string}`, {
+        input: { image: inputDataUri },
+      });
+    }
 
     resultBuffer = await extractReplicateMediaBytes(output, "AI Background Remover returned no output", "bg-remove-no-output");
   } catch (err) {
@@ -142,7 +144,7 @@ export const POST = hostedCreditGatedRouteCors("ai-bg-remove", AI_BG_REMOVE_CRED
       fps: newAsset.fps ?? null,
       hasAudio: newAsset.hasAudio,
       sizeBytes: newAsset.sizeBytes,
-      aiGeneration: { prompt: "Remove background", aspectRatio: "custom", model: RMBG_NAME },
+      aiGeneration: { prompt: "Remove background", aspectRatio: "custom", model: RMBG_PRIMARY_MODEL },
       hidden: false,
     });
     newAsset.libraryMediaId = newAsset.id;

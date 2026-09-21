@@ -1,7 +1,10 @@
+import fs from "fs";
+import path from "path";
 import { filterMusicCatalog, VIRAL_MUSIC_CATALOG, type MusicCategory, type MusicTrack } from "@veasnawt/vcut/src/project/music";
 import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
 import { corsPreflight, hostedSessionRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
+import { sfxAssetPath } from "../_lib/sfx";
 import { getProfile } from "../_lib/profiles";
 import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
@@ -60,8 +63,19 @@ export const POST = hostedSessionRouteCors(async (req, user) => {
 
   const cleanFilename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, "").trim()} - ${artist.replace(/[^a-zA-Z0-9_\-\s]/g, "").trim()}.mp3`;
 
-  // Download the music track bytes
-  const bytes = await downloadMediaUrl(audioUrl);
+  // Load the music track bytes (either from local assets or via download)
+  let bytes: Buffer;
+  if (audioUrl.startsWith("/api/vcut/sfx/") || audioUrl.startsWith("/api/vcut/music/file/") || !audioUrl.startsWith("http")) {
+    const fileName = path.basename(audioUrl.split("?")[0]);
+    try {
+      const filePath = sfxAssetPath(fileName);
+      bytes = fs.readFileSync(filePath);
+    } catch {
+      bytes = await downloadMediaUrl(audioUrl);
+    }
+  } else {
+    bytes = await downloadMediaUrl(audioUrl);
+  }
 
   if (VCUT_HOSTED && user?.id) {
     const profile = await getProfile(user.id);

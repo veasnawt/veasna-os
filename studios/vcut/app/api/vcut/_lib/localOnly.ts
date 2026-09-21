@@ -273,6 +273,28 @@ export function publicSessionRoute<T extends unknown[]>(
   };
 }
 
+export function publicSessionRouteCors<T extends unknown[]>(
+  handler: (req: Request, user: SessionUser | null, ...rest: T) => Promise<Response>
+): (req: Request, ...rest: T) => Promise<Response> {
+  return async (req: Request, ...rest: T) => {
+    let user: SessionUser | null = null;
+    if (VCUT_HOSTED) {
+      try {
+        user = await requireSessionUser(req);
+      } catch {
+        user = null;
+      }
+    } else if (!isLocalRequest(req)) {
+      return withCors(localOnlyResponse());
+    }
+    try {
+      return withCors(await handler(req, user, ...rest));
+    } catch (err) {
+      return withCors(errorResponse(err));
+    }
+  };
+}
+
 /** For a centrally-funded feature (Auto Captions, Remove Object — VCut pays ONE provider account,
  *  not each user their own key) whose POST actually incurs real cost. Same "IP check locally, real
  *  auth hosted" split as `localRoute`. Deliberately does NOT spend credits itself before the handler
