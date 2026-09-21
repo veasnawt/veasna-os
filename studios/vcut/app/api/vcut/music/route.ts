@@ -1,8 +1,5 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
-import crypto from "crypto";
-import { execFile } from "child_process";
 import { filterMusicCatalog, VIRAL_MUSIC_CATALOG, type MusicCategory, type MusicTrack } from "@veasnawt/vcut/src/project/music";
 import { downloadMediaUrl, importMediaBytes } from "../_lib/importMedia";
 import { corsPreflight, publicSessionRouteCors } from "../_lib/localOnly";
@@ -11,64 +8,9 @@ import { sfxAssetPath } from "../_lib/sfx";
 import { getProfile } from "../_lib/profiles";
 import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
-import { ffmpegBinary } from "../_lib/ffmpeg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Loops an audio buffer up to targetDuration so full-length background music is created on the timeline
- *  even when the source was a 30-second promotional snippet from iTunes/Apple Music. */
-async function extendAudioToDuration(
-  inputBytes: Buffer,
-  ext: string,
-  targetDuration: number
-): Promise<Buffer> {
-  const tempDir = os.tmpdir();
-  const id = crypto.randomUUID().slice(0, 8);
-  const tempIn = path.join(tempDir, `vcut_loop_in_${id}${ext}`);
-  const tempOut = path.join(tempDir, `vcut_loop_out_${id}${ext}`);
-
-  fs.writeFileSync(tempIn, inputBytes);
-  try {
-    const ffmpeg = ffmpegBinary();
-    const codecArgs = ext === ".mp3" ? ["-c:a", "libmp3lame", "-b:a", "192k"] : ["-c:a", "copy"];
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        ffmpeg,
-        [
-          "-y",
-          "-stream_loop",
-          "-1",
-          "-i",
-          tempIn,
-          "-t",
-          String(Math.min(targetDuration, 600)),
-          ...codecArgs,
-          tempOut,
-        ],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
-
-    if (fs.existsSync(tempOut)) {
-      return fs.readFileSync(tempOut);
-    }
-    return inputBytes;
-  } catch (err) {
-    console.warn("Failed to loop audio preview to target duration:", err);
-    return inputBytes;
-  } finally {
-    try {
-      if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn);
-      if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
-    } catch {
-      /* ignore */
-    }
-  }
-}
 
 const CATEGORY_SEARCH_TERMS: Record<string, string> = {
   all: "viral hits 2026",
@@ -145,7 +87,7 @@ export const GET = publicSessionRouteCors(async (req) => {
             title: item.trackName || "Untitled Track",
             artist: item.artistName || "Unknown Artist",
             category: (category === "all" ? "trending" : category) as Exclude<MusicCategory, "all">,
-            duration: Math.round((item.trackTimeMillis || 30000) / 1000),
+            duration: 30,
             bpm: undefined,
             tags: [item.primaryGenreName, "music"].filter(Boolean) as string[],
             audioUrl: item.previewUrl!,
@@ -189,7 +131,7 @@ export const GET = publicSessionRouteCors(async (req) => {
               title: cleanTitle,
               artist: artistName,
               category: (category === "all" ? "trending" : category) as Exclude<MusicCategory, "all">,
-              duration: 180,
+              duration: 30,
               tags: ["youtube", "trending"],
               audioUrl: audioPreview,
               coverUrl: i.snippet?.thumbnails?.high?.url,
@@ -283,17 +225,6 @@ export const POST = publicSessionRouteCors(async (req, user) => {
     }
   } else {
     bytes = await downloadMediaUrl(audioUrl);
-  }
-
-  // If the track is a promotional snippet (e.g. from iTunes/Apple Music ~30s) and target duration is longer,
-  // seamlessly extend/loop the audio to match the full song length so it covers the timeline completely.
-  const targetDuration = body.duration || catalogTrack?.duration;
-  if (targetDuration && targetDuration > 35 && (audioUrl.includes("apple.com") || bytes.byteLength < 2 * 1024 * 1024)) {
-    try {
-      bytes = await extendAudioToDuration(bytes, ext, targetDuration);
-    } catch (loopErr) {
-      console.warn("Failed to loop audio to target duration:", loopErr);
-    }
   }
 
   if (VCUT_HOSTED && user?.id) {
