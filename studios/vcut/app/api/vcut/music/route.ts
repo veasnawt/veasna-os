@@ -23,26 +23,6 @@ const CATEGORY_SEARCH_TERMS: Record<string, string> = {
   travel: "summer travel vlog acoustic chill",
 };
 
-async function resolvePlayableAudio(title: string, artist?: string): Promise<string | undefined> {
-  try {
-    const clean = `${title} ${artist ?? ""}`
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\(.*?\)|\[.*?\]|official|music|video|audio|lyrics/gi, "")
-      .trim();
-    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(clean)}&entity=song&limit=1`;
-    const res = await fetch(itunesUrl, { signal: AbortSignal.timeout(3500) });
-    if (res.ok) {
-      const data = (await res.json()) as { results?: Array<{ previewUrl?: string }> };
-      return data.results?.[0]?.previewUrl;
-    }
-  } catch {
-    // Ignore fallback errors
-  }
-  return undefined;
-}
-
 /** `GET /api/vcut/music?q=...&category=...`
  *  Returns real music tracks from iTunes Search API and YouTube Data API, plus local curated tracks. */
 export const GET = hostedSessionRouteCors(async (req) => {
@@ -99,6 +79,26 @@ export const GET = hostedSessionRouteCors(async (req) => {
   } catch {
     // Network timeout or offline - gracefully proceed with local tracks
   }
+
+async function resolvePlayableAudio(title: string, artist?: string): Promise<string | undefined> {
+  try {
+    const clean = `${title} ${artist ?? ""}`
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\(.*?\)|\[.*?\]|official|music|video|audio|lyrics/gi, "")
+      .trim();
+    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(clean)}&entity=song&limit=1`;
+    const res = await fetch(itunesUrl, { signal: AbortSignal.timeout(3500) });
+    if (res.ok) {
+      const data = (await res.json()) as { results?: Array<{ previewUrl?: string }> };
+      return data.results?.[0]?.previewUrl;
+    }
+  } catch {
+    // Ignore fallback errors
+  }
+  return undefined;
+}
 
   // 3. If YouTube Data API key is available (VCUT_HOSTED_YOUTUBE_API_KEY or YOUTUBE_API_KEY), query YouTube
   const youtubeApiKey = process.env.VCUT_HOSTED_YOUTUBE_API_KEY || process.env.YOUTUBE_API_KEY;
