@@ -34,22 +34,44 @@ export const GET = publicSessionRouteCors(async (req) => {
   }
 
   const targetUrl = urlParam.startsWith("/") ? new URL(urlParam, req.url).toString() : urlParam;
+  const rangeHeader = req.headers.get("range");
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  };
+  if (rangeHeader) {
+    headers["Range"] = rangeHeader;
+  }
+
   const audioRes = await fetch(targetUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
+    headers,
     redirect: "follow",
   });
-  if (!audioRes.ok) {
+  if (!audioRes.ok && audioRes.status !== 206) {
     throw new ApiError(502, "Failed to stream audio track", "audio-fetch-failed");
   }
 
+  const rawContentType = audioRes.headers.get("Content-Type") || "audio/mpeg";
+  const contentType =
+    rawContentType.includes("m4p") || rawContentType.includes("m4a") || targetUrl.endsWith(".m4a")
+      ? "audio/mp4"
+      : rawContentType;
+
+  const responseHeaders: Record<string, string> = {
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=86400",
+    "Access-Control-Allow-Origin": "*",
+  };
+
+  const contentLength = audioRes.headers.get("Content-Length");
+  if (contentLength) responseHeaders["Content-Length"] = contentLength;
+  const contentRange = audioRes.headers.get("Content-Range");
+  if (contentRange) responseHeaders["Content-Range"] = contentRange;
+  const acceptRanges = audioRes.headers.get("Accept-Ranges");
+  if (acceptRanges) responseHeaders["Accept-Ranges"] = acceptRanges;
+
   return new Response(audioRes.body, {
-    headers: {
-      "Content-Type": audioRes.headers.get("Content-Type") || "audio/mpeg",
-      "Cache-Control": "public, max-age=86400",
-      "Access-Control-Allow-Origin": "*",
-    },
+    status: audioRes.status,
+    headers: responseHeaders,
   });
 });
 
