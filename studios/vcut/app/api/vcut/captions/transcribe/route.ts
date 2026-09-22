@@ -9,7 +9,7 @@ import type { CaptionSegment } from "@veasnawt/vcut/src/captions/chunking";
 import { ffmpegBinary } from "../../_lib/ffmpeg";
 import { getKiriToken, getReplicateToken as getReplicateTokenForGeneration } from "../../_lib/inpaintEnvFile";
 import { refundCredits } from "../../_lib/credits";
-import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors } from "../../_lib/localOnly";
+import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 import type { CaptionRange } from "../route";
 
@@ -379,7 +379,7 @@ export const DELETE = hostedSessionRouteCors(async (req, user) => {
 
 /** Reports whether the REMOTE half (secret transcription key) is configured — `client.ts`'s
  *  `captionsAvailable()` combines this with `captions/route.ts`'s own local FFmpeg check. */
-export const HEAD = hostedSessionRouteCors(async () => {
+export const HEAD = publicSessionRouteCors(async () => {
   return new Response(null, { status: getKiriToken() || getReplicateTokenForGeneration() ? 204 : 503 });
 });
 

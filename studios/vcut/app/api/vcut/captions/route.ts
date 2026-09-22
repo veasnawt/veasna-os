@@ -6,7 +6,7 @@ import { trimProjectToRange } from "@veasnawt/vcut/src/export/trimForExport";
 import { clipDuration, findAsset, findClip, sequenceDuration } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { ffmpegAvailable, ffmpegBinary, runFfmpeg } from "../_lib/ffmpeg";
-import { localRoute } from "../_lib/localOnly";
+import { localRoute, publicSessionRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, userMediaPaths } from "../_lib/paths";
 import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { resolveAssetInputPath } from "../_lib/assetInput";
@@ -130,6 +130,6 @@ export const POST = localRoute(async (req) => {
 /** Reports whether THIS MACHINE can do the local extraction half at all (FFmpeg present) — the remote
  *  half's own availability (`captions/transcribe/route.ts`'s HEAD) is a separate check now; `client.ts`'s
  *  `captionsAvailable()` combines both. */
-export const HEAD = localRoute(async () => {
+export const HEAD = publicSessionRoute(async () => {
   return new Response(null, { status: ffmpegAvailable().available ? 204 : 503 });
 });

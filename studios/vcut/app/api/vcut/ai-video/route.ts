@@ -3,7 +3,7 @@ import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
-import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors } from "../_lib/localOnly";
+import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 import { extractReplicateMediaBytes } from "../_lib/replicateOutput";
@@ -300,7 +300,7 @@ export const DELETE = hostedSessionRouteCors(async (req, user) => {
   return Response.json({ ok: true });
 });
 
-export const HEAD = hostedSessionRouteCors(async () => {
+export const HEAD = publicSessionRouteCors(async () => {
   return new Response(null, { status: getReplicateTokenForGeneration() ? 204 : 503 });
 });
 

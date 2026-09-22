@@ -27,7 +27,7 @@ import { checkProjectOwnership, requireSessionUser, VCUT_HOSTED } from "../_lib/
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS } from "../_lib/ffmpegConcurrency";
 import { buildCustomFontDataUrls, openKhmerTextHarness } from "../_lib/khmerTextHarness";
 import { ffmpegAvailable, ffmpegBinary, fontMetricsFor, fontsDirPath, probeMedia, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
-import { localRoute } from "../_lib/localOnly";
+import { localRoute, publicSessionRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
@@ -1027,7 +1027,7 @@ export const DELETE = localRoute(async (req) => {
 /** Reports whether export is possible at all, so the UI can explain a missing FFmpeg instead of
  *  offering a button that would fail. Finished files are served by the media/raw route with
  *  `kind=export`. */
-export const HEAD = localRoute(async () => {
+export const HEAD = publicSessionRoute(async () => {
   const availability = ffmpegAvailable();
   // A HEAD response can't carry a body (that's the entire point of HEAD — same headers a GET would
   // send, no content) — `availability.reason` used to just get thrown away here, meaning a REAL

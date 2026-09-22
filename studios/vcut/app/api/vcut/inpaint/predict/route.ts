@@ -1,6 +1,6 @@
 import Replicate from "replicate";
 import { getReplicateToken } from "../../_lib/inpaintEnvFile";
-import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors } from "../../_lib/localOnly";
+import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 
 export const runtime = "nodejs";
@@ -111,7 +111,7 @@ export const POST = hostedCreditGatedRouteCors("remove-object", REMOVE_OBJECT_FL
 
 /** Reports whether the REMOTE half (secret Replicate token) is configured — `client.ts`'s
  *  `inpaintAvailable()` combines this with `inpaint/route.ts`'s own local FFmpeg/local-model check. */
-export const HEAD = hostedSessionRouteCors(async () => {
+export const HEAD = publicSessionRouteCors(async () => {
   return new Response(null, { status: getReplicateToken() ? 204 : 503 });
 });
 

@@ -10,7 +10,7 @@ import { ffmpegAvailable, ffmpegBinary, generateFilmstrip, generateMaskImage, ge
 import { importMediaBytes } from "../_lib/importMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
-import { hostedCreditGatedRoute, hostedSessionRoute } from "../_lib/localOnly";
+import { hostedCreditGatedRoute, hostedSessionRoute, publicSessionRoute } from "../_lib/localOnly";
 import { getInpaintKeyStatus } from "../_lib/inpaintEnvFile";
 import { getLocalSetupStatus, REPO_DIR, VENV_PYTHON } from "../_lib/localModel";
 import { ApiError, ensureProjectDirs, resolveWithin, uniqueFileName, userMediaPaths } from "../_lib/paths";
@@ -878,7 +878,7 @@ export const DELETE = hostedSessionRoute(async (req, user) => {
  *  provider is selected, that it's actually set up. The "replicate" cloud half's own availability is a
  *  separate, remote check now (`inpaint/predict/route.ts`'s own HEAD) — `client.ts`'s
  *  `inpaintAvailable()` combines both, same shape as `captionsAvailable()`. */
-export const HEAD = hostedSessionRoute(async () => {
+export const HEAD = publicSessionRoute(async () => {
   const savedProvider = getInpaintKeyStatus().activeProvider;
   const local = savedProvider === "local" ? getLocalSetupStatus().ready : true;
   const available = ffmpegAvailable().available && local;
