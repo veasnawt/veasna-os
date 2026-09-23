@@ -30,7 +30,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark h-full antialiased">
+    <html lang="en" className="dark h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: "try{if(localStorage.getItem('vcut-toolbar-position')==='bottom')document.documentElement.dataset.vcutToolbarPosition='bottom'}catch{}" }} />
+      </head>
       <body className="min-h-full flex flex-col bg-[#0a0c10] text-white">{children}</body>
     </html>
   );
