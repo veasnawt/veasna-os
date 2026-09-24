@@ -48,7 +48,15 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' blob: data: https://*.supabase.co https://*.pexels.com https://images.pexels.com https://*.giphy.com https://*.klipy.com https://lh3.googleusercontent.com https://*.mzstatic.com https://*.apple.com https://*.ytimg.com https://*.youtube.com https://*.ggpht.com",
       "media-src 'self' blob: data: mediastream: https://*.pexels.com https://*.giphy.com https://*.klipy.com https://*.apple.com https://*.itunes.apple.com https://audio-ssl.itunes.apple.com",
-      "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://checkout.stripe.com https://api.pexels.com https://*.apple.com https://*.itunes.apple.com https://*.mzstatic.com https://*.googleapis.com",
+      // `https://vcut.io` itself is included here even though this page IS vcut.io on the hosted
+      // deployment (where it's already covered by 'self') — Desktop and Mobile serve this exact same
+      // Next.js bundle locally (HOSTED=false), and `packages/vcut/src/api/client.ts`'s `centralFetch`/
+      // `billing.ts`/`templates.ts` deliberately call the ABSOLUTE `https://vcut.io/...` origin from
+      // there for billing, AI generation, Stock/Stickers, Music, Remove Object, and Auto Captions (see
+      // that file's own doc comments). Without this entry those calls are silently blocked by this
+      // same CSP on Desktop/Mobile only, with no server-side error — confirmed by reproducing it
+      // against the real production bundle.
+      "connect-src 'self' blob: data: https://vcut.io https://*.supabase.co wss://*.supabase.co https://checkout.stripe.com https://api.pexels.com https://*.apple.com https://*.itunes.apple.com https://*.mzstatic.com https://*.googleapis.com",
       "font-src 'self' data:",
       "worker-src 'self' blob:",
       "frame-src 'self' https://checkout.stripe.com https://*.supabase.co",
