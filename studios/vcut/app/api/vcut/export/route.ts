@@ -2,7 +2,7 @@ import { execFile, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { buildExportPlan, containsKhmerScript } from "@veasnawt/vcut/src/export/buildExportPlan";
+import { buildExportPlan, containsKhmerScript, needsTextStyleBrowserRender } from "@veasnawt/vcut/src/export/buildExportPlan";
 import { renderKhmerClipWindows, type KhmerTextWindow } from "@veasnawt/vcut/src/export/khmerTextRenderer";
 import {
   OUTRO_BG_ASSET_ID,
@@ -587,6 +587,24 @@ export const POST = localRoute(async (req) => {
  *  for zero visible benefit once scaled down to the sequence's own frame. */
 const MAX_HOSTED_IMAGE_DIMENSION = 2200;
 
+/** Caps how many browser-rendered text windows (`renderKhmerClipWindows`'s own PNG-per-window output —
+ *  see that function's own doc comment) ONE export will produce in total, across every clip that needs
+ *  the path (Khmer script, or a style FFmpeg's own text renderers can't draw — `needsTextStyleBrowserRender`).
+ *  Each window is a real headless-Chromium screenshot, not a cheap FFmpeg operation, and an animated
+ *  (bounce/pulse/wiggle/wordHighlight) clip can already produce up to `MAX_KEYFRAME_SLICES_PER_CLIP`
+ *  (240) windows on its own — a project with several long animated, richly-styled captions could
+ *  otherwise run this harness for a genuinely long time under real memory pressure on the SAME
+ *  1GB-class container this file's other memory-conscious changes already protect (see
+ *  `MAX_HOSTED_IMAGE_DIMENSION`'s own doc comment for the exact prior incident that class of change
+ *  responds to). A clip whose OWN windows would push the running total past this cap is skipped
+ *  entirely (not partially rendered) and falls through to plain `drawtext` for that one clip instead —
+ *  loses its gradient/glow/layered-shadow styling in the export specifically, rather than risking the
+ *  whole export. Desktop/local dev keep this uncapped (`Infinity`) — the same "no shared-container
+ *  ceiling to protect" reasoning `prescaleOversizedImageAssets` already documents. Comfortably above
+ *  what any real project needs in practice; only a genuinely pathological timeline (many long,
+ *  animated, styled captions) would ever reach it. */
+const MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT = VCUT_HOSTED ? 600 : Infinity;
+
 /** Pre-scales any source IMAGE asset whose longer side exceeds `MAX_HOSTED_IMAGE_DIMENSION` into a
  *  scratch copy, returning a `Map<assetId, scaledPath>` for `inputPathFor` to consult — assets not in
  *  the map are used unmodified, straight from `paths.mediaDir` as before. Confirmed a real, live
@@ -677,15 +695,21 @@ async function runExportJob(
   // Surfacing that here means the user is told why BEFORE FFmpeg appears to start and then fails.
   let plan;
   try {
-    // Khmer-script text clips render through a browser (headless Chromium via `khmerTextHarness.ts`),
-    // pre-rendered to PNG windows here, BEFORE `buildExportPlan` runs — every FFmpeg-side text path
+    // Khmer-script text clips, AND any clip using a preview style FFmpeg's own text paths can't draw
+    // (gradient, glow, layered/blurred shadows, a rounded/translucent background box, letter spacing,
+    // text-decoration, clip opacity, a canvas blend mode — `needsTextStyleBrowserRender`), render
+    // through a browser (headless Chromium via `khmerTextHarness.ts`), pre-rendered to PNG windows
+    // here, BEFORE `buildExportPlan` runs. For Khmer specifically: every FFmpeg-side text path
     // (`drawtext`, the libass `subtitles=` filter) fails to correctly stack certain Khmer subscript-
     // consonant clusters, confirmed empirically, so this pre-pass is what makes Khmer export correct
     // at all rather than falling back to the same broken `drawtext` path — see `khmerTextRenderer.ts`'s
-    // own doc comment. `khmerTextWindowsFor` below is a SYNC callback `buildExportPlan` calls inline
-    // per clip, so every window this export could possibly need must already be rendered by the time
-    // it runs; gated the same way `buildExportPlan`'s own internal check is (no keyframed style, no
-    // real crop) so a window is never computed for a clip that wouldn't use it anyway.
+    // own doc comment. For a styled (non-Khmer) clip: those fields simply have no FFmpeg equivalent at
+    // all, so without this they silently render as plain, unstyled text in every export despite
+    // looking correct in the live preview — see `needsTextStyleBrowserRender`'s own doc comment.
+    // `khmerTextWindowsFor` below is a SYNC callback `buildExportPlan` calls inline per clip, so every
+    // window this export could possibly need must already be rendered by the time it runs; gated the
+    // same way `buildExportPlan`'s own internal check is (no keyframed style, no real crop) so a
+    // window is never computed for a clip that wouldn't use it anyway.
     const khmerClips = project.sequence.tracks
       .filter((track) => track.kind === "text")
       .flatMap((track) => track.clips)
@@ -694,7 +718,7 @@ async function runExportJob(
         if (!asset?.textContent || !asset.textStyle) return false;
         if (hasTextStyleKeyframes(clip)) return false;
         if ((clip.textCrop && !isIdentityTextCrop(clip.textCrop)) || hasTextCropKeyframes(clip)) return false;
-        return containsKhmerScript(asset.textContent);
+        return containsKhmerScript(asset.textContent) || needsTextStyleBrowserRender(asset.textStyle);
       });
 
     const khmerWindowsByClipId = new Map<string, KhmerTextWindow[]>();
@@ -718,8 +742,17 @@ async function runExportJob(
       const harness = await openKhmerTextHarness(baseUrl, textFilesDir, customFontUrls);
       try {
         let rendered = 0;
+        // See `MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT`'s own doc comment for why this exists at all. A
+        // clip is skipped ENTIRELY once the running total would exceed the cap (never partially
+        // rendered) — it falls through to plain `drawtext` for that one clip (losing Khmer shaping or
+        // its gradient/glow/shadow styling specifically), rather than risking the whole export.
+        let totalWindows = 0;
         for (const clip of khmerClips) {
           if (job.cancelRequested) throw new ApiError(499, "Export cancelled", "cancelled");
+          if (totalWindows >= MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) {
+            rendered++;
+            continue;
+          }
           const asset = project.assets.find((a) => a.id === clip.assetId)!;
           const windows = await renderKhmerClipWindows(clip, asset.textContent!, asset.textStyle!, {
             frameWidth: project.sequence.width,
@@ -743,6 +776,7 @@ async function runExportJob(
             renderFrame: harness.renderFrame,
           });
           khmerWindowsByClipId.set(clip.id, windows);
+          totalWindows += windows.length;
           rendered++;
           // "Text overlay" (singular per clip), not "window" — a viewer has no reason to know one
           // text clip can expand into several rendered images (per-word reveals, keyframed style
