@@ -782,6 +782,15 @@ async function runExportJob(
       },
       fontMetricsFor,
       fontsDirFor: fontsDirPath,
+      // Missing here entirely until now — a real, confirmed bug: `buildExportPlan` silently skips its
+      // whole `lut3d=` stage when `lutPathFor` isn't supplied at all (see its own test coverage), so
+      // every real export via this route baked in NO LUT for any clip that had one applied, no error,
+      // no warning. `_lib/templates.ts`'s own template-render call already did this correctly — same
+      // pattern, applied here too.
+      lutPathFor: (lutId) => {
+        const lut = project.luts.find((l) => l.id === lutId);
+        return lut ? resolveWithin(paths.lutsDir, lut.relPath) : undefined;
+      },
       khmerTextWindowsFor: (clip: Clip) => khmerWindowsByClipId.get(clip.id),
       // Confirmed a real, live cause of a hosted export crashing its own then-1GB-limited container
       // (Railway's own memory metrics showed a hard spike-then-drop right at the moment of an

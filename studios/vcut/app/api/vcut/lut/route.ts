@@ -84,9 +84,19 @@ export const POST = localRoute(async (req) => {
 
 /** Removes a LUT from the project's library — deletes its file, drops the `LutAsset` entry from
  *  `project.luts`, and clears `lutId` off every clip that referenced it (`removeLutReferences`, the
- *  same "detach from clips first" cascade `operations.ts` already documents there) — all in one
- *  request, then returns the fully-updated project so the client can swap it straight in rather than
- *  reconciling the cascade itself. */
+ *  same "detach from clips first" cascade `operations.ts` already documents there).
+ *
+ *  Does NOT return the updated project. An earlier version did, on the reasoning that the server's
+ *  own post-cascade result was more trustworthy than the client reconciling it locally — backwards
+ *  here specifically: `project` above is read fresh off disk at request time, but the browser tab
+ *  making this request can easily be sitting on newer, still-unsaved in-memory edits (autosave is
+ *  debounced ~1.5s — see `editorStore.ts`'s own `AUTOSAVE_DELAY_MS`). The client swapping in this
+ *  route's response meant every LUT delete silently discarded whatever the user had changed since
+ *  their last autosave, no crash or race required — reproducible on every single delete, not an edge
+ *  case. This route still keeps its own on-disk copy correct (belt-and-suspenders: the removal
+ *  survives even if the client never gets to autosave before closing), but the CLIENT now applies the
+ *  identical filter+cascade against its own current in-memory project (`editorStore.ts`'s `removeLut`,
+ *  reusing this same `removeLutReferences`) rather than trusting this response as authoritative. */
 export const DELETE = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
@@ -103,5 +113,5 @@ export const DELETE = localRoute(async (req) => {
   cascaded.luts = cascaded.luts.filter((l) => l.id !== lutId);
   saveProject(bpProjectId, cascaded);
 
-  return Response.json({ project: cascaded });
+  return Response.json({ ok: true });
 });

@@ -171,7 +171,6 @@ async function callRemotePredict(
   kind: "video" | "image",
   primaryPath: string,
   maskPath: string,
-  costSeconds: number,
   signal: AbortSignal
 ): Promise<Buffer> {
   const [primaryBytes, maskBytes] = await Promise.all([fs.promises.readFile(primaryPath), fs.promises.readFile(maskPath)]);
@@ -182,7 +181,6 @@ async function callRemotePredict(
       kind,
       [kind === "image" ? "imageBase64" : "videoBase64"]: primaryBytes.toString("base64"),
       maskBase64: maskBytes.toString("base64"),
-      costSeconds,
     }),
     signal,
   });
@@ -202,19 +200,26 @@ async function runInpaintPrediction(
   accessToken: string,
   videoPath: string,
   maskPath: string,
-  costSeconds: number,
   signal: AbortSignal,
   onProgress: (fraction: number) => void
 ): Promise<Buffer> {
   onProgress(0.1);
-  const result = await callRemotePredict(accessToken, "video", videoPath, maskPath, costSeconds, signal);
+  const result = await callRemotePredict(accessToken, "video", videoPath, maskPath, signal);
   onProgress(1);
   return result;
 }
 
 /** `bria/video-erase-object`'s own hard cap: clips over 5 seconds get silently trimmed to their first
  *  5 (`auto_trim: true`, see `runInpaintPrediction`'s own comment) rather than rejected outright — a
- *  real, documented limit of this specific model, not something any input tweak works around. */
+ *  real, documented limit of this specific model, not something any input tweak works around.
+ *  `inpaint/predict/route.ts` — the CORS-enabled route that actually needs the secret Replicate
+ *  token, and the one a forged direct request could reach without going through this file's own
+ *  chunking — enforces the SAME limit on its own end, so a too-long request is rejected outright
+ *  rather than silently truncated by Bria while still billed for its full uploaded length. Can't be
+ *  a shared import: Next's App Router only allows a `route.ts` file to export specific reserved names
+ *  (`GET`/`POST`/`runtime`/…), so this is duplicated there with its own copy of this comment — same
+ *  "kept in sync by hand" tradeoff `REMOVE_OBJECT_CREDITS_PER_SECOND`/`REMOVE_OBJECT_FLAT_COST`
+ *  already accept across the same two files. */
 const BRIA_MAX_CHUNK_SECONDS = 5;
 
 /** Splits a clip longer than `BRIA_MAX_CHUNK_SECONDS` into consecutive ≤5s chunks, runs
@@ -267,13 +272,8 @@ async function runChunkedInpaintPrediction(
       const maskOk = await generateMaskVideo(chunkMaskPath, width, height, fps, chunkEnd - chunkStart, rect);
       if (!maskOk) throw new ApiError(500, `Could not generate chunk ${i + 1}/${numChunks}'s mask`, "mask-failed");
 
-      const chunkBuffer = await runInpaintPrediction(
-        accessToken,
-        chunkVideoPath,
-        chunkMaskPath,
-        chunkEnd - chunkStart,
-        signal,
-        (fraction) => onProgress((i + fraction) / numChunks)
+      const chunkBuffer = await runInpaintPrediction(accessToken, chunkVideoPath, chunkMaskPath, signal, (fraction) =>
+        onProgress((i + fraction) / numChunks)
       );
       await fs.promises.writeFile(chunkResultPath, chunkBuffer);
       chunkResultPaths.push(chunkResultPath);
@@ -413,8 +413,9 @@ function imageExtensionFor(bytes: Buffer): string {
  *  2026-09-17: `image`/`image_url`, `mask`/`mask_url`, output a single URI). Hosted mode passes plain
  *  public URLs to this job's scratch files for the same reason `runInpaintPrediction` does — Bria's own
  *  servers can't fetch Replicate's private uploads — and local mode falls back to Replicate's upload. */
-/** Same `callRemotePredict` relay as `runInpaintPrediction`, for the still-image eraser. Flat cost
- *  (`costSeconds` irrelevant, `inpaint/predict/route.ts` ignores it for `kind: "image"`). */
+/** Same `callRemotePredict` relay as `runInpaintPrediction`, for the still-image eraser. Flat cost —
+ *  `inpaint/predict/route.ts` charges its own fixed `REMOVE_OBJECT_FLAT_COST` for `kind: "image"`,
+ *  never a duration-based amount. */
 async function runReplicateImageErase(
   accessToken: string,
   imagePath: string,
@@ -423,7 +424,7 @@ async function runReplicateImageErase(
   onProgress: (fraction: number) => void
 ): Promise<Buffer> {
   onProgress(0.1);
-  const result = await callRemotePredict(accessToken, "image", imagePath, maskPath, 0, signal);
+  const result = await callRemotePredict(accessToken, "image", imagePath, maskPath, signal);
   onProgress(1);
   return result;
 }
@@ -632,7 +633,7 @@ async function runInpaintJob(
               job.abortController.signal,
               (fraction) => setStageProgress(job, "predicting", fraction)
             )
-          : await runInpaintPrediction(accessToken!, extractedPath, maskPath, clipDuration, job.abortController.signal, (fraction) =>
+          : await runInpaintPrediction(accessToken!, extractedPath, maskPath, job.abortController.signal, (fraction) =>
               setStageProgress(job, "predicting", fraction)
             );
     }

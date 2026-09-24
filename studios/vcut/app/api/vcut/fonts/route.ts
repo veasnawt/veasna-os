@@ -79,7 +79,14 @@ export const POST = localRoute(async (req) => {
  *  through clips is needed: `fontById` (see its own doc comment) already falls back to the default
  *  bundled font for any unrecognized `fontFamily` id, so a text clip that referenced this font simply
  *  reverts to that default the next time it's resolved — the same graceful behavior an old project
- *  referencing a since-removed bundled font ID already gets, not a new special case. */
+ *  referencing a since-removed bundled font ID already gets, not a new special case.
+ *
+ *  Does NOT return the updated project — see `lut/route.ts`'s own `DELETE` doc comment for why: this
+ *  route's own `project` is a fresh disk read that can be staler than the calling tab's real,
+ *  unsaved in-memory state, and returning it invited the client to swap it in wholesale, discarding
+ *  edits made since the last autosave on every single delete. Still keeps its own on-disk copy
+ *  correct; the client applies the equivalent filter to its own current in-memory project instead
+ *  (`editorStore.ts`'s `removeFont`). */
 export const DELETE = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
@@ -94,5 +101,5 @@ export const DELETE = localRoute(async (req) => {
   project.customFonts = project.customFonts.filter((f) => f.id !== fontId);
   saveProject(bpProjectId, project);
 
-  return Response.json({ project });
+  return Response.json({ ok: true });
 });

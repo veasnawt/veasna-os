@@ -6,7 +6,7 @@ import { createVad } from "@fluidinference/fluidvad";
 import Replicate from "replicate";
 import { attachWordsToSegments, chunkSegment, computePauseThreshold, repairGapsWithRealSilence } from "@veasnawt/vcut/src/captions/chunking";
 import type { CaptionSegment } from "@veasnawt/vcut/src/captions/chunking";
-import { ffmpegBinary } from "../../_lib/ffmpeg";
+import { ffmpegBinary, probeMedia } from "../../_lib/ffmpeg";
 import { getKiriToken, getReplicateToken as getReplicateTokenForGeneration } from "../../_lib/inpaintEnvFile";
 import { refundCredits } from "../../_lib/credits";
 import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../../_lib/localOnly";
@@ -27,6 +27,16 @@ import type { CaptionRange } from "../route";
  *  in shared/hosted mode is exactly why this route never reads from it). */
 
 const CAPTIONS_CREDITS_PER_MINUTE = 4;
+
+/** Checked against `Content-Length` before the request body is parsed at all — same up-front-check
+ *  shape `_lib/importMedia.ts`'s own `downloadMediaUrl` already uses (200MB there too), for the
+ *  identical "don't let an unbounded request buffer unbounded memory" reason; not airtight (a client
+ *  that omits or lies about `Content-Length` slips past this one check, same acknowledged limitation
+ *  `downloadMediaUrl`'s own doc comment already accepts), but real and free. Generous on purpose:
+ *  `audioBase64` is real project audio, legitimately anywhere from seconds to hours long, and MP3 at
+ *  ordinary bitrates runs well under 1MB/minute — this comfortably covers a very long project while
+ *  still bounding the worst case. */
+const MAX_TRANSCRIBE_BODY_BYTES = 200 * 1024 * 1024;
 
 type Stage = "transcribing" | "building-captions";
 type JobStatus = "running" | "done" | "failed" | "cancelled";
@@ -282,8 +292,25 @@ async function runTranscribeJob(
 
 /** `POST /api/vcut/captions/transcribe` `{audioBase64, ranges, durations, language, wordHighlight}` —
  *  `audioBase64`/`ranges`/`durations` are exactly `captions/route.ts`'s own POST response, passed
- *  straight through. CORS-enabled (`hostedCreditGatedRouteCors`, always requires a session). */
+ *  straight through. CORS-enabled (`hostedCreditGatedRouteCors`, always requires a session).
+ *
+ *  Billed off the REAL duration of `audioBase64` itself (`probeMedia`), not off `ranges`/`durations` —
+ *  this route is reachable cross-origin with nothing but the caller's own bearer token, so nothing
+ *  ties a request to `captions/route.ts`'s own local extraction step actually having produced these
+ *  numbers honestly. `audioBase64` IS exactly the concatenation of every range's extracted audio (see
+ *  `captions/route.ts`'s own POST, `audioBase64 = fs.readFileSync(audioPath)...`), so its own real
+ *  duration is both the correct billing basis and exactly what Kiri/Replicate actually transcribes —
+ *  a client-supplied `ranges`/`durations` sum could be forged shorter than the audio actually sent
+ *  (or longer than what's needed to bump the minimum charge, though that costs the user, not VCut,
+ *  and was never the risk). `ranges`/`durations` are still passed through to `runTranscribeJob`
+ *  unchanged below — genuinely needed there to map transcribed segments back onto timeline
+ *  positions, just no longer trusted for money. */
 export const POST = hostedCreditGatedRouteCors("captions", CAPTIONS_CREDITS_PER_MINUTE, async (req, user, spend) => {
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIBE_BODY_BYTES) {
+    throw new ApiError(413, "That audio is too large for Auto Captions", "transcribe-body-too-large");
+  }
+
   const body = (await req.json().catch(() => null)) as {
     audioBase64?: string;
     ranges?: CaptionRange[];
@@ -302,13 +329,23 @@ export const POST = hostedCreditGatedRouteCors("captions", CAPTIONS_CREDITS_PER_
 
   if (!getKiriToken() && !getReplicateTokenForGeneration()) throw new ApiError(500, "Auto Captions isn't configured on this server", "captions-not-configured");
 
-  const totalSeconds = ranges.reduce((sum, r) => sum + (r.end - r.start), 0);
-  const cost = Math.max(CAPTIONS_CREDITS_PER_MINUTE, Math.ceil(totalSeconds / 60) * CAPTIONS_CREDITS_PER_MINUTE);
-  await spend(cost);
-
   const id = crypto.randomUUID();
   const audioPath = path.join(os.tmpdir(), `vcut-captions-${id}.mp3`);
   await fs.promises.writeFile(audioPath, Buffer.from(audioBase64, "base64"));
+
+  // Validated (and billed) before `spend()` — an unreadable/empty upload is ordinary upfront
+  // validation, never charged for, same shape `inpaint/predict/route.ts`'s own probe-then-spend now
+  // follows for the identical reason.
+  const probe = await probeMedia(audioPath).catch((err) => {
+    fs.rm(audioPath, { force: true }, () => {});
+    throw err;
+  });
+  if (probe.duration <= 0) {
+    fs.rm(audioPath, { force: true }, () => {});
+    throw new ApiError(400, "That audio couldn't be read", "invalid-audio");
+  }
+  const cost = Math.max(CAPTIONS_CREDITS_PER_MINUTE, Math.ceil(probe.duration / 60) * CAPTIONS_CREDITS_PER_MINUTE);
+  await spend(cost);
 
   const job = {
     id,

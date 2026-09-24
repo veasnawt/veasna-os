@@ -79,7 +79,14 @@ export const POST = localRoute(async (req) => {
  *  ID from a clip, an SFX "Add" already COPIES the file into `project.assets` as an ordinary media
  *  asset the instant it's placed on the timeline (see `CustomSfxAsset`'s own doc comment) — a clip on
  *  the timeline never references a `CustomSfxAsset` id directly, so removing the library entry can
- *  never orphan one. */
+ *  never orphan one.
+ *
+ *  Does NOT return the updated project — see `lut/route.ts`'s own `DELETE` doc comment for why: this
+ *  route's own `project` is a fresh disk read that can be staler than the calling tab's real,
+ *  unsaved in-memory state, and returning it invited the client to swap it in wholesale, discarding
+ *  edits made since the last autosave on every single delete. Still keeps its own on-disk copy
+ *  correct; the client applies the equivalent filter to its own current in-memory project instead
+ *  (`editorStore.ts`'s `removeSfx`). */
 export const DELETE = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
@@ -94,5 +101,5 @@ export const DELETE = localRoute(async (req) => {
   project.customSfx = project.customSfx.filter((s) => s.id !== sfxId);
   saveProject(bpProjectId, project);
 
-  return Response.json({ project });
+  return Response.json({ ok: true });
 });
