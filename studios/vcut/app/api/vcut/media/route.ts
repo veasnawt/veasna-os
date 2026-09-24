@@ -6,10 +6,23 @@ import { localRoute } from "../_lib/localOnly";
 import { kindForExtension, SUPPORTED_EXTENSIONS } from "../_lib/mediaFormats";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs, resolveWithin } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
-import { checkStorageQuota, insertUserMedia } from "../_lib/userMedia";
+import { checkStorageQuota, insertUserMedia, STORAGE_CAP_BYTES } from "../_lib/userMedia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Nothing can legitimately need more than this in one upload — the Pro plan's own entire storage
+ *  budget (`STORAGE_CAP_BYTES.pro`) is 10GB, so a single file bigger than that could never fit under
+ *  any plan regardless of how much room is left. Checked against `Content-Length` before the request
+ *  body is parsed at all, so an absurdly oversized upload never gets buffered into memory in the
+ *  first place — `req.formData()` fully buffers the whole multipart body with no cap of its own, and
+ *  this route then makes a SECOND full copy via `arrayBuffer()`. Applies in both hosted and local
+ *  mode: the same unbounded-memory risk exists either way (Node buffers regardless of `VCUT_HOSTED`),
+ *  it just costs the single shared hosted container instead of only the one user's own machine. Not
+ *  airtight (a client that omits or lies about `Content-Length` slips past this one check — same
+ *  acknowledged limitation `_lib/importMedia.ts`'s own `downloadMediaUrl` already accepts), but real
+ *  and free. */
+const MAX_UPLOAD_BYTES = STORAGE_CAP_BYTES.pro;
 
 function projectIdOf(req: Request): string {
   const id = new URL(req.url).searchParams.get("projectId");
@@ -30,6 +43,28 @@ function projectIdOf(req: Request): string {
 export const POST = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
+
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+    throw new ApiError(
+      413,
+      `That file is too large to import (max ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024 * 1024))}GB)`,
+      "upload-too-large"
+    );
+  }
+
+  // Session + plan resolved BEFORE the body is parsed (a couple of cheap network calls, not memory
+  // work) specifically so the quota check below can run against the declared `Content-Length` before
+  // `req.formData()`/`arrayBuffer()` buffer anything — the common "this user is simply out of room"
+  // rejection then costs nothing beyond the header check, instead of two full in-memory copies of a
+  // file that was always going to be rejected. Re-checked again below with the REAL byte count once
+  // parsed (`Content-Length` can be absent for a chunked request, or in principle wrong) — this
+  // up-front check only tries to short-circuit the common case, it's never the only guard.
+  const hostedUser = VCUT_HOSTED ? await requireSessionUser(req) : null;
+  const hostedPlan = hostedUser ? ((await getProfile(hostedUser.id))?.plan ?? "free") : null;
+  if (hostedUser && hostedPlan && Number.isFinite(declaredLength)) {
+    await checkStorageQuota(hostedUser.id, hostedPlan, declaredLength);
+  }
 
   const form = await req.formData();
   const file = form.get("file");
@@ -57,12 +92,13 @@ export const POST = localRoute(async (req) => {
 
   const bytes = Buffer.from(await file.arrayBuffer());
 
-  if (VCUT_HOSTED) {
-    const user = await requireSessionUser(req);
-    const profile = await getProfile(user.id);
+  if (hostedUser && hostedPlan) {
     // Checked BEFORE writing anything — same "validate first, spend/write second" order every other
     // gated action in this app already follows (`hostedCreditGatedRoute`'s own `spend()` callback).
-    await checkStorageQuota(user.id, profile?.plan ?? "free", bytes.byteLength);
+    // The authoritative check (real byte count), regardless of whether the pre-check above already
+    // ran against `Content-Length`.
+    await checkStorageQuota(hostedUser.id, hostedPlan, bytes.byteLength);
+    const user = hostedUser;
 
     const libraryPaths = ensureUserMediaDirs(user.id);
     const asset = await importMediaBytes(libraryPaths, bytes, file.name);
