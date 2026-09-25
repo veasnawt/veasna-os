@@ -165,9 +165,17 @@ export const PUT = localRoute(async (req) => {
 
   // Written to a temp file and renamed, so a crash mid-write can't leave a truncated project.json
   // where a complete one used to be. rename is atomic within a filesystem.
-  const tmp = `${paths.projectFile}.tmp`;
-  fs.writeFileSync(tmp, serializeProject(project), "utf8");
-  fs.renameSync(tmp, paths.projectFile);
+  // The temp name is unique per request: two saves can overlap (a page-hide keepalive save beside the normal
+  // one, or two tabs), and sharing one `.tmp` let them interleave writes into the same file before either
+  // renamed it. Last rename wins, and every rename moves a complete file.
+  const tmp = `${paths.projectFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, serializeProject(project), "utf8");
+    fs.renameSync(tmp, paths.projectFile);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
 
   return Response.json({ ok: true, savedAt: Date.now() });
 });
