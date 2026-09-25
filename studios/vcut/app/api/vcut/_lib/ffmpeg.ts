@@ -8,7 +8,6 @@ import {
   buildFilmstripArgs,
   buildAiFramePngArgs,
   buildCornerPixelArgs,
-  buildEdgeCleanArgs,
   buildCutoutInputArgs,
   buildMuxAudioArgs,
   buildFirstFramePngArgs,
@@ -463,15 +462,6 @@ export function muxOriginalAudio(
   opts: { startSeconds: number; durationSeconds: number }
 ): Promise<void> {
   return runFfmpegToFile(buildMuxAudioArgs(videoInput, audioInput, output, opts), output, 120_000);
-}
-
-/** Removes the coloured outline from a matted green-screen video (see `buildEdgeCleanArgs`). */
-export function cleanMattedEdges(
-  input: string,
-  output: string,
-  opts: { keyHex: string; width: number; height: number; fps: number }
-): Promise<void> {
-  return runFfmpegToFile(buildEdgeCleanArgs(input, output, opts), output, 180_000);
 }
 
 /** The "#rrggbb" colour at the top-left of the first frame — the matted background colour. */
