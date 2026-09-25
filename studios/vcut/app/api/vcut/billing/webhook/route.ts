@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { derivePlan } from "../../_lib/billingPlan";
 import { upsertPlanByStripeCustomerId } from "../../_lib/profiles";
 import { getStripe } from "../../_lib/stripe";
 import { VCUT_HOSTED } from "../../_lib/auth";
@@ -39,26 +40,31 @@ export async function POST(req: Request): Promise<Response> {
     case "checkout.session.completed":
       break;
 
-    // The one event type that actually carries `plan`/`current_period_end` — fires on the initial
-    // subscription creation AND every renewal/plan change afterward, so this single handler covers
-    // both "just subscribed" and "still subscribed, renewed for another period."
+    // Any subscription event — created, updated, deleted — means "this customer's subscription state changed".
+    // Stripe does NOT guarantee delivery order (or once-only delivery), and trusting each event's own payload
+    // let a late `updated` (active) that arrived AFTER `deleted` put a cancelled user back on Pro. So the event
+    // is only a trigger: the plan is derived from the customer's CURRENT subscriptions, fetched from Stripe
+    // right now, which is the same answer whatever order events land in and however many times one is
+    // redelivered (`derivePlan` / `buildPlanUpdate` in `_lib/billingPlan.ts`).
+    case "customer.subscription.created":
     case "customer.subscription.updated":
-    case "customer.subscription.created": {
-      const subscription = event.data.object as Stripe.Subscription;
-      const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-      const isActive = subscription.status === "active" || subscription.status === "trialing";
-      const periodEnd = subscription.items.data[0]?.current_period_end;
-      await upsertPlanByStripeCustomerId(customerId, isActive ? "pro" : "free", periodEnd ? new Date(periodEnd * 1000).toISOString() : null);
-      break;
-    }
-
-    // Cancellation (immediate, or Stripe's own end-of-period cancellation finally taking effect) —
-    // drops back to free rather than leaving a stale `current_period_end` a client might misread as
-    // still-valid.
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-      await upsertPlanByStripeCustomerId(customerId, "free", null);
+      try {
+        const subscriptions = await getStripe().subscriptions.list({ customer: customerId, status: "all", limit: 20 });
+        const { plan, currentPeriodEnd } = derivePlan(
+          subscriptions.data.map((s) => ({ status: s.status, currentPeriodEnd: s.items.data[0]?.current_period_end ?? null }))
+        );
+        const applied = await upsertPlanByStripeCustomerId(customerId, plan, currentPeriodEnd);
+        // A 5xx makes Stripe redeliver (with backoff, for days). That is what we want when the row wasn't
+        // there yet (a webhook racing `checkout`'s own write of the customer id) or the write failed — the
+        // old handler answered 200 and the plan change was lost for good.
+        if (!applied) return Response.json({ error: "Could not apply the plan change yet" }, { status: 500 });
+      } catch (err) {
+        console.error("[vcut] webhook: could not resolve subscription state for", customerId, err);
+        return Response.json({ error: "Could not resolve subscription state" }, { status: 500 });
+      }
       break;
     }
 

@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
 import { FREE_CREDITS_PER_MONTH, PRO_CREDITS_PER_MONTH } from "./credits";
+import { buildPlanUpdate } from "./billingPlan";
 import { ApiError } from "./paths";
 
 export type Plan = "free" | "pro";
@@ -98,8 +99,9 @@ export async function setStripeCustomerId(userId: string, stripeCustomerId: stri
  *  (not a Supabase user id — a Stripe event carries the former, not the latter) against the unique
  *  index the migration puts on that column. A webhook for a customer with no matching row (shouldn't
  *  happen — `checkout/route.ts` always creates the row before Stripe could ever charge that customer,
- *  but a manually-created Stripe customer or a race is possible) is a no-op rather than an error: there
- *  is nothing here to associate the plan change with.
+ *  but a manually-created Stripe customer or a race is possible) writes nothing and returns `false`: there
+ *  is nothing here to associate the plan change with yet, and the webhook answers 5xx so Stripe retries
+ *  once the row exists. Returns `true` only when a row was actually updated.
  *
  *  Also the one place credits get an IMMEDIATE top-up rather than waiting for `spend_credits`'s own
  *  lazy refill (see that function's doc comment) — tied to the real Stripe billing period, not a
@@ -109,30 +111,30 @@ export async function setStripeCustomerId(userId: string, stripeCustomerId: stri
  *  such event (rather than only on an actual new billing period starting) would be a real, if minor,
  *  exploitable perk. A downgrade to `free` resets to the free allotment immediately — a clean slate,
  *  not stale Pro-scale numbers sitting there until they naturally lapse. */
-export async function upsertPlanByStripeCustomerId(stripeCustomerId: string, plan: Plan, currentPeriodEnd: string | null): Promise<void> {
+export async function upsertPlanByStripeCustomerId(stripeCustomerId: string, plan: Plan, currentPeriodEnd: string | null): Promise<boolean> {
   const supabase = getSupabaseAdminClient();
   const { data: existing, error: selectError } = await supabase
     .from("profiles")
-    .select("current_period_end")
+    .select("plan, current_period_end")
     .eq("stripe_customer_id", stripeCustomerId)
     .maybeSingle();
-  // Logged, not thrown — `webhook/route.ts` still needs to return 200 either way (Stripe retries a
-  // non-2xx response indefinitely, which would just repeat whatever went wrong here), but a real
-  // read/write failure silently swallowed here was a genuine, confirmed bug: a live account's plan
-  // updated to "pro" correctly while credits stayed stuck at the free allotment, with NOTHING in the
-  // logs to explain why until this logging was added.
+  // Logged and reported through the return value rather than thrown: the webhook turns `false` into a 5xx
+  // so Stripe redelivers (the old handler answered 200 regardless and a failed write was lost for good — a
+  // real, confirmed bug: a live account's plan updated to "pro" while credits stayed stuck at the free
+  // allotment, with nothing surfacing it).
   if (selectError) {
     console.error("[vcut] webhook: could not read existing profile for", stripeCustomerId, selectError);
+    return false;
   }
 
-  const update: Record<string, unknown> = { plan, current_period_end: currentPeriodEnd, updated_at: new Date().toISOString() };
-  if (plan === "pro" && currentPeriodEnd && currentPeriodEnd !== existing?.current_period_end) {
-    update.credits_remaining = PRO_CREDITS_PER_MONTH;
-    update.credits_reset_at = currentPeriodEnd;
-  } else if (plan === "free") {
-    update.credits_remaining = FREE_CREDITS_PER_MONTH;
-    update.credits_reset_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  }
+  // Credits are only touched on a genuine new Pro period or a Pro -> free downgrade — see `buildPlanUpdate`.
+  const update = buildPlanUpdate(
+    existing ? { plan: existing.plan as Plan, currentPeriodEnd: existing.current_period_end } : null,
+    plan,
+    currentPeriodEnd,
+    Date.now(),
+    { free: FREE_CREDITS_PER_MONTH, pro: PRO_CREDITS_PER_MONTH }
+  );
 
   const { error: updateError, count } = await supabase
     .from("profiles")
@@ -140,11 +142,14 @@ export async function upsertPlanByStripeCustomerId(stripeCustomerId: string, pla
     .eq("stripe_customer_id", stripeCustomerId);
   if (updateError) {
     console.error("[vcut] webhook: profile update failed for", stripeCustomerId, updateError);
+    return false;
   } else if (!count) {
     // Matched zero rows — the row hadn't picked up this Stripe customer id yet (a real, if rare, race
     // between `checkout/route.ts`'s own write and this webhook arriving), or it was manually created
     // in Stripe with no matching Supabase user at all. Either way, silently "succeeding" at updating
     // nothing is exactly the shape of failure that went unnoticed before this log line existed.
     console.error("[vcut] webhook: no profile row matched stripe_customer_id", stripeCustomerId, "— update had no effect");
+    return false;
   }
+  return true;
 }
