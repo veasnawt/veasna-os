@@ -2,7 +2,7 @@ import { execFile, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { buildExportPlan, containsKhmerScript, needsTextStyleBrowserRender } from "@veasnawt/vcut/src/export/buildExportPlan";
+import { buildExportPlan, clipNeedsBrowserTextRender } from "@veasnawt/vcut/src/export/buildExportPlan";
 import { renderKhmerClipWindows, type KhmerTextWindow } from "@veasnawt/vcut/src/export/khmerTextRenderer";
 import {
   OUTRO_BG_ASSET_ID,
@@ -719,7 +719,7 @@ async function runExportJob(
         if (!asset?.textContent || !asset.textStyle) return false;
         if (hasTextStyleKeyframes(clip)) return false;
         if ((clip.textCrop && !isIdentityTextCrop(clip.textCrop)) || hasTextCropKeyframes(clip)) return false;
-        return containsKhmerScript(asset.textContent) || needsTextStyleBrowserRender(asset.textStyle);
+        return clipNeedsBrowserTextRender(clip, asset.textContent, asset.textStyle);
       });
 
     const khmerWindowsByClipId = new Map<string, KhmerTextWindow[]>();
