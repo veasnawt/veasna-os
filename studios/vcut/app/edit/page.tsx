@@ -43,7 +43,7 @@ function EditPageContent() {
         <div className="min-h-0 min-w-0 flex-1">
           <TemplateDraftApp
             templateId={templateId}
-            onHome={standalone ? () => router.push("/") : undefined}
+            onHome={standalone ? () => router.push(process.env.NEXT_PUBLIC_VCUT_HOSTED === "true" ? "/home" : "/") : undefined}
             onProjectCreated={(id, name) =>
               // `replace`, not `push`: Back from the new project shouldn't land on a draft of it.
               router.replace(`/edit?projectId=${encodeURIComponent(id)}&projectName=${encodeURIComponent(name)}`)
@@ -68,7 +68,7 @@ function EditPageContent() {
         <VCutApp
           projectId={projectId}
           projectName={projectName ?? undefined}
-          onHome={standalone ? () => router.push("/") : undefined}
+          onHome={standalone ? () => router.push(process.env.NEXT_PUBLIC_VCUT_HOSTED === "true" ? "/home" : "/") : undefined}
         />
       </div>
     </main>

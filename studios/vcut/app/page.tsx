@@ -17,6 +17,11 @@ function LandingPage() {
     if (user) router.replace("/home");
   }, [user, router]);
 
+  // `undefined` means the session hasn't been read yet (a moment on every page load). Showing the sign-in pitch during it
+  // made a signed-in person coming back from the editor see the logged-out page for about a second; so show nothing
+  // (just the app background) until the session is known, and nothing at all once we're already redirecting to Home.
+  if (user === undefined || user) return <main className="min-h-dvh bg-[#0a0c10]" aria-busy="true" />;
+
   return (
     <main className="min-h-dvh bg-[#0a0c10] text-white">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
