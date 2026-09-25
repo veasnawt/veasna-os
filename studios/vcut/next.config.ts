@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { framePolicy } from "./frame-policy";
 
 const nextConfig: NextConfig = {
   // Self-contained server.js + pruned node_modules — required so the Electron desktop app
@@ -42,6 +43,8 @@ const nextConfig: NextConfig = {
   // server-side response header, not a CSP meta tag, so it covers every page without needing per-
   // route configuration.
   async headers() {
+    // Hosted vcut.io: never framable. Local/desktop/dev: framable from loopback only, so BP Studio's embed works.
+    const frame = framePolicy(process.env.VCUT_HOSTED === "true");
     const cspDirectives = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",
@@ -60,7 +63,7 @@ const nextConfig: NextConfig = {
       "font-src 'self' data:",
       "worker-src 'self' blob:",
       "frame-src 'self' https://checkout.stripe.com https://*.supabase.co",
-      "frame-ancestors 'none'",
+      `frame-ancestors ${frame.frameAncestors}`,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self' https://*.supabase.co",
@@ -73,7 +76,7 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: cspDirectives.join("; ") },
           { key: "Strict-Transport-Security", value: "max-age=86400; includeSubDomains" },
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
+          ...(frame.xFrameOptions ? [{ key: "X-Frame-Options", value: frame.xFrameOptions }] : []),
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "microphone=(self), camera=(self), display-capture=(self)" },
         ],
