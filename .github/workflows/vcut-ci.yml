@@ -26,6 +26,17 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Use a full-featured FFmpeg for the real-render tests
+        # The `ffmpeg-static` Linux binary is built without libfreetype (no `drawtext` filter), which the
+        # text-export tests need; Ubuntu's package has it. Every test that renders resolves the bundled
+        # binary through `ffmpeg-static`, so swap the file in place rather than teach each test a new path.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          for bin in $(find node_modules/.pnpm -path '*ffmpeg-static/ffmpeg' -type f); do
+            cp "$(which ffmpeg)" "$bin"
+          done
+          ffmpeg -hide_banner -filters | grep -c drawtext
       - name: Build workspace deps (vicons ships only as built dist)
         run: pnpm --filter @veasnawt/vicons build
       - name: Typecheck (vcut package)
