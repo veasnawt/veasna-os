@@ -25,12 +25,11 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
-  // Refund credits for jobs a previous container died in the middle of (deploy / crash) — see
-  // `app/api/vcut/_lib/jobHoldsService.ts`. Dynamic import so nothing Supabase-related loads outside Node.
-  void import("./app/api/vcut/_lib/jobHolds").then(({ startHoldSweeper }) => startHoldSweeper()).catch((err) => console.error("[vcut] could not start the job-hold sweeper:", err));
-
-  // Hosted only: delete finished exports after 24h so the volume doesn't grow forever (`exportRetention.ts`).
-  void import("./app/api/vcut/_lib/exportRetention").then(({ startExportRetention }) => startExportRetention()).catch((err) => console.error("[vcut] could not start export retention:", err));
+  // Background maintenance (orphaned-job refunds, export retention) lives in its own Node-only module, imported
+  // inside this runtime check so the Edge bundle of this file never tries to resolve `fs`/Supabase.
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./instrumentation-node");
+  }
 
   process.on("uncaughtException", (err) => {
     const message = `[vcut] FATAL uncaughtException: ${err?.stack ?? err}\n`;
