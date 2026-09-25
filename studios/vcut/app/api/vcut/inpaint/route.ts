@@ -10,6 +10,7 @@ import { ffmpegAvailable, ffmpegBinary, generateFilmstrip, generateMaskImage, ge
 import { importMediaBytes } from "../_lib/importMedia";
 import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
+import { registerHold, releaseHold } from "../_lib/jobHolds";
 import { hostedCreditGatedRoute, hostedSessionRoute, publicSessionRoute } from "../_lib/localOnly";
 import { getInpaintKeyStatus } from "../_lib/inpaintEnvFile";
 import { getLocalSetupStatus, REPO_DIR, VENV_PYTHON } from "../_lib/localModel";
@@ -81,6 +82,8 @@ interface InpaintJob {
    *  comment. A failure refunds exactly this, not a flat constant, so a long clip's refund matches
    *  what it actually paid. */
   spentAmount: number;
+  /** `_lib/jobHolds.ts` record of these credits while the job runs; released in the runner's `finally`. */
+  holdId?: string | null;
 }
 
 /** Same module-lifetime in-memory job map as `export/route.ts` — see that file's own comment on why
@@ -709,6 +712,7 @@ async function runInpaintJob(
       if (VCUT_HOSTED && job.ownerId) void refundCredits(job.ownerId, job.spentAmount);
     }
   } finally {
+    void releaseHold(job.holdId);
     job.currentProcess = null;
     job.currentCancel = null;
     job.notify();
@@ -785,6 +789,7 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
   // comment. Kept here anyway (harmless) so a genuinely hosted caller of this same route (if one ever
   // existed) would still be gated the usual way.
   await spend(cost);
+  const holdId = await registerHold(user?.id, "remove-object", cost);
 
   const id = crypto.randomUUID();
   const job = {
@@ -796,6 +801,7 @@ export const POST = hostedCreditGatedRoute("remove-object", REMOVE_OBJECT_FLAT_C
     currentCancel: null,
     abortController: new AbortController(),
     spentAmount: cost,
+    holdId,
     ...(user ? { ownerId: user.id } : null),
   } as InpaintJob;
   const notifier = makeNotifier(job);

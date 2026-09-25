@@ -1,6 +1,7 @@
 import Replicate from "replicate";
 import { VCUT_HOSTED } from "../_lib/auth";
 import { refundCredits } from "../_lib/credits";
+import { registerHold, releaseHold } from "../_lib/jobHolds";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { importMediaBytes } from "../_lib/importMedia";
 import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../_lib/localOnly";
@@ -59,6 +60,8 @@ interface AiVideoJob {
   error?: string;
   ownerId?: string;
   spentAmount: number;
+  /** `_lib/jobHolds.ts` record of these credits while the job runs; released in the runner's `finally`. */
+  holdId?: string | null;
   abortController: AbortController;
   changed: Promise<void>;
   notify: () => void;
@@ -204,6 +207,7 @@ async function runAiVideoJob(
       if (ownerId) void refundCredits(ownerId, job.spentAmount);
     }
   } finally {
+    void releaseHold(job.holdId);
     job.notify();
     setTimeout(() => jobs.delete(job.id), 60_000).unref?.();
   }
@@ -225,6 +229,7 @@ export const POST = hostedCreditGatedRouteCors("ai-video", AI_VIDEO_CREDITS_PER_
   if (!getReplicateTokenForGeneration()) throw new ApiError(500, "AI video generation isn't configured on this server", "ai-video-not-configured");
 
   await spend();
+  const holdId = await registerHold(user?.id, "ai-video", AI_VIDEO_CREDITS_PER_GENERATION);
 
   const id = crypto.randomUUID();
   const job = {
@@ -233,6 +238,7 @@ export const POST = hostedCreditGatedRouteCors("ai-video", AI_VIDEO_CREDITS_PER_
     stage: "predicting" as Stage,
     progress: 0,
     spentAmount: AI_VIDEO_CREDITS_PER_GENERATION,
+    holdId,
     abortController: new AbortController(),
     ...(user ? { ownerId: user.id } : null),
   } as AiVideoJob;

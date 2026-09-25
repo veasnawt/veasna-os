@@ -9,6 +9,7 @@ import type { CaptionSegment } from "@veasnawt/vcut/src/captions/chunking";
 import { ffmpegBinary, probeMedia } from "../../_lib/ffmpeg";
 import { getKiriToken, getReplicateToken as getReplicateTokenForGeneration } from "../../_lib/inpaintEnvFile";
 import { refundCredits } from "../../_lib/credits";
+import { registerHold, releaseHold } from "../../_lib/jobHolds";
 import { corsPreflight, hostedCreditGatedRouteCors, hostedSessionRouteCors, publicSessionRouteCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 import type { CaptionRange } from "../route";
@@ -50,6 +51,8 @@ interface CaptionsJob {
   error?: string;
   ownerId?: string;
   spentAmount: number;
+  /** `_lib/jobHolds.ts` record of these credits while the job runs; released in the runner's `finally`. */
+  holdId?: string | null;
   abortController: AbortController;
   changed: Promise<void>;
   notify: () => void;
@@ -284,6 +287,7 @@ async function runTranscribeJob(
       if (job.ownerId) void refundCredits(job.ownerId, job.spentAmount);
     }
   } finally {
+    void releaseHold(job.holdId);
     job.notify();
     fs.rm(audioPath, { force: true }, () => {});
     setTimeout(() => jobs.delete(job.id), 60_000).unref?.();
@@ -346,6 +350,7 @@ export const POST = hostedCreditGatedRouteCors("captions", CAPTIONS_CREDITS_PER_
   }
   const cost = Math.max(CAPTIONS_CREDITS_PER_MINUTE, Math.ceil(probe.duration / 60) * CAPTIONS_CREDITS_PER_MINUTE);
   await spend(cost);
+  const holdId = await registerHold(user.id, "captions", cost);
 
   const job = {
     id,
@@ -353,6 +358,7 @@ export const POST = hostedCreditGatedRouteCors("captions", CAPTIONS_CREDITS_PER_
     stage: "transcribing" as Stage,
     progress: 0,
     spentAmount: cost,
+    holdId,
     abortController: new AbortController(),
     ownerId: user.id,
   } as CaptionsJob;
