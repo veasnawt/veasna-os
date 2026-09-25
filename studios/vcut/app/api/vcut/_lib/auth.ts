@@ -1,5 +1,11 @@
 import { getSessionUser, getSupabaseAdminClient, type SessionUser } from "@veasnawt/auth/server";
+import { OWNERSHIP_TTL_MS, sessionCacheTtlMs, tokenKey, TtlCache } from "./authCache";
 import { ApiError } from "./paths";
+
+/** Recently verified sessions, keyed by a hash of the bearer token — see `authCache.ts`. */
+const sessionCache = new TtlCache<SessionUser>();
+/** Recently confirmed `userId:projectId` ownerships (positive results only) — see `authCache.ts`. */
+const ownershipCache = new TtlCache<true>();
 
 /** Set only in the public web deployment (Railway) — unset for desktop's bundled server and local dev,
  *  where `localOnly.ts`'s IP-based guard is the whole story, exactly as it's always been. Every other
@@ -24,8 +30,15 @@ export async function requireSessionUser(req: Request): Promise<SessionUser> {
   const header = req.headers.get("authorization") ?? "";
   let token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
   if (!token) token = new URL(req.url).searchParams.get("token") ?? "";
-  const user = token ? await getSessionUser(token) : null;
+  if (!token) throw new ApiError(401, "Sign in required", "unauthorized");
+  // A page of media requests presents the same token dozens of times a second; verifying each one with a
+  // network round trip to Supabase was the slow half of every hosted media request.
+  const key = await tokenKey(token);
+  const cached = sessionCache.get(key);
+  if (cached) return cached;
+  const user = await getSessionUser(token);
   if (!user) throw new ApiError(401, "Sign in required", "unauthorized");
+  sessionCache.set(key, user, sessionCacheTtlMs(token, Date.now()));
   return user;
 }
 
@@ -46,6 +59,8 @@ export interface ProjectIndexRow {
  *  deleted) is treated the same as "exists but belongs to someone else": both are "you don't get to
  *  touch this", and distinguishing them would only tell a prober which project ids are real. */
 export async function checkProjectOwnership(userId: string, projectId: string): Promise<void> {
+  const ownershipKey = `${userId}:${projectId}`;
+  if (ownershipCache.get(ownershipKey)) return;
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("projects_index").select("owner_id").eq("id", projectId).maybeSingle();
   // Logged before throwing — same "confirmed swallowed-error bug" category `_lib/profiles.ts`'s own
@@ -72,6 +87,9 @@ export async function checkProjectOwnership(userId: string, projectId: string): 
     );
     throw new ApiError(403, "You don't have access to this project", "forbidden");
   }
+  // Only a confirmed YES is remembered, so a project whose index row hasn't landed yet, or whose ownership just
+  // changed, is picked up on the very next request.
+  ownershipCache.set(ownershipKey, true, OWNERSHIP_TTL_MS);
 }
 
 /** Called once, from `project/route.ts`'s `POST`, right after a new project is created — the only
@@ -92,6 +110,8 @@ export async function upsertProjectIndex(id: string, ownerId: string, name: stri
 export async function deleteProjectIndex(id: string): Promise<void> {
   const supabase = getSupabaseAdminClient();
   await supabase.from("projects_index").delete().eq("id", id);
+  // A deleted project must stop being reachable at once, not after the cached "yes" expires.
+  ownershipCache.deleteWhere((key) => key.endsWith(`:${id}`));
 }
 
 /** Every project a user owns, newest-edited first — same ordering `projects/route.ts`'s existing
