@@ -5,6 +5,7 @@ import { buildProjectFromTemplate } from "@veasnawt/vcut/src/project/template";
 import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
+import { checkRevision, readRevision, stampRevision } from "../_lib/projectRevision";
 import { getViewableTemplate, requirePro, resolveTemplateBundledAudio } from "../_lib/templates";
 
 /** These routes touch the real filesystem, so they must run on Node — not the Edge runtime, which
@@ -44,14 +45,15 @@ export const GET = localRoute(async (req) => {
     const name = rawName && rawName.trim() ? rawName.trim().slice(0, 120) : undefined;
     const project = createProject(bpProjectId, name);
     fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
-    return Response.json({ project, created: true });
+    return Response.json({ project, created: true, revision: 0 });
   }
 
   const raw = fs.readFileSync(paths.projectFile, "utf8");
   // deserializeProject validates and throws ProjectFormatError on anything it can't read correctly,
   // which localRoute turns into a 500 with that message rather than serving a half-parsed project.
   const project = deserializeProject(raw);
-  return Response.json({ project, created: false });
+  // `revision`: what a later save must present as its `baseRevision` — see `_lib/projectRevision.ts`.
+  return Response.json({ project, created: false, revision: readRevision(raw) });
 });
 
 /** Creates a brand-new project with a server-generated id — the path VCut's own home page (`/`)
@@ -116,7 +118,7 @@ export const POST = localRoute(async (req) => {
   }
   fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
 
-  return Response.json({ project });
+  return Response.json({ project, revision: 0 });
 });
 
 /** Deletes a project folder entirely — project.json, imported media, thumbnails, and exports. Used
@@ -139,7 +141,7 @@ export const PUT = localRoute(async (req) => {
   const bpProjectId = projectIdOf(req);
   const paths = ensureProjectDirs(bpProjectId);
 
-  const body = (await req.json()) as { project?: unknown };
+  const body = (await req.json()) as { project?: unknown; baseRevision?: unknown; force?: unknown };
   if (!body?.project) throw new ApiError(400, "Missing project in request body", "missing-project");
 
   // Round-tripped through the validator before hitting disk: a malformed project rejected here is
@@ -163,6 +165,17 @@ export const PUT = localRoute(async (req) => {
     await upsertProjectIndex(bpProjectId, user.id, project.name, project.updatedAt);
   }
 
+  // Everything from the revision check to the rename below is ONE synchronous stretch (no `await`), so two
+  // saves racing for the same project can't both pass the check against the same stored revision — JS runs
+  // one to completion before the other starts. That single-threaded ordering is what makes this check sound.
+  const stored = fs.existsSync(paths.projectFile) ? readRevision(fs.readFileSync(paths.projectFile, "utf8")) : 0;
+  const decision = checkRevision(stored, body.baseRevision, body.force === true);
+  if (!decision.ok) {
+    // Someone else (another tab, or a phone) saved this project after this client last loaded it. Refuse
+    // rather than overwrite their work; the client asks the user which version to keep.
+    throw new ApiError(409, "This project was changed somewhere else since you opened it", "revision-conflict");
+  }
+
   // Written to a temp file and renamed, so a crash mid-write can't leave a truncated project.json
   // where a complete one used to be. rename is atomic within a filesystem.
   // The temp name is unique per request: two saves can overlap (a page-hide keepalive save beside the normal
@@ -170,12 +183,12 @@ export const PUT = localRoute(async (req) => {
   // renamed it. Last rename wins, and every rename moves a complete file.
   const tmp = `${paths.projectFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(tmp, serializeProject(project), "utf8");
+    fs.writeFileSync(tmp, stampRevision(serializeProject(project), decision.nextRevision), "utf8");
     fs.renameSync(tmp, paths.projectFile);
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
   }
 
-  return Response.json({ ok: true, savedAt: Date.now() });
+  return Response.json({ ok: true, savedAt: Date.now(), revision: decision.nextRevision });
 });
