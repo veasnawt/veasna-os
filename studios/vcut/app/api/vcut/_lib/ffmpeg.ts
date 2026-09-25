@@ -7,6 +7,9 @@ import {
   buildAnimatedPngArgs,
   buildFilmstripArgs,
   buildAiFramePngArgs,
+  buildCornerPixelArgs,
+  buildCutoutInputArgs,
+  buildMuxAudioArgs,
   buildFirstFramePngArgs,
   buildMaskImageArgs,
   buildMaskVideoArgs,
@@ -440,6 +443,41 @@ export function generateSpriteSheet(
 
 export function extractFirstFramePng(input: string, output: string): Promise<void> {
   return runFfmpegToFile(buildFirstFramePngArgs(input, output), output, 30_000);
+}
+
+/** The slice of a clip sent to the video-matting model (see `buildCutoutInputArgs`). */
+export function extractCutoutInput(
+  input: string,
+  output: string,
+  opts: { startSeconds: number; durationSeconds: number }
+): Promise<void> {
+  return runFfmpegToFile(buildCutoutInputArgs(input, output, opts), output, 120_000);
+}
+
+/** Copies the original clip's audio onto the matted video (see `buildMuxAudioArgs`). */
+export function muxOriginalAudio(
+  videoInput: string,
+  audioInput: string,
+  output: string,
+  opts: { startSeconds: number; durationSeconds: number }
+): Promise<void> {
+  return runFfmpegToFile(buildMuxAudioArgs(videoInput, audioInput, output, opts), output, 120_000);
+}
+
+/** The "#rrggbb" colour at the top-left of the first frame — the matted background colour. */
+export function probeCornerColor(input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      ffmpegBinary(),
+      buildCornerPixelArgs(input),
+      { timeout: 30_000, encoding: "buffer", maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        const bytes = stdout as unknown as Buffer;
+        if (err || !bytes || bytes.length < 3) return reject(new ApiError(500, "Couldn't read the cutout's key colour", "cutout-key-color-failed"));
+        resolve("#" + [bytes[0], bytes[1], bytes[2]].map((v) => v.toString(16).padStart(2, "0")).join(""));
+      }
+    );
+  });
 }
 
 /** A frame of an image/video downscaled for an AI model (see `buildAiFramePngArgs`). */
