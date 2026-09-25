@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { Avatar } from "../../_shared/Avatar";
@@ -86,10 +87,10 @@ export default function CreatorPage() {
   if (notFound) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-[#0a0c10] px-4 text-center text-white">
-        <p className="text-sm text-white/60">This creator doesn't exist.</p>
-        <a href="/" className="mt-4 text-xs text-sky-300 underline">
+        <p className="text-sm text-white/60">This creator doesn&apos;t exist.</p>
+        <Link href="/" className="mt-4 text-xs text-sky-300 underline">
           Go to VCut
-        </a>
+        </Link>
       </main>
     );
   }

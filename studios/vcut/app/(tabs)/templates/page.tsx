@@ -43,6 +43,8 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // Starting a (re)fetch resets the previous result; this is the effect's own synchronisation with `mode`.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTemplates(null);
     setError(null);
     setNeedsPro(false);

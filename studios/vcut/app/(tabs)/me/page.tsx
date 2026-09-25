@@ -36,6 +36,9 @@ export default function MePage() {
   const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
+    // Read after mount on purpose: the server render can't see localStorage, so initialising `language`
+    // from it directly would hydrate with a mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === "km" ? "km" : "en");
   }, []);
 

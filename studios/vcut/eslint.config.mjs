@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Plain Node maintenance scripts (CommonJS by design) — `require()` is how they load, and they never
+    // ship to the browser, so the TypeScript no-require-imports rule doesn't apply.
+    "scripts/**/*.cjs",
   ]),
 ]);
 
