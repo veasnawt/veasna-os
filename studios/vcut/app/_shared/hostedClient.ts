@@ -187,6 +187,8 @@ export interface TemplateRow {
    *  can show the right toggle state. */
   isPublic: boolean;
   ownerId: string;
+  /** Set only for a template that repeats AI tools on the user's media: the estimated credits one use costs. Pro-only. */
+  aiCredits?: number;
   /** The four fields below only ever come from `GET /api/vcut/templates/discover` (batched there — see
    *  that route's own doc comment) — a "My Templates" row never carries them (`undefined`), since
    *  `TemplateViewer.tsx`'s own action rail only shows Like/Comment counts in `mode === "discover"`

@@ -1,5 +1,5 @@
 import { corsPreflight, hostedOnlyRoute } from "../../../_lib/localOnly";
-import { getViewableTemplate, requirePro } from "../../../_lib/templates";
+import { getViewableTemplate, requirePro, requireProForAiTemplate } from "../../../_lib/templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +14,7 @@ export const GET = hostedOnlyRoute(async (_req, user, context: { params: Promise
   const { id } = await context.params;
   const template = await getViewableTemplate(id, user.id);
   if (template.ownerId === user.id) await requirePro(user.id);
+  await requireProForAiTemplate(user.id, template.project);
   return Response.json({ name: template.name, project: template.project });
 });
 

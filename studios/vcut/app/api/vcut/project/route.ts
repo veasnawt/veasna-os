@@ -6,7 +6,7 @@ import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED
 import { localRoute } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
 import { checkRevision, readRevision, stampRevision } from "../_lib/projectRevision";
-import { getViewableTemplate, requirePro, resolveTemplateBundledAudio } from "../_lib/templates";
+import { getViewableTemplate, requirePro, requireProForAiTemplate, resolveTemplateBundledAudio } from "../_lib/templates";
 
 /** These routes touch the real filesystem, so they must run on Node — not the Edge runtime, which
  *  has no `fs` and no ability to spawn FFmpeg. */
@@ -98,6 +98,7 @@ export const POST = localRoute(async (req) => {
     // someone ELSE published is Free-plan-friendly by deliberate design (see `getViewableTemplate`'s
     // own doc comment); only publishing your own stays Pro-only.
     if (template.ownerId === hostedUser.id) await requirePro(hostedUser.id);
+    await requireProForAiTemplate(hostedUser.id, template.project);
     project = buildProjectFromTemplate(id, name, template.project);
     // Copies each bundled-audio asset's real file out of the TEMPLATE's own storage and into the new
     // owner's own account-wide library — see `resolveTemplateBundledAudio`'s own doc comment. Every

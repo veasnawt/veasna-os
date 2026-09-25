@@ -240,6 +240,12 @@ function TemplateGridTile({
             Public
           </span>
         )}
+        {template.aiCredits !== undefined && (
+          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+            <span className="rounded-sm bg-amber-400 px-1 text-[8px] font-bold leading-[1.4] text-black">PRO</span>
+            AI · ~{template.aiCredits}
+          </span>
+        )}
         {template.likeCount !== undefined && (
           <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white/80">
             <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">

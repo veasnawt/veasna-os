@@ -2,7 +2,8 @@ import { getFollowerCount, getFollowingCount, isFollowing } from "../../_lib/fol
 import { publicSessionRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 import { getPublicProfile } from "../../_lib/profiles";
-import { getTemplatesByIds, listPublicTemplatesByOwner } from "../../_lib/templates";
+import { getTemplatesByIds, listPublicTemplatesByOwner, templateAiCredits } from "../../_lib/templates";
+import type { TemplateProjectData } from "@veasnawt/vcut/src/project/template";
 import { getTotalLikesForOwner, listLikedPublicTemplates } from "../../_lib/templateSocial";
 
 export const runtime = "nodejs";
@@ -40,12 +41,13 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
   ]);
   const likedTemplatesById = new Map((await getTemplatesByIds(likedIds)).map((t) => [t.id, t]));
   const likedTemplates = likedIds.map((tid) => likedTemplatesById.get(tid)).filter((t): t is NonNullable<typeof t> => Boolean(t));
-  const toRow = (t: { id: string; name: string; updatedAt: string; isPublic: boolean; ownerId: string }) => ({
+  const toRow = (t: { id: string; name: string; updatedAt: string; isPublic: boolean; ownerId: string; project: TemplateProjectData }) => ({
     id: t.id,
     name: t.name,
     updatedAt: t.updatedAt,
     isPublic: t.isPublic,
     ownerId: t.ownerId,
+    aiCredits: templateAiCredits(t.project),
   });
   return Response.json({
     id,

@@ -588,6 +588,12 @@ function TemplateSection({
           </a>
         )}
         <p className="truncate text-sm font-medium text-white">{template.name}</p>
+        {template.aiCredits !== undefined && (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/70">
+            <span className="rounded-sm bg-amber-400 px-1 text-[9px] font-bold leading-[1.4] text-black">PRO</span>
+            Uses AI effects · about {template.aiCredits} credits to use
+          </p>
+        )}
       </div>
 
       <div

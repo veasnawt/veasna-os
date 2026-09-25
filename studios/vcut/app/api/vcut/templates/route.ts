@@ -11,6 +11,7 @@ import {
   listTemplatesForOwner,
   renderTemplatePreview,
   requirePro,
+  templateAiCredits,
 } from "../_lib/templates";
 
 /** Reads/writes `project.json` off disk to build a template from it (POST). */
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 export const GET = hostedOnlyRoute(async (_req, user) => {
   await requirePro(user.id);
   const templates = await listTemplatesForOwner(user.id);
-  return Response.json({ templates });
+  return Response.json({ templates: templates.map((t) => ({ ...t, aiCredits: templateAiCredits(t.project) })) });
 });
 
 /** `{ name, projectId, keepAssetIds? }` — sanitizes the given project (see

@@ -2,7 +2,7 @@ import { corsPreflight, hostedOnlyRoute, publicSessionRoute, withCors } from "..
 import { ApiError } from "../../_lib/paths";
 import { getPublicProfile } from "../../_lib/profiles";
 import { getCommentCounts, getLikeCounts, getLikedSet } from "../../_lib/templateSocial";
-import { getViewableTemplate, requirePro, setTemplatePublic } from "../../_lib/templates";
+import { getViewableTemplate, requirePro, setTemplatePublic, templateAiCredits } from "../../_lib/templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +32,7 @@ const getTemplate = publicSessionRoute(async (_req, user, context: { params: Pro
     likeCount: likeCounts.get(id) ?? 0,
     commentCount: commentCounts.get(id) ?? 0,
     viewerHasLiked: likedSet.has(id),
+    aiCredits: templateAiCredits(template.project),
   });
 });
 

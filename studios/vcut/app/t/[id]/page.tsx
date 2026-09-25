@@ -22,6 +22,7 @@ interface TemplateInfo {
   likeCount: number;
   commentCount: number;
   viewerHasLiked: boolean;
+  aiCredits?: number;
 }
 
 /** Phase 3's public share page — the destination behind a shared template link, reachable by anyone,
@@ -166,6 +167,12 @@ export default function PublicTemplatePage() {
       {info && (
         <>
           <h1 className="mt-4 text-base font-semibold">{info.name}</h1>
+          {info.aiCredits !== undefined && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-white/70">
+              <span className="rounded-sm bg-amber-400 px-1 text-[9px] font-bold leading-[1.4] text-black">PRO</span>
+              Uses AI effects · about {info.aiCredits} credits to use
+            </p>
+          )}
 
           <a href={`/u/${encodeURIComponent(info.ownerId)}`} className="mt-2 flex items-center gap-2">
             <Avatar seed={info.ownerId} displayName={info.creatorDisplayName} size={26} />

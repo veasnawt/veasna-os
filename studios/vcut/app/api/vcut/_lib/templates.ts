@@ -4,6 +4,7 @@ import path from "path";
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
 import { buildExportPlan } from "@veasnawt/vcut/src/export/buildExportPlan";
 import { trimProjectToRange } from "@veasnawt/vcut/src/export/trimForExport";
+import { templateAiSummary } from "@veasnawt/vcut/src/project/aiRecipe";
 import { sequenceDuration } from "@veasnawt/vcut/src/project/createProject";
 import { isSoundEffectAsset } from "@veasnawt/vcut/src/project/sfx";
 import type { Asset, Project } from "@veasnawt/vcut/src/project/types";
@@ -28,6 +29,23 @@ export async function requirePro(userId: string): Promise<void> {
   const profile = await getProfile(userId);
   if (profile?.plan !== "pro") {
     throw new ApiError(402, "Templates are a Pro feature — upgrade to save or use one", "pro-required");
+  }
+}
+
+/** Estimated credits to run a template's recorded AI steps once, or `undefined` when it has none. Shown on the
+ *  template's tile (with a PRO badge) so the cost is known before anyone starts it. */
+export function templateAiCredits(project: TemplateProjectData): number | undefined {
+  const summary = templateAiSummary(project.tracks, project.assets);
+  return summary.steps > 0 ? summary.credits : undefined;
+}
+
+/** A template that repeats AI tools on the user's own media spends real credits, so it is Pro-only for everyone — even
+ *  when it's someone else's published template, which is otherwise free to use. */
+export async function requireProForAiTemplate(userId: string, project: TemplateProjectData): Promise<void> {
+  if (templateAiCredits(project) === undefined) return;
+  const profile = await getProfile(userId);
+  if (profile?.plan !== "pro") {
+    throw new ApiError(402, "This template uses AI effects — upgrade to Pro to use it", "pro-required");
   }
 }
 
