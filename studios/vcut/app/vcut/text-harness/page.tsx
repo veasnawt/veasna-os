@@ -33,6 +33,8 @@ interface RenderFrameParams {
    *  same cross-app-boundary reasoning this whole interface already follows) — passed straight through
    *  to `drawAnimatedTextFrame` below. */
   wordTimings?: WordTiming[];
+  /** Mirrors `RenderKhmerTextParams.inOut` — the clip's entrance / exit animations. */
+  inOut?: { in?: Clip["textAnimationIn"]; out?: Clip["textAnimationOut"] };
   /** Custom-font id → a URL (or `data:` URI) `registerCustomFont` can fetch — bundled fonts need none
    *  of this (their `@font-face` rules are already in `globals.css`), but a custom (project-uploaded)
    *  font has no static CSS rule anywhere, the same reason `registerCustomFont` itself exists (see its
@@ -118,7 +120,8 @@ export default function TextHarnessPage() {
         params.elapsedSeconds,
         params.clipDurationSeconds,
         params.customFonts,
-        params.wordTimings
+        params.wordTimings,
+        params.inOut
       );
     };
     window.__harnessReady = true;
