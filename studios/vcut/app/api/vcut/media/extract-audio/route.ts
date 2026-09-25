@@ -56,25 +56,27 @@ export const POST = localRoute(async (req) => {
   if (!fs.existsSync(sourcePath)) throw new ApiError(404, "That media file no longer exists", "source-missing");
 
   const baseName = (body.name || "Audio").replace(/\.[^./\\]+$/, "");
-  const scratchPath = path.join(os.tmpdir(), `vcut-extract-${crypto.randomUUID()}.m4a`);
+  const scratchPath = path.join(os.tmpdir(), `vcut-extract-${crypto.randomUUID()}.mp3`);
   try {
     await new Promise<void>((resolve, reject) => {
       execFile(
         ffmpegBinary(),
-        // `-vn`: drop the video stream entirely. Always re-encoded to AAC (never `-c:a copy`) — the
+        // MP3, not AAC: Safari's `decodeAudioData` rejects AAC `.m4a` extracted from a video ("Decoding failed"), which forced the clip
+        // through an `<audio>` element that drifts from the picture; MP3 decodes everywhere so it mixes like any other audio.
+        // `-vn`: drop the video stream entirely. Always re-encoded (never `-c:a copy`) — the
         // source's own audio codec varies too widely (Opus in a WebM recording, PCM in some MOVs, ...)
         // for a stream copy to reliably land in an `.m4a` container that plays back everywhere the rest
         // of this app's own audio assets already do. `+faststart` puts the index at the front, so a
         // media element (the iOS preview's own fallback for audio it can't decode) can start playing
         // without first reading the end of a long file.
-        ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", scratchPath],
+        ["-y", "-i", sourcePath, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "192k", scratchPath],
         { timeout: 120_000 },
         (err) => (err ? reject(new ApiError(500, "Could not extract audio from that clip", "extract-failed")) : resolve())
       );
     });
     if (!fs.existsSync(scratchPath)) throw new ApiError(500, "Could not extract audio from that clip", "extract-failed");
     const bytes = fs.readFileSync(scratchPath);
-    const fileName = `${baseName} (Audio).m4a`;
+    const fileName = `${baseName} (Audio).mp3`;
 
     if (user) {
       const profile = await getProfile(user.id);

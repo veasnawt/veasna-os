@@ -1,7 +1,7 @@
 import fs from "fs";
 import { spawn } from "child_process";
 import path from "path";
-import { buildProxyArgs, isProxyRelPath, proxyRelPathFor } from "@veasnawt/vcut/src/export/proxyCommands";
+import { audioProxyRelPathFor, buildAudioProxyArgs, buildProxyArgs, isProxyRelPath, proxyRelPathFor } from "@veasnawt/vcut/src/export/proxyCommands";
 import { requireSessionUser, VCUT_HOSTED } from "../../_lib/auth";
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS, waitForFfmpegHeadroom } from "../../_lib/ffmpegConcurrency";
 import { ffmpegBinary, probeMedia } from "../../_lib/ffmpeg";
@@ -41,6 +41,29 @@ async function runProxyFfmpeg(input: string, output: string, fps: number | undef
   fs.renameSync(partial, output);
 }
 
+async function runAudioProxyFfmpeg(input: string, output: string): Promise<void> {
+  const partial = `${output}.partial.mp3`;
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(ffmpegBinary(), buildAudioProxyArgs(input, partial), { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr = (stderr + chunk).slice(-2000)));
+    const timer = setTimeout(() => child.kill("SIGKILL"), PROXY_TIMEOUT_MS);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited ${code}: ${stderr.trim().split("\n").pop() ?? ""}`));
+    });
+  }).catch((err) => {
+    fs.rmSync(partial, { force: true });
+    throw err;
+  });
+  fs.renameSync(partial, output);
+}
+
 /** `POST /api/vcut/media/proxy?projectId=...` `{ relPath, library? }` — makes (or returns the existing) preview
  *  proxy for a video the browser reported it couldn't play. Returns `{ proxyRelPath }`, stored next to the
  *  original and served by `media/raw` exactly like any other media file. Export never uses it: FFmpeg reads the
@@ -48,7 +71,8 @@ async function runProxyFfmpeg(input: string, output: string, fps: number | undef
 export const POST = localRoute(async (req) => {
   const url = new URL(req.url);
   const projectId = url.searchParams.get("projectId");
-  const body = (await req.json().catch(() => null)) as { relPath?: unknown; library?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { relPath?: unknown; library?: unknown; kind?: unknown } | null;
+  const isAudioProxy = body?.kind === "audio";
   const relPath = typeof body?.relPath === "string" ? body.relPath : "";
   const isLibrary = body?.library === true;
   if (!relPath || (!projectId && !isLibrary)) throw new ApiError(400, "Missing projectId or relPath", "missing-params");
@@ -64,7 +88,7 @@ export const POST = localRoute(async (req) => {
 
   const source = resolveWithin(mediaDir, relPath);
   if (!fs.existsSync(source)) throw new ApiError(404, "Media file is missing", "media-offline");
-  const proxyRelPath = proxyRelPathFor(relPath);
+  const proxyRelPath = isAudioProxy ? audioProxyRelPathFor(relPath) : proxyRelPathFor(relPath);
   const output = resolveWithin(mediaDir, proxyRelPath);
   if (fs.existsSync(output)) return Response.json({ proxyRelPath });
 
@@ -77,8 +101,12 @@ export const POST = localRoute(async (req) => {
       if (VCUT_HOSTED) await waitForFfmpegHeadroom(MAX_CONCURRENT_HOSTED_EXPORTS);
       beginHeavyFfmpegJob();
       try {
-        const probe = await probeMedia(source).catch(() => null);
-        await runProxyFfmpeg(source, output, probe?.fps);
+        if (isAudioProxy) {
+          await runAudioProxyFfmpeg(source, output);
+        } else {
+          const probe = await probeMedia(source).catch(() => null);
+          await runProxyFfmpeg(source, output, probe?.fps);
+        }
       } finally {
         endHeavyFfmpegJob();
       }
