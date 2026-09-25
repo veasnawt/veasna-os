@@ -26,6 +26,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build workspace deps (vicons ships only as built dist)
+        run: pnpm --filter @veasnawt/vicons build
       - name: Typecheck (vcut package)
         working-directory: packages/vcut
         run: npx tsc --noEmit -p tsconfig.json
