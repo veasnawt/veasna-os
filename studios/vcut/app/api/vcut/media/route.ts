@@ -152,6 +152,7 @@ export const DELETE = localRoute(async (req) => {
   const relPath = new URL(req.url).searchParams.get("relPath");
   const thumbnailRelPath = new URL(req.url).searchParams.get("thumbnailRelPath");
   const waveformRelPath = new URL(req.url).searchParams.get("waveformRelPath");
+  const proxyRelPath = new URL(req.url).searchParams.get("proxyRelPath");
   // `null` means the param was never sent at all — a real caller error. An empty string is a valid,
   // different case: a text asset's `relPath` is always `""` (see project/types.ts — it has no
   // backing file to begin with), so removing one legitimately means "nothing to unlink on disk",
@@ -159,6 +160,8 @@ export const DELETE = localRoute(async (req) => {
   if (relPath === null) throw new ApiError(400, "Missing relPath", "missing-rel-path");
 
   if (relPath) fs.rmSync(resolveWithin(paths.mediaDir, relPath), { force: true });
+  // The preview-only copy (see `media/proxy/route.ts`) goes with its original.
+  if (proxyRelPath && !proxyRelPath.startsWith("..")) fs.rmSync(resolveWithin(paths.mediaDir, proxyRelPath), { force: true });
   // Images point their thumbnail back at the media file itself, which the line above already removed.
   if (thumbnailRelPath && !thumbnailRelPath.startsWith("..")) {
     fs.rmSync(resolveWithin(paths.thumbnailsDir, thumbnailRelPath), { force: true });
