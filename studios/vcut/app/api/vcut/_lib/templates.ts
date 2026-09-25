@@ -13,6 +13,7 @@ import { VCUT_HOSTED } from "./auth";
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS, waitForFfmpegHeadroom } from "./ffmpegConcurrency";
 import { fontMetricsFor, fontsDirPath, generateThumbnail, runFfmpeg, textFontPath } from "./ffmpeg";
 import { importMediaBytes } from "./importMedia";
+import { resolveLutFilePath } from "./lutFile";
 import { ApiError, ensureTemplateAudioDirs, ensureUserMediaDirs, resolveWithin, templateAudioPaths, uniqueFileName, userMediaPaths } from "./paths";
 import type { ProjectPaths } from "./paths";
 import { getProfile } from "./profiles";
@@ -137,10 +138,7 @@ async function renderOneTemplateFile(
       },
       fontMetricsFor,
       fontsDirFor: fontsDirPath,
-      lutPathFor: (lutId) => {
-        const lut = renderProject.luts.find((l) => l.id === lutId);
-        return lut ? resolveWithin(paths.lutsDir, lut.relPath) : undefined;
-      },
+      lutPathFor: (lutId, intensity) => resolveLutFilePath(paths, renderProject.luts, lutId, intensity, scratchDir),
     });
     // Waits for room under the SAME concurrency ceiling a real export enforces — see
     // `ffmpegConcurrency.ts`'s own doc comment for the real regression this fixes: this render used to

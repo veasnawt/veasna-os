@@ -29,6 +29,7 @@ import { buildCustomFontDataUrls, openKhmerTextHarness } from "../_lib/khmerText
 import { ffmpegAvailable, ffmpegBinary, fontMetricsFor, fontsDirPath, probeMedia, runFfmpeg, textFontPath } from "../_lib/ffmpeg";
 import { localRoute, publicSessionRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
+import { resolveLutFilePath } from "../_lib/lutFile";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
 import { resolveAssetInputPath } from "../_lib/assetInput";
@@ -821,10 +822,7 @@ async function runExportJob(
       // every real export via this route baked in NO LUT for any clip that had one applied, no error,
       // no warning. `_lib/templates.ts`'s own template-render call already did this correctly — same
       // pattern, applied here too.
-      lutPathFor: (lutId) => {
-        const lut = project.luts.find((l) => l.id === lutId);
-        return lut ? resolveWithin(paths.lutsDir, lut.relPath) : undefined;
-      },
+      lutPathFor: (lutId, intensity) => resolveLutFilePath(paths, project.luts, lutId, intensity, textFilesDir),
       khmerTextWindowsFor: (clip: Clip) => khmerWindowsByClipId.get(clip.id),
       // Confirmed a real, live cause of a hosted export crashing its own then-1GB-limited container
       // (Railway's own memory metrics showed a hard spike-then-drop right at the moment of an
