@@ -6,6 +6,7 @@ import {
   buildAnimatedImageProbeArgs,
   buildAnimatedPngArgs,
   buildFilmstripArgs,
+  buildAiFramePngArgs,
   buildFirstFramePngArgs,
   buildMaskImageArgs,
   buildMaskVideoArgs,
@@ -439,6 +440,15 @@ export function generateSpriteSheet(
 
 export function extractFirstFramePng(input: string, output: string): Promise<void> {
   return runFfmpegToFile(buildFirstFramePngArgs(input, output), output, 30_000);
+}
+
+/** A frame of an image/video downscaled for an AI model (see `buildAiFramePngArgs`). */
+export function extractAiFramePng(
+  input: string,
+  output: string,
+  opts: { maxEdge: number; multipleOf?: number; atSeconds?: number; alpha?: boolean }
+): Promise<void> {
+  return runFfmpegToFile(buildAiFramePngArgs(input, output, opts), output, 30_000);
 }
 
 /** Generates ONE sprite-sheet image containing several frames evenly spaced across the source's

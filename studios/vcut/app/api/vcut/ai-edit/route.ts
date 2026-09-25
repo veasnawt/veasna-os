@@ -1,12 +1,11 @@
 import fs from "fs";
-import path from "path";
 import Replicate from "replicate";
 import { findAsset, findClip } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
-import { extractFirstFramePng } from "../_lib/ffmpeg";
+import { extractAiFramePng } from "../_lib/ffmpeg";
 import { importMediaBytes } from "../_lib/importMedia";
 import { corsPreflight, hostedCreditGatedRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs, resolveWithin, uniqueFileName } from "../_lib/paths";
@@ -41,6 +40,8 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     strength?: "subtle" | "balanced" | "creative";
     deliverBytes?: boolean;
     imageBase64?: string;
+    /** Source-media seconds of the frame to use when the asset is a video (the playhead frame); defaults to the start. */
+    timeSeconds?: number;
   };
 
   const prompt = body.prompt?.trim();
@@ -79,21 +80,16 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     const sourcePath = resolveAssetInputPath(paths, userMedia?.mediaDir ?? null, targetAsset);
     if (!fs.existsSync(sourcePath)) throw new ApiError(404, "Source file not found", "source-missing");
 
-    if (targetAsset.kind === "image") {
-      const bytes = fs.readFileSync(sourcePath);
-      const ext = path.extname(sourcePath).toLowerCase();
-      const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
-      inputDataUri = `data:${mime};base64,${bytes.toString("base64")}`;
-    } else {
-      // Video asset: extract the current/first frame as a PNG to apply AI edit
-      const frameTempPath = resolveWithin(paths.scratchDir, uniqueFileName("frame-extract.png"));
-      try {
-        await extractFirstFramePng(sourcePath, frameTempPath);
-        const bytes = fs.readFileSync(frameTempPath);
-        inputDataUri = `data:image/png;base64,${bytes.toString("base64")}`;
-      } finally {
-        fs.rm(frameTempPath, { force: true }, () => {});
-      }
+    // Always downscale through FFmpeg (video frame OR large photo): the models allocate memory in proportion to the
+    // pixel count, and a full-resolution phone frame ran the GPU out of memory.
+    const frameTempPath = resolveWithin(paths.scratchDir, uniqueFileName("frame-extract.png"));
+    try {
+      const at = targetAsset.kind === "video" && typeof body.timeSeconds === "number" && body.timeSeconds > 0 ? body.timeSeconds : undefined;
+      await extractAiFramePng(sourcePath, frameTempPath, { maxEdge: 1024, multipleOf: 8, atSeconds: at, alpha: false });
+      const bytes = fs.readFileSync(frameTempPath);
+      inputDataUri = `data:image/png;base64,${bytes.toString("base64")}`;
+    } finally {
+      fs.rm(frameTempPath, { force: true }, () => {});
     }
   } else {
     throw new ApiError(400, "Missing assetId, clipId, or imageBase64", "missing-input");
