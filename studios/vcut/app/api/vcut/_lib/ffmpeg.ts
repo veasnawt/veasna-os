@@ -8,6 +8,7 @@ import {
   buildFilmstripArgs,
   buildAiFramePngArgs,
   buildCornerPixelArgs,
+  buildEdgeCleanArgs,
   buildCutoutInputArgs,
   buildMuxAudioArgs,
   buildFirstFramePngArgs,
@@ -464,6 +465,15 @@ export function muxOriginalAudio(
   return runFfmpegToFile(buildMuxAudioArgs(videoInput, audioInput, output, opts), output, 120_000);
 }
 
+/** Removes the coloured outline from a matted green-screen video (see `buildEdgeCleanArgs`). */
+export function cleanMattedEdges(
+  input: string,
+  output: string,
+  opts: { keyHex: string; width: number; height: number; fps: number }
+): Promise<void> {
+  return runFfmpegToFile(buildEdgeCleanArgs(input, output, opts), output, 180_000);
+}
+
 /** The "#rrggbb" colour at the top-left of the first frame — the matted background colour. */
 export function probeCornerColor(input: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -525,12 +535,13 @@ export async function generateMaskVideo(
   height: number,
   fps: number,
   durationSeconds: number,
-  rect: { x: number; y: number; width: number; height: number }
+  rect: { x: number; y: number; width: number; height: number },
+  frames?: number
 ): Promise<boolean> {
   return new Promise((resolve) => {
     execFile(
       ffmpegBinary(),
-      buildMaskVideoArgs(output, width, height, fps, durationSeconds, rect),
+      buildMaskVideoArgs(output, width, height, fps, durationSeconds, rect, frames),
       { timeout: 30_000 },
       (err) => resolve(!err && fs.existsSync(output))
     );

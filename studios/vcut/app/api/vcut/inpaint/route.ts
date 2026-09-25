@@ -265,14 +265,17 @@ async function runChunkedInpaintPrediction(
       const chunkMaskPath = `${scratchPrefix}-chunk${i}-mask.mp4`;
       const chunkResultPath = `${scratchPrefix}-chunk${i}-result.mp4`;
 
-      const extractArgs = buildExtractClipArgs(sourcePath, chunkVideoPath, chunkStart, chunkEnd);
+      // Source and mask are cut to the same exact frame count (see `buildExtractClipArgs`'s `fps`).
+      const chunkFps = Number.isFinite(fps) && fps > 0 ? Math.min(60, fps) : 30;
+      const chunkFrames = Math.max(1, Math.round((chunkEnd - chunkStart) * chunkFps));
+      const extractArgs = buildExtractClipArgs(sourcePath, chunkVideoPath, chunkStart, chunkEnd, chunkFps);
       await new Promise<void>((resolve, reject) => {
         execFile(ffmpegBinary(), extractArgs, { timeout: 60_000 }, (err) =>
           err ? reject(new ApiError(500, `Could not extract chunk ${i + 1}/${numChunks}`, "chunk-extract-failed")) : resolve()
         );
       });
 
-      const maskOk = await generateMaskVideo(chunkMaskPath, width, height, fps, chunkEnd - chunkStart, rect);
+      const maskOk = await generateMaskVideo(chunkMaskPath, width, height, chunkFps, chunkEnd - chunkStart, rect, chunkFrames);
       if (!maskOk) throw new ApiError(500, `Could not generate chunk ${i + 1}/${numChunks}'s mask`, "mask-failed");
 
       const chunkBuffer = await runInpaintPrediction(accessToken, chunkVideoPath, chunkMaskPath, signal, (fraction) =>

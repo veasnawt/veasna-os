@@ -120,6 +120,8 @@ export function TemplateViewer({
   const [muted, setMuted] = useState(() => readInitialMuted());
   const [favorites, setFavorites] = useState<Set<string>>(() => readFavorites());
   const [pendingDelete, setPendingDelete] = useState<TemplateRow | null>(null);
+  // Publishing/unpublishing asks first: one stray tap on the globe used to expose (or hide) a template instantly.
+  const [pendingPublish, setPendingPublish] = useState<TemplateRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -406,7 +408,7 @@ export function TemplateViewer({
             onOpenComments={() => openComments(template.id)}
             onShare={() => share(template)}
             onDelete={() => setPendingDelete(template)}
-            onTogglePublic={() => void togglePublic(template)}
+            onTogglePublic={() => setPendingPublish(template)}
           />
         ))}
       </div>
@@ -489,6 +491,30 @@ export function TemplateViewer({
           </div>,
           document.body
         )}
+
+      {pendingPublish && (
+        <ConfirmDialog
+          danger={false}
+          title={pendingPublish.isPublic ? "Make this template private?" : "Publish this template?"}
+          message={
+            pendingPublish.isPublic
+              ? `"${pendingPublish.name}" will disappear from Discover and its share link will stop working. People who already started a project from it keep theirs.`
+              : `"${pendingPublish.name}" will appear in Discover and anyone with its link can preview it and start a project from it. You can make it private again at any time.${
+                  pendingPublish.aiCredits !== undefined
+                    ? ` It uses AI effects, so it's Pro-only to use and costs each person about ${pendingPublish.aiCredits} credits.`
+                    : ""
+                }`
+          }
+          confirmLabel={pendingPublish.isPublic ? "Make private" : "Publish"}
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            const target = pendingPublish;
+            setPendingPublish(null);
+            void togglePublic(target);
+          }}
+          onCancel={() => setPendingPublish(null)}
+        />
+      )}
 
       {pendingDelete && (
         <ConfirmDialog
@@ -658,6 +684,7 @@ function TemplateSection({
                   <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" />
                 </svg>
               </span>
+              <span className={`text-[10px] font-medium ${template.isPublic ? "text-sky-400" : "text-white/70"}`}>{template.isPublic ? "Public" : "Private"}</span>
             </button>
 
             <button onClick={onDelete} aria-label="Delete template" className="flex flex-col items-center gap-1 text-white">

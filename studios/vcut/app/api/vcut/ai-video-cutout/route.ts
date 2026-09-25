@@ -4,7 +4,7 @@ import { findAsset, findClip } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
-import { extractCutoutInput, muxOriginalAudio, probeCornerColor } from "../_lib/ffmpeg";
+import { cleanMattedEdges, extractCutoutInput, muxOriginalAudio, probeCornerColor, probeMedia } from "../_lib/ffmpeg";
 import { importMediaBytes, downloadMediaUrl } from "../_lib/importMedia";
 import { corsPreflight, hostedCreditGatedRouteCors } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs, resolveWithin, uniqueFileName } from "../_lib/paths";
@@ -68,6 +68,7 @@ export const POST = hostedCreditGatedRouteCors("ai-video-cutout", MIN_CREDITS, a
   const inputPath = resolveWithin(paths.scratchDir, uniqueFileName("cutout-input.mp4"));
   const greenPath = resolveWithin(paths.scratchDir, uniqueFileName("cutout-green.mp4"));
   const finalPath = resolveWithin(paths.scratchDir, uniqueFileName("cutout-final.mp4"));
+  const cleanPath = resolveWithin(paths.scratchDir, uniqueFileName("cutout-clean.mp4"));
   let resultBuffer: Buffer;
   let keyColor: string;
   try {
@@ -101,17 +102,29 @@ export const POST = hostedCreditGatedRouteCors("ai-video-cutout", MIN_CREDITS, a
     fs.writeFileSync(greenPath, await downloadMediaUrl(outUrl));
 
     keyColor = await probeCornerColor(greenPath);
+    // The model's edge pixels are a blend of subject and key colour, which the Chroma Key would leave as a coloured
+    // outline. Clean them; if that step fails for any reason the un-cleaned video still works, just with a fringe.
+    let videoPath = greenPath;
+    try {
+      const probe = await probeMedia(greenPath);
+      if (probe.width && probe.height) {
+        await cleanMattedEdges(greenPath, cleanPath, { keyHex: keyColor, width: probe.width, height: probe.height, fps: probe.fps ?? 24 });
+        videoPath = cleanPath;
+      }
+    } catch (err) {
+      console.warn("[vcut] video cutout: edge cleanup failed, using the raw matte:", err);
+    }
     if (body.keepAudio && asset.hasAudio) {
-      await muxOriginalAudio(greenPath, sourcePath, finalPath, { startSeconds: found.clip.sourceIn, durationSeconds: windowSeconds });
+      await muxOriginalAudio(videoPath, sourcePath, finalPath, { startSeconds: found.clip.sourceIn, durationSeconds: windowSeconds });
       resultBuffer = fs.readFileSync(finalPath);
     } else {
-      resultBuffer = fs.readFileSync(greenPath);
+      resultBuffer = fs.readFileSync(videoPath);
     }
   } catch (err) {
     if (VCUT_HOSTED && user?.id) void refundCredits(user.id, credits);
     throw err;
   } finally {
-    for (const f of [inputPath, greenPath, finalPath]) fs.rm(f, { force: true }, () => {});
+    for (const f of [inputPath, greenPath, finalPath, cleanPath]) fs.rm(f, { force: true }, () => {});
   }
 
   if (VCUT_HOSTED && user?.id) {
