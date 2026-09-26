@@ -51,7 +51,7 @@ let cache: Map<string, ProjectSummary> | null = null;
  *  an IMAGE-kind clip either — a still has no `thumbnailRelPath` of its own to approximate with here,
  *  only `summaryFromProject`'s own separate "read the image file directly" branch handles that shape,
  *  and only for the plain (non-cover) fallback case. */
-function resolveCoverAsset(project: Project): Asset | undefined {
+export function resolveCoverAsset(project: Project): Asset | undefined {
   const cover = project.exportSettings.cover;
   if (!cover) return undefined;
   if (cover.kind === "image") return project.assets.find((a) => a.id === cover.assetId);

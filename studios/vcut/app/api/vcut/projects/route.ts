@@ -5,6 +5,7 @@ import type { Project } from "@veasnawt/vcut/src/project/types";
 import { listProjectsForOwner, requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { localRoute } from "../_lib/localOnly";
 import { projectPaths, VCUT_ROOT } from "../_lib/paths";
+import { resolveCoverAsset } from "../_lib/projectIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,17 @@ export interface ProjectSummary {
  *  hosted one (reading off `projects_index`'s own list of ids) both end up needing to turn one
  *  `project.json` into a `ProjectSummary` the exact same way. */
 function summarize(project: Project): ProjectSummary {
+  // A custom cover (`ExportSettings.cover`'s own doc comment) wins outright when one's been picked — a
+  // real, reported gap otherwise: picking a Cover in the editor only ever affected the EXPORTED file's
+  // own embedded thumbnail, never what this same project showed on its own list card here, so the two
+  // could disagree even though the user had explicitly set one of them. `resolveCoverAsset` (shared with
+  // `_lib/projectIndex.ts`'s own project-summary caching layer, which already got this right) resolves
+  // an `image` cover directly, or — for a `frame` cover, which would need the fully COMPOSITED render
+  // `export/route.ts` only produces once an export actually runs — approximates it by finding whichever
+  // clip is playing at that timeline moment and reusing THAT asset's own already-generated thumbnail:
+  // not frame-exact, but a real, relevant preview instead of an unrelated one, with zero new
+  // thumbnail-generation work.
+  const coverAsset = resolveCoverAsset(project);
   // A video's own generated thumbnail is preferred; a still image has none of its own and is read
   // straight from the media folder instead (see media/route.ts's import route). Audio-only/empty
   // projects fall through to `undefined` — the card renders a placeholder for those.
@@ -47,6 +59,7 @@ function summarize(project: Project): ProjectSummary {
   // specifically had nothing else guarding against matching one of those, producing a thumbnail that
   // pointed at an empty path instead of correctly falling through to "no thumbnail yet."
   const thumbnailAsset =
+    coverAsset ??
     project.assets.find((a) => a.kind === "video" && a.thumbnailRelPath && !a.templatePlaceholder) ??
     project.assets.find((a) => a.kind === "image" && !a.templatePlaceholder);
   const thumbnail: ProjectSummary["thumbnail"] = !thumbnailAsset
