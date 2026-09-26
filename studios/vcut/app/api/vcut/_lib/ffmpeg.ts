@@ -637,6 +637,25 @@ function capDecoderThreads(args: string[]): string[] {
   return result;
 }
 
+/** How many CPU cores a hosted FFmpeg run may see. This container reports 48 cores but its cgroup allows only 1000 threads in
+ *  total (`pids.max`). Every `-f lavfi` input (each black gap, each colour clip and silence source a layered timeline
+ *  needs) builds its own filter graph whose thread pool is sized to the visible core count, and `-threads` /
+ *  `-filter_threads` do not reach those. A template with about 25 of them therefore needed over 1000 threads and failed with
+ *  `in#N/lavfi pthread_create() failed: Resource temporarily unavailable` (exit 245), surfacing as "FFmpeg failed" or
+ *  "Invalid argument". Confirmed on the real container: the same export fails at 48 or 16 visible cores and succeeds at 8
+ *  or 4, in the same time. Four leaves room for a few hundred such inputs. */
+const HOSTED_FFMPEG_CORES = 4;
+
+/** `taskset -c a-b` (Linux, hosted only) so FFmpeg sees `HOSTED_FFMPEG_CORES` cores; a random window spreads concurrent
+ *  exports across the machine. Empty when it doesn't apply or `taskset` isn't installed. */
+function hostedAffinityPrefix(): string[] {
+  if (!VCUT_HOSTED || process.platform !== "linux" || !fs.existsSync("/usr/bin/taskset")) return [];
+  const total = os.availableParallelism();
+  if (total <= HOSTED_FFMPEG_CORES) return [];
+  const start = Math.floor(Math.random() * Math.floor(total / HOSTED_FFMPEG_CORES)) * HOSTED_FFMPEG_CORES;
+  return ["/usr/bin/taskset", "-c", `${start}-${start + HOSTED_FFMPEG_CORES - 1}`];
+}
+
 /** Runs FFmpeg, reporting progress as a 0–1 fraction.
  *
  *  `-progress pipe:1 -nostats` makes FFmpeg emit machine-readable `key=value` lines on stdout
@@ -689,8 +708,11 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
     "-nostats",
     ...capDecoderThreads(resolvedArgs),
   ];
+  const affinity = hostedAffinityPrefix();
   const child = VCUT_HOSTED
-    ? spawn(ffmpegBinary(), hostedFfmpegArgs, { windowsHide: true })
+    ? affinity.length > 0
+      ? spawn(affinity[0], [...affinity.slice(1), ffmpegBinary(), ...hostedFfmpegArgs], { windowsHide: true })
+      : spawn(ffmpegBinary(), hostedFfmpegArgs, { windowsHide: true })
     : spawn(ffmpegBinary(), ["-progress", "pipe:1", "-nostats", ...resolvedArgs], { windowsHide: true });
 
   // The actual problem that showed up as "the whole computer froze" on a real desktop run is OS
