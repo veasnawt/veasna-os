@@ -117,6 +117,7 @@ const TEMPLATE_PREVIEW_MAX_SECONDS = 6;
  *  room once this session. A real export's own quality settings would be wildly disproportionate for
  *  what's just a decorative preview thumbnail. */
 const TEMPLATE_PREVIEW_MAX_DIMENSION = 540;
+const TEMPLATE_FULL_PREVIEW_MAX_DIMENSION = 960;
 const TEMPLATE_PREVIEW_CRF = 30;
 const TEMPLATE_PREVIEW_AUDIO_KBPS = 96;
 
@@ -246,7 +247,16 @@ export async function renderTemplatePreview(
   }
 
   try {
-    await renderOneTemplateFile(project, path.join(dir, "preview-full.mp4"), paths, libraryMediaDir);
+    // At most `TEMPLATE_FULL_PREVIEW_MAX_DIMENSION` on the long side: a phone's full-screen viewer doesn't need the project's whole
+    // export resolution, and a layered template rendered at 1080x1920 was heavy enough on this container to be killed mid-render.
+    const fullProject = structuredClone(project);
+    const fullScale = Math.min(1, TEMPLATE_FULL_PREVIEW_MAX_DIMENSION / Math.max(fullProject.exportSettings.width, fullProject.exportSettings.height));
+    fullProject.exportSettings = {
+      ...fullProject.exportSettings,
+      width: Math.max(2, Math.round((fullProject.exportSettings.width * fullScale) / 2) * 2),
+      height: Math.max(2, Math.round((fullProject.exportSettings.height * fullScale) / 2) * 2),
+    };
+    await renderOneTemplateFile(fullProject, path.join(dir, "preview-full.mp4"), paths, libraryMediaDir);
   } catch (err) {
     console.error("[vcut] templates: full preview render failed for", templateId, err);
   }

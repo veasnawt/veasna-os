@@ -60,7 +60,12 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   // placeholder, since a placeholder has nothing left to render (see that function's own doc
   // comment). Best-effort: never throws, never blocks saving the template on a render failure — see
   // `renderTemplatePreview`'s own doc comment.
-  await renderTemplatePreview(id, project, paths, userMediaPaths(user.id).mediaDir);
+  // In the background: rendering the previews of a layered template takes minutes, longer than a request may run (the proxy cut
+  // the connection and the save looked failed), and a template saves fine without them — the tile shows a placeholder until they
+  // exist (the poster is regenerated on first request, and the viewer falls back to the short preview).
+  void renderTemplatePreview(id, structuredClone(project), paths, userMediaPaths(user.id).mediaDir).catch((err) =>
+    console.error("[vcut] templates: background preview render failed for", id, err)
+  );
 
   const sanitized = sanitizeProjectForTemplate(project, keepAssetIds);
   // Copies each bundled-audio asset's real file into this template's own permanent storage — see
