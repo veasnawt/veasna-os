@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "@veasnawt/vcut/src/ui/ConfirmDialog";
-import { RESOLUTION_PRESETS, type Asset, type Project } from "@veasnawt/vcut/src/project/types";
+import { closestResolutionPreset, RESOLUTION_PRESETS, type Asset, type Project } from "@veasnawt/vcut/src/project/types";
 import { addClip, trackKindForAsset } from "@veasnawt/vcut/src/timeline/operations";
 import { authFetch, formatFileSize, formatUpdatedAt, HOSTED, thumbnailUrl, type ProjectSummary } from "./_shared/hostedClient";
 
@@ -19,23 +19,54 @@ function presetAspectClass(label: string): string {
   return "aspect-square";
 }
 
+/** Reads a picked image's or video's real pixel size in the browser, so the aspect ratio can be chosen before anything is
+ *  uploaded. Resolves `null` for audio, for a format the browser can't decode (the server's own probe still sizes the
+ *  project then, as it always did), or if it takes too long. */
+function readVisualSize(file: File): Promise<{ width: number; height: number } | null> {
+  const isVideo = file.type.startsWith("video/");
+  if (!isVideo && !file.type.startsWith("image/")) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const element = isVideo ? document.createElement("video") : new Image();
+    const finish = (size: { width: number; height: number } | null) => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(size);
+    };
+    const timer = window.setTimeout(() => finish(null), 6000);
+    if (element instanceof HTMLVideoElement) {
+      element.preload = "metadata";
+      element.muted = true;
+      element.onloadedmetadata = () => finish(element.videoWidth > 0 ? { width: element.videoWidth, height: element.videoHeight } : null);
+    } else {
+      element.onload = () => finish(element.naturalWidth > 0 ? { width: element.naturalWidth, height: element.naturalHeight } : null);
+    }
+    element.onerror = () => finish(null);
+    element.src = url;
+  });
+}
+
 /** The "start a new project" flow — a modal rather than the old inline row of controls squeezed above
  *  the project list, because a name, an orientation choice, and an optional file all need real room to
  *  read as one coherent decision instead of a cramped afterthought. Same overlay/portal convention as
- *  `ConfirmDialog` (see that file's own comment for why a portal specifically). */
+ *  `ConfirmDialog` (see that file's own comment for why a portal specifically).
+ *
+ *  Media comes first because it is the natural way in: adding a file picks the aspect ratio for you, and the ratio cards
+ *  below stay tappable to override it. The name is optional and last — and never focused automatically, so the keyboard
+ *  doesn't cover the dialog on a phone before anyone has typed anything. */
 export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
   const [name, setName] = useState("");
   const [preset, setPreset] = useState<(typeof RESOLUTION_PRESETS)[number]>(RESOLUTION_PRESETS[0]);
   const [media, setMedia] = useState<File | null>(null);
+  /** The aspect ratio chosen from the media, until the user picks one by hand. */
+  const [autoPreset, setAutoPreset] = useState<(typeof RESOLUTION_PRESETS)[number] | null>(null);
+  /** Whether the user tapped a ratio card themselves (which then wins over the media's own shape). */
+  const [manualPreset, setManualPreset] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-  }, []);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -45,21 +76,48 @@ export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; 
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [creating, onClose]);
 
+  // A phone's on-screen keyboard shrinks the visual viewport but not the layout one: size the dialog to what is really visible
+  // so its buttons stay above the keyboard and the rest scrolls.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => setViewportHeight(Math.round(viewport.height));
+    update();
+    viewport.addEventListener("resize", update);
+    return () => viewport.removeEventListener("resize", update);
+  }, []);
+
   function pickMedia(file: File | undefined | null) {
-    if (file) setMedia(file);
+    if (!file) return;
+    setMedia(file);
+    setAutoPreset(null);
+    void readVisualSize(file).then((size) => {
+      // Only a picture's own shape picks the ratio, and never over one the user already chose by hand (see `shownPreset`).
+      if (size) setAutoPreset(closestResolutionPreset(size.width, size.height));
+    });
   }
+
+  function removeMedia() {
+    setMedia(null);
+    setAutoPreset(null);
+    if (mediaInputRef.current) mediaInputRef.current.value = "";
+  }
+
+  const shownPreset = manualPreset ? preset : (autoPreset ?? preset);
+  /** With media and no manual choice the file's own real dimensions size the project, exactly as before. */
+  const followMedia = Boolean(media) && !manualPreset;
 
   async function submit() {
     setCreating(true);
     setError(null);
     try {
-      // Starting media below overrides the preset with the file's own real dimensions. Templates don't
-      // start here: using one — your own included — goes through Templates, which only creates the
+      // Starting media below overrides the preset with the file's own real dimensions (unless a ratio was picked by hand).
+      // Templates don't start here: using one — your own included — goes through Templates, which only creates the
       // project once you actually pick media for it (see `TemplateDraftApp`).
       const res = await authFetch("/api/vcut/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, width: preset.width, height: preset.height, fps: 30 }),
+        body: JSON.stringify({ name, width: shownPreset.width, height: shownPreset.height, fps: 30 }),
       });
       if (!res.ok) throw new Error();
       const body = (await res.json()) as { project: Project };
@@ -81,18 +139,22 @@ export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; 
         project = {
           ...project,
           assets: [...project.assets, asset],
-          sequence: {
-            ...project.sequence,
-            width: asset.width ?? project.sequence.width,
-            height: asset.height ?? project.sequence.height,
-            fps: asset.fps ?? project.sequence.fps,
-          },
-          exportSettings: {
-            ...project.exportSettings,
-            width: asset.width ?? project.exportSettings.width,
-            height: asset.height ?? project.exportSettings.height,
-            fps: asset.fps ?? project.exportSettings.fps,
-          },
+          ...(followMedia
+            ? {
+                sequence: {
+                  ...project.sequence,
+                  width: asset.width ?? project.sequence.width,
+                  height: asset.height ?? project.sequence.height,
+                  fps: asset.fps ?? project.sequence.fps,
+                },
+                exportSettings: {
+                  ...project.exportSettings,
+                  width: asset.width ?? project.exportSettings.width,
+                  height: asset.height ?? project.exportSettings.height,
+                  fps: asset.fps ?? project.exportSettings.fps,
+                },
+              }
+            : null),
         };
 
         // Reported directly: a starting file used to just sit in the Media library, needing a manual
@@ -119,9 +181,12 @@ export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; 
     }
   }
 
+  const sectionLabel = "mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40";
+
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
+      style={{ height: viewportHeight ? `${viewportHeight}px` : "100dvh" }}
       onClick={() => !creating && onClose()}
       role="dialog"
       aria-modal="true"
@@ -129,126 +194,137 @@ export function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; 
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-xl border border-white/10 bg-[#12151c] p-6 shadow-2xl"
+        className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#12151c] shadow-2xl sm:rounded-xl"
       >
-        <h2 className="text-base font-semibold text-white">New project</h2>
+        <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2 pt-5 sm:px-6 sm:pt-6">
+          <h2 className="text-base font-semibold text-white">New project</h2>
 
-        <label className="mt-5 block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Name</span>
-          <input
-            ref={nameInputRef}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !creating) void submit();
-            }}
-            placeholder="Untitled project"
-            className="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-sky-400"
-          />
-        </label>
+          <div className="mt-5">
+            <span className={sectionLabel}>
+              Add media <span className="normal-case text-white/30">(optional)</span>
+            </span>
 
-        <div className="mt-5">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
-            Resolution
-          </span>
-          <div className={`grid grid-cols-3 gap-2 transition ${media ? "pointer-events-none opacity-40" : ""}`}>
-            {RESOLUTION_PRESETS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => setPreset(p)}
-                aria-pressed={!media && preset.label === p.label}
-                className={`flex flex-col items-center gap-2 rounded-lg border p-3 transition ${
-                  !media && preset.label === p.label
-                    ? "border-sky-400 bg-sky-500/10"
-                    : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
+            {media ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-white/85">{media.name}</p>
+                  <p className="text-[11px] text-white/40">{formatFileSize(media.size)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={removeMedia}
+                  disabled={creating}
+                  aria-label="Remove starting media"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/45 hover:bg-white/10 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <label
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragActive(false);
+                  pickMedia(e.dataTransfer.files?.[0]);
+                }}
+                className={`flex min-h-[6.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed px-4 py-5 text-center transition active:scale-[0.99] ${
+                  dragActive ? "border-sky-400 bg-sky-500/10" : "border-sky-400/40 bg-sky-500/[0.05] hover:border-sky-400/70 hover:bg-sky-500/10"
                 }`}
               >
-                <div className={`flex h-10 items-center justify-center ${presetAspectClass(p.label)}`}>
-                  <div
-                    className={`h-full rounded-[3px] border-2 ${
-                      !media && preset.label === p.label ? "border-sky-400" : "border-white/30"
-                    }`}
-                    style={{ aspectRatio: `${p.width} / ${p.height}` }}
-                  />
-                </div>
-                <span className="text-center text-[11px] leading-tight text-white/70">
-                  {p.label.split(" ")[0]}
-                  <br />
-                  <span className="text-white/40">
-                    {p.width}×{p.height}
-                  </span>
-                </span>
-              </button>
-            ))}
+                <span className="text-sm font-medium text-white/90">Choose a video, photo, or audio file</span>
+                <span className="text-[11px] text-white/45">or drop it here</span>
+                <input
+                  ref={mediaInputRef}
+                  type="file"
+                  accept="video/*,image/*,audio/*"
+                  className="hidden"
+                  onChange={(e) => pickMedia(e.target.files?.[0])}
+                />
+              </label>
+            )}
+            <p className="mt-1.5 text-[11px] leading-snug text-white/40">We will match the project to your media automatically.</p>
           </div>
-        </div>
 
-        <div className="mt-5">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
-            Starting media <span className="normal-case text-white/25">(optional — sets resolution automatically)</span>
-          </span>
-
-          {media ? (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
-              <div className="min-w-0">
-                <p className="truncate text-xs text-white/80">{media.name}</p>
-                <p className="text-[11px] text-white/40">{formatFileSize(media.size)}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setMedia(null);
-                  if (mediaInputRef.current) mediaInputRef.current.value = "";
-                }}
-                aria-label="Remove starting media"
-                className="shrink-0 rounded p-1.5 text-white/40 hover:bg-white/10 hover:text-white"
-              >
-                ✕
-              </button>
+          <div className="mt-5">
+            <span className={sectionLabel}>Aspect ratio</span>
+            <div className="grid grid-cols-3 gap-2">
+              {RESOLUTION_PRESETS.map((p) => {
+                const selected = shownPreset.label === p.label;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => {
+                      setPreset(p);
+                      setManualPreset(true);
+                    }}
+                    aria-pressed={selected}
+                    className={`flex min-h-[6.25rem] flex-col items-center justify-center gap-2 rounded-xl border p-3 transition active:scale-[0.98] ${
+                      selected ? "border-sky-400 bg-sky-500/10" : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <div className={`flex h-10 items-center justify-center ${presetAspectClass(p.label)}`}>
+                      <div className={`h-full rounded-[3px] border-2 ${selected ? "border-sky-400" : "border-white/30"}`} style={{ aspectRatio: `${p.width} / ${p.height}` }} />
+                    </div>
+                    <span className="text-center text-[11px] leading-tight text-white/70">
+                      {p.label.split(" ")[0]}
+                      <br />
+                      <span className="text-white/40">
+                        {p.width}×{p.height}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          ) : (
-            <label
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragActive(true);
+            {followMedia && (
+              <p className="mt-1.5 text-[11px] leading-snug text-sky-300/80">
+                {autoPreset ? `Matched to your media (${autoPreset.label.split(" ")[0]}). Tap another shape to change it.` : "Sized to your media when the project is created. Tap a shape to choose your own."}
+              </p>
+            )}
+          </div>
+
+          <label className="mt-5 block pb-2">
+            <span className={sectionLabel}>
+              Project name <span className="normal-case text-white/30">(optional)</span>
+            </span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onFocus={(e) => {
+                // Bring the field clear of the keyboard once it has finished opening.
+                const field = e.currentTarget;
+                window.setTimeout(() => field.scrollIntoView({ block: "center", behavior: "smooth" }), 300);
               }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-                pickMedia(e.dataTransfer.files?.[0]);
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creating) void submit();
               }}
-              className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-3 py-4 text-center transition ${
-                dragActive ? "border-sky-400 bg-sky-500/5" : "border-white/15 hover:border-white/30 hover:bg-white/[0.03]"
-              }`}
-            >
-              <span className="text-xs text-white/50">Drop a video, image, or audio file — or click to browse</span>
-              <input
-                ref={mediaInputRef}
-                type="file"
-                accept="video/*,image/*,audio/*"
-                className="hidden"
-                onChange={(e) => pickMedia(e.target.files?.[0])}
-              />
-            </label>
-          )}
+              placeholder="Untitled project"
+              enterKeyHint="done"
+              className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2.5 text-base text-white placeholder:text-white/30 outline-none focus:border-sky-400 sm:py-2 sm:text-sm"
+            />
+          </label>
+
+          {error && <p className="pb-2 text-xs text-amber-200/80">{error}</p>}
         </div>
 
-        {error && <p className="mt-4 text-xs text-amber-200/80">{error}</p>}
-
-        <div className="mt-6 flex items-center justify-end gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/10 bg-[#12151c] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-4">
           <button
             onClick={onClose}
             disabled={creating}
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            className="min-h-10 rounded-md px-3 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={() => void submit()}
             disabled={creating}
-            className="rounded-md bg-sky-500 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-400 disabled:opacity-50"
+            className="min-h-10 rounded-md bg-sky-500 px-5 text-xs font-semibold text-white transition hover:bg-sky-400 disabled:opacity-50"
           >
             {creating ? "Creating…" : "Create project"}
           </button>
