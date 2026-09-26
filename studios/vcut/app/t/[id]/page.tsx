@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
@@ -8,6 +8,7 @@ import { Avatar } from "../../_shared/Avatar";
 import {
   authFetch,
   displayNameOrFallback,
+  templateFullPreviewUrl,
   templatePosterUrl,
   templatePreviewUrl,
   type CommentRow,
@@ -52,6 +53,11 @@ export default function PublicTemplatePage() {
   const [posting, setPosting] = useState(false);
   const [liking, setLiking] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The real, full-length render — falls back to the short tile loop for a template saved before that
+  // file existed, or whose background render hasn't finished yet (same fallback `TemplateViewer.tsx`'s
+  // own `TemplateSection` uses, and for the same reason).
+  const [videoSrc, setVideoSrc] = useState(() => templateFullPreviewUrl(params.id));
+  const triedFallback = useRef(false);
 
   useEffect(() => {
     authFetch(`/api/vcut/templates/${encodeURIComponent(params.id)}`)
@@ -155,12 +161,17 @@ export default function PublicTemplatePage() {
     <main className="mx-auto flex min-h-dvh max-w-md flex-col bg-[#0a0c10] px-4 py-8 text-white sm:py-12">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-xl bg-black">
         <video
-          src={templatePreviewUrl(params.id)}
+          src={videoSrc}
           poster={templatePosterUrl(params.id)}
           controls
           loop
           playsInline
           className="h-full w-full object-contain"
+          onError={() => {
+            if (triedFallback.current) return;
+            triedFallback.current = true;
+            setVideoSrc(templatePreviewUrl(params.id));
+          }}
         />
       </div>
 

@@ -1,6 +1,9 @@
+import fs from "fs";
+import path from "path";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getViewableTemplate } from "../../api/vcut/_lib/templates";
+import { templateAudioPaths } from "../../api/vcut/_lib/paths";
 
 /** What a shared template link looks like when it is pasted into a chat or a post: a large card with the template's cover, its
  *  name and a short line, and the preview video for sites that can play it. `page.tsx` is a client component (it can't export
@@ -22,10 +25,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const title = `${template.name} — VCut template`;
   const description = "Make this video in VCut: pick your own photos and videos and the template does the editing.";
   const image = `${origin}/api/vcut/templates/${encodeURIComponent(id)}/share-image`;
-  const video = `${origin}/api/vcut/templates/${encodeURIComponent(id)}/preview`;
+  // The FULL-length, real-quality render (`preview-full.mp4`) makes a much better "big preview" than the 6-second, low-bitrate
+  // tile loop — chat apps that support `og:video` (Discord, Telegram, WhatsApp, Slack, iMessage) play it inline right in the
+  // link card, no click-through needed. Falls back to the tile loop for a template saved before that file existed, or whose
+  // background render hasn't finished yet (checked directly on disk — the fast, no-network way to know from inside this app).
+  const hasFullPreview = fs.existsSync(path.join(templateAudioPaths(id).dir, "preview-full.mp4"));
+  const video = `${origin}/api/vcut/templates/${encodeURIComponent(id)}/${hasFullPreview ? "preview-full" : "preview"}`;
   const width = template.project.width > 0 ? template.project.width : 1080;
   const height = template.project.height > 0 ? template.project.height : 1920;
-  const scale = Math.min(1, 540 / Math.max(width, height));
+  // `preview-full` is capped at 960px on its long side (see `TEMPLATE_FULL_PREVIEW_MAX_DIMENSION`); the tile loop at 540px.
+  const scale = Math.min(1, (hasFullPreview ? 960 : 540) / Math.max(width, height));
 
   return {
     metadataBase: new URL(origin),
