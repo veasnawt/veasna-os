@@ -145,6 +145,23 @@ export function TemplateViewer({
   const [commentsFailedFor, setCommentsFailedFor] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState("");
   const [postingComment, setPostingComment] = useState(false);
+  // True while the feed is being scrolled or swiped, so the buttons and text step out of the way of the picture; comes back a
+  // moment after the scrolling stops.
+  const [scrolling, setScrolling] = useState(false);
+  const scrollTimer = useRef<number | null>(null);
+
+  function handleScroll() {
+    setScrolling(true);
+    if (scrollTimer.current !== null) window.clearTimeout(scrollTimer.current);
+    scrollTimer.current = window.setTimeout(() => setScrolling(false), 180);
+  }
+
+  useEffect(
+    () => () => {
+      if (scrollTimer.current !== null) window.clearTimeout(scrollTimer.current);
+    },
+    []
+  );
 
   // Jump to the tapped tile's own section instantly (no animated scroll) — this is "open at this
   // one," not "scroll the user there."
@@ -355,7 +372,7 @@ export function TemplateViewer({
       <button
         onClick={onClose}
         aria-label="Close"
-        className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+        className={`absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-opacity duration-200 ${scrolling ? "pointer-events-none opacity-0" : "opacity-100"}`}
         style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -371,7 +388,7 @@ export function TemplateViewer({
           })
         }
         aria-label={muted ? "Unmute" : "Mute"}
-        className="absolute right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+        className={`absolute right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-opacity duration-200 ${scrolling ? "pointer-events-none opacity-0" : "opacity-100"}`}
         style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
       >
         {muted ? (
@@ -386,7 +403,7 @@ export function TemplateViewer({
         )}
       </button>
 
-      <div ref={containerRef} className="h-full w-full snap-y snap-mandatory overflow-y-auto scroll-smooth">
+      <div ref={containerRef} onScroll={handleScroll} className="h-full w-full snap-y snap-mandatory overflow-y-auto scroll-smooth">
         {templates.map((template) => (
           <TemplateSection
             key={template.id}
@@ -398,6 +415,7 @@ export function TemplateViewer({
             mode={mode}
             active={activeId === template.id}
             muted={muted}
+            uiHidden={scrolling}
             favorited={favorites.has(template.id)}
             social={social.get(template.id)}
             creating={creating}
@@ -535,6 +553,8 @@ interface TemplateSectionProps {
   mode: "mine" | "discover";
   active: boolean;
   muted: boolean;
+  /** The feed is scrolling: buttons and text fade out. */
+  uiHidden: boolean;
   favorited: boolean;
   social: SocialInfo | undefined;
   creating: boolean;
@@ -554,6 +574,7 @@ function TemplateSection({
   mode,
   active,
   muted,
+  uiHidden,
   favorited,
   social,
   creating,
@@ -581,12 +602,60 @@ function TemplateSection({
   // `active` never changing afterwards, nothing asked again, leaving it paused on its first frame
   // until you scrolled away and back (reproduced; most templates saved before full previews existed
   // take this path). Sections further down finish falling back long before they become active.
+  // Paused by the viewer with a tap. Reset whenever the section stops being the one on screen, so scrolling back to it plays.
+  const [userPaused, setUserPaused] = useState(false);
+  // The pause/play glyph that flashes in the middle of the picture after a tap.
+  const [flash, setFlash] = useState<"play" | "pause" | null>(null);
+  // Hearts from double taps, each at the spot that was tapped.
+  const [hearts, setHearts] = useState<{ id: number; x: number; y: number }[]>([]);
+  const tapTimer = useRef<number | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  const heartId = useRef(0);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (active) void video.play().catch(() => {});
+    if (active && !userPaused) void video.play().catch(() => {});
     else video.pause();
-  }, [active, src]);
+  }, [active, src, userPaused]);
+
+  useEffect(() => {
+    if (!active) setUserPaused(false);
+  }, [active]);
+
+  useEffect(
+    () => () => {
+      if (tapTimer.current !== null) window.clearTimeout(tapTimer.current);
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    []
+  );
+
+  /** One tap pauses or resumes (after a short wait, to see whether a second tap follows); two taps like the template. */
+  function handleTap(event: React.MouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (tapTimer.current !== null) {
+      window.clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+      // A double tap only ever likes (as in other short-video feeds); taking a like back is the heart button's job.
+      if (!social?.viewerHasLiked) onToggleLike();
+      const id = ++heartId.current;
+      setHearts((prev) => [...prev, { id, x, y }]);
+      window.setTimeout(() => setHearts((prev) => prev.filter((h) => h.id !== id)), 900);
+      return;
+    }
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = null;
+      setUserPaused((paused) => {
+        setFlash(paused ? "play" : "pause");
+        return !paused;
+      });
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => setFlash(null), 600);
+    }, 260);
+  }
 
   return (
     <div ref={ref} data-template-id={template.id} className="relative flex h-full w-full snap-start snap-always items-center justify-center">
@@ -604,11 +673,40 @@ function TemplateSection({
         }}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-20 pr-16 pt-16">
+      {/* Tap layer: sits over the picture and under every button. */}
+      <div onClick={handleTap} className="absolute inset-0 select-none" aria-label={userPaused ? "Play" : "Pause"} role="button" tabIndex={-1} />
+
+      {(flash !== null || userPaused) && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span
+            className={`flex h-16 w-16 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity duration-200 ${uiHidden ? "opacity-0" : "opacity-100"} ${flash !== null ? "vcut-tap-glyph" : ""}`}
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" className="translate-x-0.5">
+              <path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.5-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5Z" />
+            </svg>
+          </span>
+        </div>
+      )}
+
+      {hearts.map((heart) => (
+        <svg
+          key={heart.id}
+          className="vcut-heart-pop pointer-events-none absolute text-rose-500"
+          style={{ left: heart.x - 40, top: heart.y - 40 }}
+          width="80"
+          height="80"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path d="M12 21s-7.5-4.6-10-9.3C.4 8.2 2.3 4.8 5.7 4.3c2-.3 3.9.6 5 2.2a5.5 5.5 0 0 1 5-2.2c3.4.5 5.3 3.9 3.7 7.4C19.5 16.4 12 21 12 21Z" />
+        </svg>
+      ))}
+
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-20 pr-16 pt-16 transition-opacity duration-200 ${uiHidden ? "opacity-0" : "opacity-100"}`}>
         {mode === "discover" && (
           <a
             href={`/u/${encodeURIComponent(template.ownerId)}`}
-            className="pointer-events-auto mb-1 inline-block truncate text-xs text-white/70"
+            className={`mb-1 inline-block truncate text-xs text-white/70 ${uiHidden ? "pointer-events-none" : "pointer-events-auto"}`}
           >
             {displayNameOrFallback(social?.creatorDisplayName)}
           </a>
@@ -623,7 +721,7 @@ function TemplateSection({
       </div>
 
       <div
-        className="absolute right-3 flex flex-col items-center gap-5"
+        className={`absolute right-3 flex flex-col items-center gap-5 transition-opacity duration-200 ${uiHidden ? "pointer-events-none opacity-0" : "opacity-100"}`}
         style={{ bottom: "calc(6rem + env(safe-area-inset-bottom))" }}
       >
         {mode === "discover" && (
@@ -708,7 +806,7 @@ function TemplateSection({
       <button
         onClick={onUseTemplate}
         disabled={creating}
-        className="btn-brand-gradient absolute rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition disabled:cursor-default disabled:opacity-60"
+        className={`btn-brand-gradient absolute rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition disabled:cursor-default disabled:opacity-60 ${uiHidden ? "pointer-events-none opacity-0" : ""}`}
         style={{ bottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}
       >
         {creating ? "One moment…" : "Use this template"}

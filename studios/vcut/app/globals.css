@@ -1033,3 +1033,18 @@
     }
   }
 }
+
+/* Template viewer: the heart that pops where a double tap landed, and the pause/play glyph that flashes after a single tap. */
+@keyframes vcut-heart-pop {
+  0% { opacity: 0; transform: scale(0.4) rotate(-12deg); }
+  20% { opacity: 1; transform: scale(1.15) rotate(-6deg); }
+  60% { opacity: 1; transform: scale(1) rotate(-6deg); }
+  100% { opacity: 0; transform: scale(1.35) translateY(-30px) rotate(-6deg); }
+}
+.vcut-heart-pop { animation: vcut-heart-pop 0.9s ease-out forwards; filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.35)); }
+@keyframes vcut-tap-glyph {
+  0% { opacity: 0; transform: scale(0.7); }
+  25% { opacity: 1; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.vcut-tap-glyph { animation: vcut-tap-glyph 0.25s ease-out; }
