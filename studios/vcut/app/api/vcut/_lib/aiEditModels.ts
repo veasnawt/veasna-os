@@ -128,18 +128,30 @@ export async function runEditChain<Input>(
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
     if (opts.signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
-    try {
-      const found = await replicate.models.get(model.owner, model.name);
-      const version = found.latest_version?.id;
-      // Some of these are "official" models with no pinned version: run them by name.
-      const ref = (version ? `${model.owner}/${model.name}:${version}` : `${model.owner}/${model.name}`) as `${string}/${string}`;
-      const output = await replicate.run(ref, { input: model.build(input), signal: opts.signal }, (prediction) => opts.onProgress?.(i, prediction.status));
-      const bytes = await extractReplicateMediaBytes(output, opts.noOutputMessage, opts.noOutputCode);
-      return { bytes, modelId: model.id, modelIndex: i };
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") throw err;
-      lastError = err;
-      console.error(`[vcut] ai-edit: ${model.id} failed, ${i + 1 < chain.length ? "trying the next model" : "no models left"}:`, err instanceof Error ? err.message.slice(0, 300) : err);
+    // The provider throttles a low-balance account (a 429 asking us to wait a few seconds). That says nothing about this
+    // model, so wait as asked and try the same model again before giving up on it and moving to the next.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const found = await replicate.models.get(model.owner, model.name);
+        const version = found.latest_version?.id;
+        // Some of these are "official" models with no pinned version: run them by name.
+        const ref = (version ? `${model.owner}/${model.name}:${version}` : `${model.owner}/${model.name}`) as `${string}/${string}`;
+        const output = await replicate.run(ref, { input: model.build(input), signal: opts.signal }, (prediction) => opts.onProgress?.(i, prediction.status));
+        const bytes = await extractReplicateMediaBytes(output, opts.noOutputMessage, opts.noOutputCode);
+        return { bytes, modelId: model.id, modelIndex: i };
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
+        lastError = err;
+        const message = err instanceof Error ? err.message : String(err);
+        const throttled = /429|throttled/i.test(message);
+        if (throttled && attempt < 2) {
+          const wait = Number(/resets in ~(\d+)s/i.exec(message)?.[1] ?? 8);
+          await new Promise((resolve) => setTimeout(resolve, Math.min(20, Math.max(2, wait) + 1) * 1000));
+          continue;
+        }
+        console.error(`[vcut] ai-edit: ${model.id} failed, ${i + 1 < chain.length ? "trying the next model" : "no models left"}:`, message.slice(0, 300));
+        break;
+      }
     }
   }
   throw lastError;
