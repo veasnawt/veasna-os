@@ -12,6 +12,7 @@ import {
   renderTemplatePreview,
   requirePro,
   templateAiCredits,
+  templatePreviewReady,
 } from "../_lib/templates";
 
 /** Reads/writes `project.json` off disk to build a template from it (POST). */
@@ -27,7 +28,7 @@ export const dynamic = "force-dynamic";
 export const GET = hostedOnlyRoute(async (_req, user) => {
   await requirePro(user.id);
   const templates = await listTemplatesForOwner(user.id);
-  return Response.json({ templates: templates.map((t) => ({ ...t, aiCredits: templateAiCredits(t.project) })) });
+  return Response.json({ templates: templates.map((t) => ({ ...t, aiCredits: templateAiCredits(t.project), previewReady: templatePreviewReady(t.id) })) });
 });
 
 /** `{ name, projectId, keepAssetIds? }` — sanitizes the given project (see
@@ -43,7 +44,7 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
  *  own to layer that on top of). */
 export const POST = hostedOnlyRoute(async (req, user) => {
   await requirePro(user.id);
-  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string; keepAssetIds?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string; keepAssetIds?: unknown; coverBase64?: string };
   const projectId = body.projectId;
   if (!projectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
   await checkProjectOwnership(user.id, projectId);
@@ -55,6 +56,9 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   const project = deserializeProject(fs.readFileSync(paths.projectFile, "utf8"));
 
   const id = newTemplateId();
+  // The cover frame the author picked (a small JPEG); anything else than a real JPEG of a sane size is ignored.
+  const cover = typeof body.coverBase64 === "string" && body.coverBase64.length < 1_200_000 ? Buffer.from(body.coverBase64.replace(/^data:[^,]+,/, ""), "base64") : null;
+  const coverJpeg = cover && cover[0] === 0xff && cover[1] === 0xd8 ? cover : null;
   // Renders a short preview clip from the REAL, unstripped project — must happen BEFORE
   // `sanitizeProjectForTemplate` below replaces every video/image clip's real footage with a bare
   // placeholder, since a placeholder has nothing left to render (see that function's own doc
@@ -63,7 +67,7 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   // In the background: rendering the previews of a layered template takes minutes, longer than a request may run (the proxy cut
   // the connection and the save looked failed), and a template saves fine without them — the tile shows a placeholder until they
   // exist (the poster is regenerated on first request, and the viewer falls back to the short preview).
-  void renderTemplatePreview(id, structuredClone(project), paths, userMediaPaths(user.id).mediaDir).catch((err) =>
+  void renderTemplatePreview(id, structuredClone(project), paths, userMediaPaths(user.id).mediaDir, coverJpeg).catch((err) =>
     console.error("[vcut] templates: background preview render failed for", id, err)
   );
 

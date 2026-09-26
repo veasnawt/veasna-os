@@ -2,7 +2,9 @@ import fs from "fs";
 import Replicate from "replicate";
 import { findAsset, findClip } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
+import { AI_EDIT_IMAGE_CREDITS, AI_EDIT_PRESERVE_KEYS, buildAiEditInstruction, clampCreativity, creativityFromStrength, type AiEditPreserve } from "@veasnawt/vcut/src/project/aiEdit";
 import type { Asset } from "@veasnawt/vcut/src/project/types";
+import { IMAGE_EDIT_MODELS, runEditChain, uploadForModel } from "../_lib/aiEditModels";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 import { getReplicateTokenForGeneration } from "../_lib/externalMediaEnv";
 import { extractAiFramePng } from "../_lib/ffmpeg";
@@ -18,11 +20,8 @@ import { refundCredits } from "../_lib/credits";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 6 credits per AI text-guided edit (~$0.02 real provider cost ÷ ~$0.00333 per credit budget). */
-const AI_EDIT_CREDITS = 6;
-
-const INSTRUCT_PIX2PIX_OWNER = "timothybrooks";
-const INSTRUCT_PIX2PIX_NAME = "instruct-pix2pix";
+/** One picture edit costs what the premium image model does (see `ai-image/route.ts`'s sunburst): $0.0527 ÷ ~$0.00333. */
+const AI_EDIT_CREDITS = AI_EDIT_IMAGE_CREDITS;
 
 /** `POST /api/vcut/ai-edit?projectId=...`
  *  Accepts `{ assetId, clipId, prompt, strength, deliverBytes, imageBase64 }`.
@@ -37,7 +36,11 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     assetId?: string;
     clipId?: string;
     prompt?: string;
+    /** Old clients (and old template recipes) send a three-step strength instead of `creativity`. */
     strength?: "subtle" | "balanced" | "creative";
+    /** 0 faithful .. 100 imaginative. */
+    creativity?: number;
+    preserve?: string[];
     deliverBytes?: boolean;
     imageBase64?: string;
     /** Source-media seconds of the frame to use when the asset is a video (the playhead frame); defaults to the start. */
@@ -52,15 +55,21 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     throw new ApiError(503, "AI Edit tool is not configured on this server", "replicate-not-configured");
   }
 
+  const preserve = (Array.isArray(body.preserve) ? body.preserve : []).filter((k): k is AiEditPreserve => (AI_EDIT_PRESERVE_KEYS as readonly string[]).includes(k));
+  const creativity = body.creativity === undefined ? creativityFromStrength(body.strength) : clampCreativity(body.creativity);
+  const instruction = buildAiEditInstruction(prompt, { preserve, creativity }, "image");
+
   const paths = ensureProjectDirs(bpProjectId);
   const userMedia = VCUT_HOSTED && user?.id ? ensureUserMediaDirs(user.id) : null;
   const projectFile = paths.projectFile;
 
-  let inputDataUri: string;
+  let inputBytes: Buffer;
+  let inputMime = "image/png";
   let baseName = "ai-edit";
 
   if (body.imageBase64) {
-    inputDataUri = body.imageBase64.startsWith("data:") ? body.imageBase64 : `data:image/png;base64,${body.imageBase64}`;
+    const base64 = body.imageBase64.replace(/^data:[^;]+;base64,/, "");
+    inputBytes = Buffer.from(base64, "base64");
   } else if (body.assetId || body.clipId) {
     if (!fs.existsSync(projectFile)) throw new ApiError(404, "Project not found", "project-missing");
     const rawProject = deserializeProject(fs.readFileSync(projectFile, "utf-8"));
@@ -85,9 +94,8 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     const frameTempPath = resolveWithin(paths.scratchDir, uniqueFileName("frame-extract.png"));
     try {
       const at = targetAsset.kind === "video" && typeof body.timeSeconds === "number" && body.timeSeconds > 0 ? body.timeSeconds : undefined;
-      await extractAiFramePng(sourcePath, frameTempPath, { maxEdge: 1024, multipleOf: 8, atSeconds: at, alpha: false });
-      const bytes = fs.readFileSync(frameTempPath);
-      inputDataUri = `data:image/png;base64,${bytes.toString("base64")}`;
+      await extractAiFramePng(sourcePath, frameTempPath, { maxEdge: 1536, multipleOf: 8, atSeconds: at, alpha: false });
+      inputBytes = fs.readFileSync(frameTempPath);
     } finally {
       fs.rm(frameTempPath, { force: true }, () => {});
     }
@@ -100,30 +108,16 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
 
   const replicate = new Replicate({ auth: replicateToken });
 
-  // Map strength to image guidance and text guidance scale
-  const imageGuidanceScale = body.strength === "subtle" ? 2.0 : body.strength === "creative" ? 1.2 : 1.5;
-  const guidanceScale = body.strength === "subtle" ? 6.5 : body.strength === "creative" ? 8.5 : 7.5;
-
   let resultBuffer: Buffer;
+  let modelId: string;
   try {
-    const model = await replicate.models.get(INSTRUCT_PIX2PIX_OWNER, INSTRUCT_PIX2PIX_NAME);
-    const versionId = model.latest_version?.id;
-    if (!versionId) throw new ApiError(500, "AI Edit model version not found", "model-version-missing");
-
-    const output = await replicate.run(`${INSTRUCT_PIX2PIX_OWNER}/${INSTRUCT_PIX2PIX_NAME}:${versionId}`, {
-      input: {
-        image: inputDataUri,
-        prompt,
-        image_guidance_scale: imageGuidanceScale,
-        guidance_scale: guidanceScale,
-        num_inference_steps: 25,
-      },
-    });
-
-    resultBuffer = await extractReplicateMediaBytes(output, "AI Edit returned no output", "ai-edit-no-output");
+    const image = await uploadForModel(replicate, inputBytes, inputMime);
+    const result = await runEditChain(replicate, IMAGE_EDIT_MODELS, { prompt: instruction, image }, { signal: req.signal, noOutputMessage: "AI Edit returned no output", noOutputCode: "ai-edit-no-output" });
+    resultBuffer = result.bytes;
+    modelId = result.modelId;
   } catch (err) {
     if (VCUT_HOSTED && user?.id) void refundCredits(user.id, AI_EDIT_CREDITS);
-    throw err;
+    throw err instanceof ApiError ? err : new ApiError(502, "AI Edit is temporarily unavailable — please try again in a moment", "ai-edit-unavailable");
   }
 
   if (VCUT_HOSTED && user?.id) {
@@ -132,7 +126,7 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
   }
 
   const writeTarget = userMedia ?? paths;
-  const suggestedName = `${baseName}-ai-edit.png`;
+  const suggestedName = `${baseName}-ai-edit.png`; // the models are asked for png
   const newAsset = await importMediaBytes(writeTarget, resultBuffer, suggestedName);
   newAsset.name = `${baseName} (AI: ${prompt.slice(0, 20)})`;
 
@@ -151,7 +145,7 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
       fps: newAsset.fps ?? null,
       hasAudio: newAsset.hasAudio,
       sizeBytes: newAsset.sizeBytes,
-      aiGeneration: { prompt, aspectRatio: "custom", model: INSTRUCT_PIX2PIX_NAME },
+      aiGeneration: { prompt, aspectRatio: "custom", model: modelId },
       hidden: false,
     });
     newAsset.libraryMediaId = newAsset.id;

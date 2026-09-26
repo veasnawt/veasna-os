@@ -109,7 +109,7 @@ export async function bundleTemplateAudio(
 
 /** Cap on a template's own preview clip — short enough to feel like a Reels/TikTok-style loop, not a
  *  full watch-through. */
-const TEMPLATE_PREVIEW_MAX_SECONDS = 6;
+const TEMPLATE_PREVIEW_MAX_SECONDS = 120;
 /** The long side of the preview's own output resolution, and its compression settings — deliberately
  *  small: unlike a real export (a one-off file the user downloads and the app can forget about), this
  *  file is kept FOREVER once a template is saved — nothing currently expires old template data — so
@@ -136,6 +136,9 @@ async function renderOneTemplateFile(
   libraryMediaDir: string | null
 ): Promise<void> {
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "vcut-template-preview-"));
+  // Rendered next to the final name and renamed into place once ffmpeg has finished, so a render that is still running (or
+  // was killed) can never leave a half-written file where the tile and the viewer look for a playable one.
+  const partialPath = outputPath.replace(/\.mp4$/, ".part.mp4");
   try {
     const plan = buildExportPlan(renderProject, {
       inputPathFor: (assetId) => {
@@ -143,7 +146,7 @@ async function renderOneTemplateFile(
         if (!asset) throw new Error(`Clip references missing asset ${assetId}`);
         return resolveAssetInputPath(paths, libraryMediaDir, asset);
       },
-      outputPath,
+      outputPath: partialPath,
       fontPathFor: (fileName) => textFontPath(fileName),
       textFilePathFor: (clip, content, variant) => {
         const filePath = path.join(scratchDir, `${clip.id}${variant ? `-${variant}` : ""}.txt`);
@@ -171,10 +174,12 @@ async function renderOneTemplateFile(
     beginHeavyFfmpegJob();
     try {
       await runFfmpeg(plan.args, plan.duration, () => {}).done;
+      fs.renameSync(partialPath, outputPath);
     } finally {
       endHeavyFfmpegJob();
     }
   } finally {
+    fs.rmSync(partialPath, { force: true });
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
 }
@@ -220,11 +225,15 @@ export async function renderTemplatePreview(
   templateId: string,
   project: Project,
   paths: ProjectPaths,
-  libraryMediaDir: string | null
+  libraryMediaDir: string | null,
+  /** The author's chosen cover frame (a JPEG), kept as the poster instead of a frame grabbed from the render — and there
+   *  from the moment the template is saved, while the previews are still rendering. */
+  coverJpeg?: Buffer | null
 ): Promise<void> {
   const fullDuration = sequenceDuration(project);
   if (fullDuration <= 0) return;
   const dir = ensureTemplateAudioDirs(templateId).dir;
+  if (coverJpeg && coverJpeg.length > 0) fs.writeFileSync(path.join(dir, "poster.jpg"), coverJpeg);
 
   const previewPath = path.join(dir, "preview.mp4");
   try {
@@ -262,6 +271,11 @@ export async function renderTemplatePreview(
   }
 }
 
+/** Whether a template's tile preview has finished rendering (it renders in the background after the save). */
+export function templatePreviewReady(templateId: string): boolean {
+  return fs.existsSync(path.join(templateAudioPaths(templateId).dir, "preview.mp4"));
+}
+
 /** In-flight poster generations, keyed by template id — a Templates grid requests every tile's poster
  *  at once, so without this a template missing its poster would spawn one ffmpeg per concurrent
  *  request instead of one total. */
@@ -287,7 +301,10 @@ export function ensureTemplatePoster(templateId: string): Promise<string | null>
       const tmpPath = path.join(dir, `poster.${process.pid}.${Date.now()}.tmp.jpg`);
       // A small fixed offset, not 0 — a clip's own fade-in (common on the very first frame of a
       // template) would otherwise make the poster itself a plain black square.
-      const ok = await generateThumbnail(previewPath, tmpPath, 0.1);
+      // Not the very first frame — a template that opens on a flash or a fade would get a white or black cover — and no
+      // later than a short preview reaches.
+      let ok = await generateThumbnail(previewPath, tmpPath, 1);
+      if (!ok) ok = await generateThumbnail(previewPath, tmpPath, 0.1);
       if (!ok) {
         fs.rmSync(tmpPath, { force: true });
         console.error("[vcut] templates: poster generation failed for", templateId);

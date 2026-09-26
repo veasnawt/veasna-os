@@ -1,6 +1,6 @@
 import { corsPreflight, hostedOnlyRoute } from "../../_lib/localOnly";
 import { getPublicProfiles } from "../../_lib/profiles";
-import { listPublicTemplates, templateAiCredits } from "../../_lib/templates";
+import { listPublicTemplates, templateAiCredits, templatePreviewReady } from "../../_lib/templates";
 import { getCommentCounts, getLikeCounts, getLikedSet } from "../../_lib/templateSocial";
 
 
@@ -34,6 +34,7 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
     commentCount: commentCounts.get(t.id) ?? 0,
     viewerHasLiked: likedSet.has(t.id),
     aiCredits: templateAiCredits(t.project),
+    previewReady: templatePreviewReady(t.id),
   }));
   return Response.json({ templates: rows });
 });

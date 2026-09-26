@@ -449,7 +449,7 @@ export function extractFirstFramePng(input: string, output: string): Promise<voi
 export function extractCutoutInput(
   input: string,
   output: string,
-  opts: { startSeconds: number; durationSeconds: number }
+  opts: { startSeconds: number; durationSeconds: number; audio?: boolean; maxEdge?: number }
 ): Promise<void> {
   return runFfmpegToFile(buildCutoutInputArgs(input, output, opts), output, 120_000);
 }

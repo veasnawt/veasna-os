@@ -76,6 +76,20 @@ export default function TemplatesPage() {
     };
   }, [mode]);
 
+  // A template saved a moment ago is still rendering its preview in the background: check again until it is ready.
+  const anyRendering = templates?.some((t) => t.previewReady === false) ?? false;
+  useEffect(() => {
+    if (!anyRendering) return;
+    const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
+    const timer = window.setInterval(() => {
+      centralAuthFetch(url)
+        .then((res) => (res.ok ? (res.json() as Promise<{ templates: TemplateRow[] }>) : null))
+        .then((body) => body && setTemplates(body.templates))
+        .catch(() => {});
+    }, 12000);
+    return () => window.clearInterval(timer);
+  }, [anyRendering, mode]);
+
   async function upgrade() {
     setUpgrading(true);
     try {
@@ -211,6 +225,7 @@ function TemplateGridTile({
   onOpen: () => void;
 }) {
   const [hasPreview, setHasPreview] = useState(true);
+  const rendering = template.previewReady === false;
   return (
     <button
       onClick={onOpen}
@@ -219,7 +234,8 @@ function TemplateGridTile({
       <div className="relative aspect-[9/16] w-full bg-black">
         {hasPreview ? (
           <video
-            src={templatePreviewUrl(template.id)}
+            key={rendering ? "rendering" : "ready"}
+            src={rendering ? undefined : templatePreviewUrl(template.id)}
             poster={templatePosterUrl(template.id)}
             muted
             playsInline
@@ -234,6 +250,11 @@ function TemplateGridTile({
               <path d="M9 9.5v5l4.5-2.5L9 9.5Z" fill="currentColor" stroke="none" />
             </svg>
           </div>
+        )}
+        {rendering && (
+          <span className="absolute inset-x-1.5 top-1/2 -translate-y-1/2 rounded-md bg-black/70 px-2 py-1.5 text-center text-[10px] font-medium leading-tight text-white/85">
+            Rendering preview…
+          </span>
         )}
         {showPublicBadge && template.isPublic && (
           <span className="absolute left-1.5 top-1.5 rounded bg-sky-500/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
