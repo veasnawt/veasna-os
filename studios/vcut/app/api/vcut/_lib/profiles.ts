@@ -5,6 +5,24 @@ import { ApiError } from "./paths";
 
 export type Plan = "free" | "pro";
 
+/** Lowercase letters, digits and underscores, 3-20 long — the exact rule decided for this feature (no
+ *  hyphens, no reserved-word list). Mirrored in `profiles_username_format`, the DB-level CHECK constraint
+ *  (`0015_username.sql`) — this is still the PRIMARY place it's enforced (a clean, specific error before
+ *  ever reaching the database), the constraint is defense-in-depth for a value that ends up in a public
+ *  URL path (`/u/<username>`), same reasoning that migration's own comment gives. */
+export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+
+/** Lowercases and trims — the user's own instruction was "all lowercase," so normalization happens
+ *  before validation, not as a separate case-insensitive comparison at query time (see
+ *  `0015_username.sql`'s own comment on why no `citext`/case-folding is needed anywhere else). */
+export function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+export function isValidUsername(username: string): boolean {
+  return USERNAME_PATTERN.test(username);
+}
+
 export interface Profile {
   stripeCustomerId: string | null;
   plan: Plan;
@@ -20,6 +38,10 @@ export interface Profile {
 export interface PublicProfile {
   id: string;
   displayName: string | null;
+  /** `null` for anyone who hasn't set one yet — every caller falls back to the raw user id (or, for
+   *  `/u/[id]`'s own URL, to the id it was already given), same "absent is a normal, handled state"
+   *  convention `displayName` already established. */
+  username: string | null;
 }
 
 /** `null` means no row exists yet — a user who has never started a checkout. Treated identically to
@@ -62,18 +84,76 @@ export async function getPublicProfiles(userIds: string[]): Promise<Map<string, 
   const result = new Map<string, PublicProfile>();
   if (unique.length === 0) return result;
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("profiles").select("id, display_name").in("id", unique);
+  const { data, error } = await supabase.from("profiles").select("id, display_name, username").in("id", unique);
   if (error) {
     console.error("[vcut] profiles: could not batch-read display names for", unique, error);
     return result;
   }
-  for (const row of data ?? []) result.set(row.id, { id: row.id, displayName: row.display_name });
+  for (const row of data ?? []) result.set(row.id, { id: row.id, displayName: row.display_name, username: row.username });
   return result;
 }
 
 export async function getPublicProfile(userId: string): Promise<PublicProfile> {
   const profiles = await getPublicProfiles([userId]);
-  return profiles.get(userId) ?? { id: userId, displayName: null };
+  return profiles.get(userId) ?? { id: userId, displayName: null, username: null };
+}
+
+/** Resolves a `/u/[id]` URL SEGMENT to a user id — accepts either the raw Supabase auth UUID (existing
+ *  shared links keep working forever) or a username (the new, readable form). Tries the UUID shape
+ *  first since checking that is free (a regex, no query) before ever touching the database. `null` if
+ *  the segment is a syntactically valid username but nothing has claimed it, or is neither shape at all
+ *  — the caller 404s either way, same as an unmatched UUID already did before usernames existed. */
+export async function resolveProfileIdFromUrlSegment(segment: string): Promise<string | null> {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return segment;
+  const normalized = normalizeUsername(segment);
+  if (!isValidUsername(normalized)) return null;
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase.from("profiles").select("id").eq("username", normalized).maybeSingle();
+  if (error) {
+    console.error("[vcut] profiles: could not resolve username", normalized, error);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+/** `excludeUserId`: checking whether you can keep your OWN current username (or type toward it while
+ *  editing) should never say "taken" — the same "your own current value doesn't collide with itself"
+ *  rule any rename/uniqueness check needs. Returns `false` for a syntactically invalid username too, so
+ *  the availability-check endpoint can use this as its one source of truth for "would this be
+ *  accepted" rather than duplicating the format check at the call site. */
+export async function isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean> {
+  if (!isValidUsername(username)) return false;
+  const supabase = getSupabaseAdminClient();
+  let query = supabase.from("profiles").select("id").eq("username", username);
+  if (excludeUserId) query = query.neq("id", excludeUserId);
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    console.error("[vcut] profiles: could not check username availability for", username, error);
+    throw new ApiError(500, "Could not check that username", "username-check-failed");
+  }
+  return !data;
+}
+
+/** The one write path for a user's own username — same posture `setDisplayName` already established
+ *  (service-role client, no client-writable RLS policy on `profiles` at all). Normalizes to lowercase
+ *  and validates format BEFORE ever reaching the database (the DB's own CHECK constraint is real, but
+ *  this is where a clean, specific error message comes from). A `23505` (unique_violation) from the
+ *  partial unique index becomes a clean "already taken" `ApiError` instead of a raw database error
+ *  leaking to the client — the same race an availability check alone can't fully close (two people
+ *  typing the same free username at once), so the WRITE itself, not just the check, must handle it. */
+export async function setUsername(userId: string, rawUsername: string): Promise<string> {
+  const username = normalizeUsername(rawUsername);
+  if (!isValidUsername(username)) {
+    throw new ApiError(400, "Usernames are 3-20 characters: lowercase letters, numbers, and underscores only", "invalid-username");
+  }
+  const supabase = getSupabaseAdminClient();
+  const { error } = await supabase.from("profiles").upsert({ id: userId, username }, { onConflict: "id" });
+  if (error) {
+    if (error.code === "23505") throw new ApiError(409, "That username is already taken", "username-taken");
+    console.error("[vcut] profiles: could not save username for", userId, error);
+    throw new ApiError(500, "Could not save your username", "profile-write-failed");
+  }
+  return username;
 }
 
 /** The one write path for a user's own display name — a plain upsert (not `setStripeCustomerId`'s own

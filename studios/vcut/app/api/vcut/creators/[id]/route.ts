@@ -1,21 +1,13 @@
 import { getFollowerCount, getFollowingCount, isFollowing } from "../../_lib/follows";
 import { publicSessionRoute } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
-import { getPublicProfile } from "../../_lib/profiles";
+import { getPublicProfile, resolveProfileIdFromUrlSegment } from "../../_lib/profiles";
 import { getTemplatesByIds, listPublicTemplatesByOwner, templateAiCredits } from "../../_lib/templates";
 import type { TemplateProjectData } from "@veasnawt/vcut/src/project/template";
 import { getTotalLikesForOwner, listLikedPublicTemplates } from "../../_lib/templateSocial";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Every real `id` here is a Supabase auth user id (a uuid) — reachable only via an `ownerId` this app
- *  itself already produced (Discover, the viewer's action rail, `/t/[id]`'s own creator link). A
- *  malformed one only ever shows up from someone hand-editing the URL, but Postgres itself rejects a
- *  non-uuid string against a `uuid` column with a hard error, not an empty result — confirmed live
- *  (`/api/vcut/creators/not-a-real-id` 500'd instead of 404ing) — so this checks the shape first and
- *  answers the same clean "not found" a real, nonexistent creator already gets. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A creator page (Phase 3, extended with Follow/counts) — display name, follower/following/total-like
  *  counts, whether the CURRENT viewer already follows them, and two grids: everything they've PUBLISHED
@@ -26,10 +18,16 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  *  just from inside the signed-in app; `viewerIsFollowing` is simply `false` for an anonymous visitor
  *  (nothing to have followed as). A creator with zero published templates still returns 200 with an
  *  empty list (not 404) — there's nothing invalid about that state, unlike a template id that's private
- *  or doesn't exist at all. */
+ *  or doesn't exist at all.
+ *
+ *  `[id]` accepts either the raw Supabase auth UUID (every existing shared link, still works forever) or
+ *  a username (`resolveProfileIdFromUrlSegment`) — the readable form new profiles get once they set one.
+ *  Either way this resolves down to the real user id before doing anything else, so every OTHER lookup
+ *  below never needs to know which shape the URL came in as. */
 export const GET = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string }> }) => {
-  const { id } = await context.params;
-  if (!UUID_PATTERN.test(id)) throw new ApiError(404, "No such creator", "creator-not-found");
+  const { id: segment } = await context.params;
+  const id = await resolveProfileIdFromUrlSegment(segment);
+  if (!id) throw new ApiError(404, "No such creator", "creator-not-found");
   const [profile, templates, followerCount, followingCount, totalLikes, viewerIsFollowing, likedIds] = await Promise.all([
     getPublicProfile(id),
     listPublicTemplatesByOwner(id),
@@ -52,6 +50,7 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
   return Response.json({
     id,
     displayName: profile.displayName,
+    username: profile.username,
     followerCount,
     followingCount,
     totalLikes,

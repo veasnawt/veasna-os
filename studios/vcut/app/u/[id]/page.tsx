@@ -10,6 +10,7 @@ import { authFetch, displayNameOrFallback, templatePosterUrl, templatePreviewUrl
 interface CreatorInfo {
   id: string;
   displayName: string | null;
+  username: string | null;
   followerCount: number;
   followingCount: number;
   totalLikes: number;
@@ -76,7 +77,10 @@ export default function CreatorPage() {
   }
 
   function share() {
-    const url = `${window.location.origin}/u/${encodeURIComponent(params.id)}`;
+    // Prefer the readable form once one exists, regardless of which shape THIS visit's own URL happened
+    // to use — a visitor who arrived via an old UUID link still shares the nicer one going forward.
+    const handle = info?.username ?? params.id;
+    const url = `${window.location.origin}/u/${encodeURIComponent(handle)}`;
     if (navigator.share) {
       navigator.share({ title: info ? displayNameOrFallback(info.displayName) : "A VCut creator", url }).catch(() => {});
     } else {
@@ -113,7 +117,7 @@ export default function CreatorPage() {
             <Avatar seed={info.id} displayName={info.displayName} size={72} />
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold">{displayNameOrFallback(info.displayName)}</h1>
-              <p className="mt-0.5 text-xs text-white/40">ID: {info.id.slice(0, 8).toUpperCase()}</p>
+              <p className="mt-0.5 truncate text-xs text-white/40">{info.username ? `@${info.username}` : `ID: ${info.id.slice(0, 8).toUpperCase()}`}</p>
             </div>
           </div>
 
