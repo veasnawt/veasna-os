@@ -143,17 +143,32 @@ export async function isUsernameAvailable(username: string, excludeUserId?: stri
  *  typing the same free username at once), so the WRITE itself, not just the check, must handle it. */
 export async function setUsername(userId: string, rawUsername: string): Promise<string> {
   const username = normalizeUsername(rawUsername);
-  if (!isValidUsername(username)) {
-    throw new ApiError(400, "Usernames are 3-20 characters: lowercase letters, numbers, and underscores only", "invalid-username");
+  await setProfileIdentity(userId, { username });
+  return username;
+}
+
+/** Validate every requested field before one atomic upsert so a taken username
+ *  cannot leave the display name changed after a failed combined save. */
+export async function setProfileIdentity(userId: string, fields: { displayName?: string; username?: string }): Promise<void> {
+  const update: { id: string; display_name?: string | null; username?: string } = { id: userId };
+  if (fields.displayName !== undefined) {
+    if (typeof fields.displayName !== "string") throw new ApiError(400, "Invalid displayName", "invalid-display-name");
+    update.display_name = fields.displayName.trim().slice(0, 60) || null;
+  }
+  if (fields.username !== undefined) {
+    if (typeof fields.username !== "string") throw new ApiError(400, "Invalid username", "invalid-username");
+    update.username = normalizeUsername(fields.username);
+    if (!isValidUsername(update.username)) {
+      throw new ApiError(400, "Usernames are 3-20 characters: lowercase letters, numbers, and underscores only", "invalid-username");
+    }
   }
   const supabase = getSupabaseAdminClient();
-  const { error } = await supabase.from("profiles").upsert({ id: userId, username }, { onConflict: "id" });
+  const { error } = await supabase.from("profiles").upsert(update, { onConflict: "id" });
   if (error) {
     if (error.code === "23505") throw new ApiError(409, "That username is already taken", "username-taken");
-    console.error("[vcut] profiles: could not save username for", userId, error);
-    throw new ApiError(500, "Could not save your username", "profile-write-failed");
+    console.error("[vcut] profiles: could not save identity for", userId, error);
+    throw new ApiError(500, "Could not save your profile", "profile-write-failed");
   }
-  return username;
 }
 
 /** The one write path for a user's own display name — a plain upsert (not `setStripeCustomerId`'s own

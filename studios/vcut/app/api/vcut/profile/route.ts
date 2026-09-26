@@ -1,6 +1,6 @@
 import { hostedOnlyRoute } from "../_lib/localOnly";
 import { ApiError } from "../_lib/paths";
-import { getPublicProfile, setDisplayName, setUsername } from "../_lib/profiles";
+import { getPublicProfile, setProfileIdentity } from "../_lib/profiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,17 +23,13 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
  *  "give up your username," and the readable `/u/<username>` URL it backs would otherwise dangle). */
 export const PATCH = hostedOnlyRoute(async (req, user) => {
   const body = (await req.json().catch(() => ({}))) as { displayName?: string; username?: string };
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError(400, "Invalid profile", "invalid-profile");
+  }
   if (body.displayName === undefined && body.username === undefined) {
     throw new ApiError(400, "Nothing to update", "missing-fields");
   }
-  if (body.displayName !== undefined) {
-    if (typeof body.displayName !== "string") throw new ApiError(400, "Invalid displayName", "invalid-display-name");
-    await setDisplayName(user.id, body.displayName.trim().slice(0, 60) || null);
-  }
-  if (body.username !== undefined) {
-    if (typeof body.username !== "string") throw new ApiError(400, "Invalid username", "invalid-username");
-    await setUsername(user.id, body.username);
-  }
+  await setProfileIdentity(user.id, body);
   const profile = await getPublicProfile(user.id);
   return Response.json({ displayName: profile.displayName, username: profile.username });
 });

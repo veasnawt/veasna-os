@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
@@ -45,6 +45,7 @@ interface OwnProfileInfo {
 }
 
 interface UsernameCheck {
+  candidate: string;
   checking: boolean;
   valid: boolean;
   available: boolean;
@@ -84,7 +85,6 @@ export default function MePage() {
   const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(null);
   const [savingUsername, setSavingUsername] = useState(false);
   const [usernameError, setUsernameError] = useState<string | null>(null);
-  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Read after mount on purpose: the server render can't see localStorage, so initialising `language`
@@ -155,26 +155,40 @@ export default function MePage() {
   // Debounced "is this taken?" check while typing — same shape any username field elsewhere expects.
   // Skipped entirely once the candidate matches what's already saved (nothing to check).
   useEffect(() => {
+    let active = true;
     setUsernameError(null);
     if (!usernameChanged) {
       setUsernameCheck(null);
       return;
     }
-    setUsernameCheck({ checking: true, valid: true, available: true });
+    if (!/^[a-z0-9_]{3,20}$/.test(trimmedUsername)) {
+      setUsernameCheck({ candidate: trimmedUsername, checking: false, valid: false, available: false });
+      return;
+    }
+    setUsernameCheck({ candidate: trimmedUsername, checking: true, valid: true, available: false });
     const handle = setTimeout(() => {
       authFetch(`/api/vcut/profile/username-available?u=${encodeURIComponent(trimmedUsername)}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body: { valid: boolean; available: boolean } | null) => {
-          if (body) setUsernameCheck({ checking: false, valid: body.valid, available: body.available });
+        .then(async (res) => {
+          if (!res.ok) throw new Error("Availability check failed");
+          return res.json() as Promise<{ valid: boolean; available: boolean }>;
         })
-        .catch(() => setUsernameCheck(null));
+        .then((body) => {
+          if (active) setUsernameCheck({ candidate: trimmedUsername, checking: false, ...body });
+        })
+        .catch(() => {
+          if (!active) return;
+          setUsernameCheck(null);
+          setUsernameError("Couldn't check availability. Try again in a moment.");
+        });
     }, 400);
-    checkTimer.current = handle;
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      active = false;
+      clearTimeout(handle);
+    };
   }, [trimmedUsername, usernameChanged]);
 
   async function saveUsername() {
+    if (!canSaveUsername || savingUsername) return;
     setSavingUsername(true);
     setUsernameError(null);
     try {
@@ -236,7 +250,7 @@ export default function MePage() {
 
   const isPro = status?.plan === "pro";
   const usagePercent = usage && usage.capBytes > 0 ? Math.min(100, Math.round((usage.usedBytes / usage.capBytes) * 100)) : 0;
-  const canSaveUsername = usernameChanged && usernameCheck !== null && !usernameCheck.checking && usernameCheck.valid && usernameCheck.available;
+  const canSaveUsername = usernameChanged && usernameCheck !== null && usernameCheck.candidate === trimmedUsername && !usernameCheck.checking && usernameCheck.valid && usernameCheck.available;
   const shownTemplates = info ? (tab === "templates" ? info.templates : info.likedTemplates) : [];
 
   return (
@@ -308,13 +322,15 @@ export default function MePage() {
 
           <div className="mt-6 space-y-4 rounded-lg border border-white/10 bg-white/[0.03] p-4">
             <div>
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Creator name</label>
+              <label htmlFor="profile-name" className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Creator name</label>
               <div className="flex gap-2">
                 <input
+                  id="profile-name"
+                  maxLength={60}
                   value={displayName}
                   onChange={(e) => setDisplayNameField(e.target.value)}
                   placeholder="Your creator name"
-                  className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30"
+                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30"
                 />
                 {displayName.trim() !== (savedDisplayName ?? "") && (
                   <button
@@ -330,11 +346,16 @@ export default function MePage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Username</label>
+              <label htmlFor="profile-username" className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">Username</label>
               <div className="flex gap-2">
-                <div className="relative flex-1">
+                <div className="relative min-w-0 flex-1">
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/30">@</span>
                   <input
+                    id="profile-username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    aria-describedby="username-status"
                     value={username}
                     onChange={(e) => setUsernameField(e.target.value.toLowerCase())}
                     placeholder="yourname"
@@ -354,6 +375,8 @@ export default function MePage() {
               </div>
               {usernameChanged ? (
                 <p
+                  id="username-status"
+                  role="status"
                   className={`mt-1.5 text-[11px] ${
                     usernameError || (usernameCheck && !usernameCheck.checking && (!usernameCheck.valid || !usernameCheck.available))
                       ? "text-amber-200/80"
@@ -364,7 +387,7 @@ export default function MePage() {
                 >
                   {usernameError
                     ? usernameError
-                    : !usernameCheck || usernameCheck.checking
+                    : !usernameCheck || usernameCheck.candidate !== trimmedUsername || usernameCheck.checking
                       ? "Checking…"
                       : !usernameCheck.valid
                         ? "3-20 characters: lowercase letters, numbers, and underscores only"
