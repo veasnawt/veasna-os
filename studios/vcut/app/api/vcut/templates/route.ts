@@ -11,6 +11,7 @@ import {
   listTemplatesForOwner,
   renderTemplatePreview,
   requirePro,
+  sanitizeTemplateTags,
   templateAiCredits,
   templatePreviewReady,
 } from "../_lib/templates";
@@ -44,12 +45,13 @@ export const GET = hostedOnlyRoute(async (_req, user) => {
  *  own to layer that on top of). */
 export const POST = hostedOnlyRoute(async (req, user) => {
   await requirePro(user.id);
-  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string; keepAssetIds?: unknown; coverBase64?: string };
+  const body = (await req.json().catch(() => ({}))) as { name?: string; projectId?: string; keepAssetIds?: unknown; coverBase64?: string; tags?: unknown };
   const projectId = body.projectId;
   if (!projectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
   await checkProjectOwnership(user.id, projectId);
 
   const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 120) : "Untitled template";
+  const tags = sanitizeTemplateTags(body.tags);
   const keepAssetIds = new Set(Array.isArray(body.keepAssetIds) ? body.keepAssetIds.filter((id): id is string => typeof id === "string") : []);
   const paths = ensureProjectDirs(projectId);
   if (!fs.existsSync(paths.projectFile)) throw new ApiError(404, "Project not found", "project-not-found");
@@ -76,8 +78,8 @@ export const POST = hostedOnlyRoute(async (req, user) => {
   // `bundleTemplateAudio`'s own doc comment. Everything else in `sanitized` (placeholders, text/color)
   // passes through unchanged.
   sanitized.assets = await bundleTemplateAudio(id, user.id, paths, sanitized.assets);
-  await insertTemplate(id, user.id, name, sanitized);
-  return Response.json({ id, name });
+  await insertTemplate(id, user.id, name, sanitized, tags);
+  return Response.json({ id, name, tags });
 });
 
 /** `?id=...` — `deleteOwnedTemplate` scopes the delete to `owner_id` in the query itself, so this

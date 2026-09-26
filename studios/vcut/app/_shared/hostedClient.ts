@@ -191,6 +191,10 @@ export interface TemplateRow {
   aiCredits?: number;
   /** False while the tile preview is still rendering in the background after a save. Absent on older servers. */
   previewReady?: boolean;
+  /** Free-form search words the author set at save time ("intro", "outro", "vlog", ...) — see
+   *  `sanitizeTemplateTags`'s own doc comment. `[]`, never absent, even for a template saved before this
+   *  existed (the server always includes the column, empty by default). */
+  tags: string[];
   /** The four fields below only ever come from `GET /api/vcut/templates/discover` (batched there — see
    *  that route's own doc comment) — a "My Templates" row never carries them (`undefined`), since
    *  `TemplateViewer.tsx`'s own action rail only shows Like/Comment counts in `mode === "discover"`

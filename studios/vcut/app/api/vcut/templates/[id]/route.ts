@@ -33,6 +33,7 @@ const getTemplate = publicSessionRoute(async (_req, user, context: { params: Pro
     commentCount: commentCounts.get(id) ?? 0,
     viewerHasLiked: likedSet.has(id),
     aiCredits: templateAiCredits(template.project),
+    tags: template.tags,
   });
 });
 

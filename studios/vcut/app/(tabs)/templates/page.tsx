@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { startCheckout } from "@veasnawt/vcut/src/api/billing";
 import { isDesktopSignInAvailable, openDesktopSignIn } from "@veasnawt/vcut/src/api/desktopAuth";
 import { Avatar } from "../../_shared/Avatar";
@@ -40,6 +40,11 @@ export default function TemplatesPage() {
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Client-side over whatever this feed already loaded — no separate server search yet (the `tags` GIN
+  // index is there for when one's worth adding), and matches by name OR any tag, so "intro" finds both a
+  // template literally named "Intro" and one just tagged with it.
+  const [search, setSearch] = useState("");
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +54,8 @@ export default function TemplatesPage() {
     setError(null);
     setNeedsPro(false);
     setNeedsSignIn(false);
+    setSearch("");
+    setActiveTag(null);
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
     centralAuthFetch(url)
       .then(async (res) => {
@@ -89,6 +96,28 @@ export default function TemplatesPage() {
     }, 12000);
     return () => window.clearInterval(timer);
   }, [anyRendering, mode]);
+
+  // Every tag actually present in this feed, most-used first (ties broken alphabetically) — a fixed
+  // taxonomy would need its own maintenance; this always reflects what people have actually typed.
+  // Capped at 12 chips so a feed with a long tail of one-off tags doesn't turn into a second scrollbar.
+  const availableTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const tpl of templates ?? []) for (const tag of tpl.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 12)
+      .map(([tag]) => tag);
+  }, [templates]);
+
+  const filtered = useMemo(() => {
+    if (!templates) return null;
+    const query = search.trim().toLowerCase();
+    return templates.filter((tpl) => {
+      if (activeTag && !tpl.tags.includes(activeTag)) return false;
+      if (!query) return true;
+      return tpl.name.toLowerCase().includes(query) || tpl.tags.some((tag) => tag.includes(query));
+    });
+  }, [templates, search, activeTag]);
 
   async function upgrade() {
     setUpgrading(true);
@@ -185,16 +214,52 @@ export default function TemplatesPage() {
             : "Nothing published yet — check back later, or be the first: publish one of your own from \"My Templates\"."}
         </p>
       ) : (
-        <div className="mt-6 columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
-          {templates.map((tpl, index) => (
-            <TemplateGridTile key={tpl.id} template={tpl} showPublicBadge={mode === "mine"} onOpen={() => setOpenIndex(index)} />
-          ))}
-        </div>
+        <>
+          <div className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:items-center">
+            <div className="relative sm:w-64">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-white/35">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+              </svg>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or tag…"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] py-1.5 pl-8 pr-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-sky-400"
+              />
+            </div>
+            {availableTags.length > 0 && (
+              <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+                {availableTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setActiveTag((prev) => (prev === tag ? null : tag))}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                      activeTag === tag ? "border-sky-400 bg-sky-500/20 text-white" : "border-white/10 text-white/50 hover:border-white/25 hover:text-white/80"
+                    }`}
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {filtered && filtered.length === 0 ? (
+            <p className="mt-6 text-xs text-white/40">Nothing matches that search.</p>
+          ) : (
+            <div className="mt-4 columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
+              {filtered?.map((tpl, index) => (
+                <TemplateGridTile key={tpl.id} template={tpl} showPublicBadge={mode === "mine"} onOpen={() => setOpenIndex(index)} />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {openIndex !== null && templates && (
+      {openIndex !== null && filtered && (
         <TemplateViewer
-          templates={templates}
+          templates={filtered}
           startIndex={openIndex}
           mode={mode}
           onClose={() => setOpenIndex(null)}

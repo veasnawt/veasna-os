@@ -434,6 +434,26 @@ export interface TemplateRow {
    *  rows too (always the caller's own id there) for a uniform shape, even though those callers never
    *  need to look anything up for it. */
   ownerId: string;
+  /** Free-form, author-set search words ("intro", "outro", "vlog", ...) — see `sanitizeTemplateTags`'s
+   *  own doc comment for how these are normalized, both on save and here on read. */
+  tags: string[];
+}
+
+/** Trims, lowercases and dedupes a template's own tags, and caps how many/how long — the one place
+ *  both the save path (`templates/route.ts`'s own POST) and every read below apply the exact same rule,
+ *  so a tag typed once always matches itself later. A non-array (or entirely absent) `raw` — every
+ *  template saved before this feature existed — becomes `[]`, not a thrown error: tags are optional,
+ *  never a reason to fail a save or reject an old row. */
+export function sanitizeTemplateTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  for (const value of raw) {
+    if (typeof value !== "string") continue;
+    const tag = value.trim().toLowerCase().replace(/^#+/, "").slice(0, 24);
+    if (tag) seen.add(tag);
+    if (seen.size >= 8) break;
+  }
+  return [...seen];
 }
 
 /** Every template a user owns, newest-edited first — same ordering `listProjectsForOwner` already
@@ -444,7 +464,7 @@ export async function listTemplatesForOwner(ownerId: string): Promise<TemplateRo
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public, owner_id")
+    .select("id, name, project, updated_at, is_public, owner_id, tags")
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false });
   if (error) throw new ApiError(500, "Could not list templates", "templates-list-failed");
@@ -455,6 +475,7 @@ export async function listTemplatesForOwner(ownerId: string): Promise<TemplateRo
     updatedAt: row.updated_at,
     isPublic: row.is_public,
     ownerId: row.owner_id,
+    tags: sanitizeTemplateTags(row.tags),
   }));
 }
 
@@ -468,7 +489,7 @@ export async function listPublicTemplates(viewerId: string, limit = 60): Promise
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public, owner_id")
+    .select("id, name, project, updated_at, is_public, owner_id, tags")
     .eq("is_public", true)
     .neq("owner_id", viewerId)
     .order("published_at", { ascending: false })
@@ -481,6 +502,7 @@ export async function listPublicTemplates(viewerId: string, limit = 60): Promise
     updatedAt: row.updated_at,
     isPublic: row.is_public,
     ownerId: row.owner_id,
+    tags: sanitizeTemplateTags(row.tags),
   }));
 }
 
@@ -495,7 +517,7 @@ export async function getTemplatesByIds(ids: string[]): Promise<TemplateRow[]> {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public, owner_id")
+    .select("id, name, project, updated_at, is_public, owner_id, tags")
     .in("id", ids)
     .eq("is_public", true);
   if (error) throw new ApiError(500, "Could not load those templates", "templates-by-ids-failed");
@@ -506,6 +528,7 @@ export async function getTemplatesByIds(ids: string[]): Promise<TemplateRow[]> {
     updatedAt: row.updated_at,
     isPublic: row.is_public,
     ownerId: row.owner_id,
+    tags: sanitizeTemplateTags(row.tags),
   }));
 }
 
@@ -518,7 +541,7 @@ export async function listPublicTemplatesByOwner(ownerId: string, limit = 60): P
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("templates")
-    .select("id, name, project, updated_at, is_public, owner_id")
+    .select("id, name, project, updated_at, is_public, owner_id, tags")
     .eq("owner_id", ownerId)
     .eq("is_public", true)
     .order("published_at", { ascending: false })
@@ -531,6 +554,7 @@ export async function listPublicTemplatesByOwner(ownerId: string, limit = 60): P
     updatedAt: row.updated_at,
     isPublic: row.is_public,
     ownerId: row.owner_id,
+    tags: sanitizeTemplateTags(row.tags),
   }));
 }
 
@@ -553,6 +577,7 @@ export interface ViewableTemplate {
   isPublic: boolean;
   name: string;
   project: TemplateProjectData;
+  tags: string[];
 }
 
 /** Looser than `getOwnedTemplate` — allows either the OWNER or ANY signed-in viewer when the template
@@ -566,12 +591,12 @@ export interface ViewableTemplate {
  *  already uses. */
 export async function getViewableTemplate(templateId: string, viewerId: string): Promise<ViewableTemplate> {
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("templates").select("owner_id, is_public, name, project").eq("id", templateId).maybeSingle();
+  const { data, error } = await supabase.from("templates").select("owner_id, is_public, name, project, tags").eq("id", templateId).maybeSingle();
   if (error) throw new ApiError(500, "Could not read that template", "template-read-failed");
   if (!data || (data.owner_id !== viewerId && !data.is_public)) {
     throw new ApiError(403, "You don't have access to that template", "forbidden");
   }
-  return { ownerId: data.owner_id, isPublic: data.is_public, name: data.name, project: data.project as TemplateProjectData };
+  return { ownerId: data.owner_id, isPublic: data.is_public, name: data.name, project: data.project as TemplateProjectData, tags: sanitizeTemplateTags(data.tags) };
 }
 
 /** Toggles a template's own public-visibility flag — owner-only, scoped in the query itself (matching
@@ -588,9 +613,9 @@ export async function setTemplatePublic(templateId: string, ownerId: string, isP
   if (!data || data.length === 0) throw new ApiError(403, "You don't have access to that template", "forbidden");
 }
 
-export async function insertTemplate(id: string, ownerId: string, name: string, project: TemplateProjectData): Promise<void> {
+export async function insertTemplate(id: string, ownerId: string, name: string, project: TemplateProjectData, tags: string[] = []): Promise<void> {
   const supabase = getSupabaseAdminClient();
-  const { error } = await supabase.from("templates").insert({ id, owner_id: ownerId, name, project });
+  const { error } = await supabase.from("templates").insert({ id, owner_id: ownerId, name, project, tags });
   if (error) throw new ApiError(500, "Could not save that template", "template-save-failed");
 }
 

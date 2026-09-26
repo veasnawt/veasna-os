@@ -15,7 +15,7 @@ export const GET = hostedOnlyRoute(async (_req, user, context: { params: Promise
   const template = await getViewableTemplate(id, user.id);
   if (template.ownerId === user.id) await requirePro(user.id);
   await requireProForAiTemplate(user.id, template.project);
-  return Response.json({ name: template.name, project: template.project });
+  return Response.json({ name: template.name, project: template.project, tags: template.tags });
 });
 
 // `loadTemplateForDraft`'s native (mobile) branch calls this cross-origin with an Authorization header
