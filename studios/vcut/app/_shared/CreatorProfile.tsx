@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
 import OwnProfile from "./OwnProfile";
 import { TabBar, TabBarSpacer } from "./TabBar";
@@ -36,7 +36,6 @@ function formatCount(n: number): string {
  *  like/comment prompts already use). Tapping a template tile opens its own `/t/[id]` share page rather
  *  than the in-app full-screen viewer, since an anonymous visitor has no viewer to open. */
 export default function CreatorProfile({ profileId }: { profileId: string }) {
-  const pathname = usePathname();
   const router = useRouter();
   const { user } = useSupabaseSession();
   const [info, setInfo] = useState<CreatorInfo | null>(null);
@@ -60,11 +59,11 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
         setInfo(profile);
         // Old UUID/username links remain valid and settle on the readable public URL.
         const canonical = profilePath(profile.id, profile.username);
-        if (profile.username && pathname !== canonical) router.replace(canonical);
+        if (profile.username && window.location.pathname !== canonical) window.history.replaceState(null, "", canonical);
       })
       .catch(() => { if (active) setNotFound(true); });
     return () => { active = false; };
-  }, [profileId, pathname, router]);
+  }, [profileId]);
 
   async function toggleFollow() {
     if (!info || followBusy) return;
@@ -106,7 +105,7 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
     return (
       <>
         <TabBar activeTab="/me" />
-        <TabBarSpacer><OwnProfile /></TabBarSpacer>
+        <TabBarSpacer><OwnProfile initialProfile={info} /></TabBarSpacer>
       </>
     );
   }

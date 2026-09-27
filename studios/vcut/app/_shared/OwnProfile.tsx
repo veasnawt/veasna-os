@@ -75,7 +75,9 @@ function formatCount(n: number): string {
  *  now it looks like the same kind of page anyone visiting `/u/<you>` sees, just editable, with a
  *  username you can set for a readable share link. Auth-gating lives in `(tabs)/layout.tsx`, shared
  *  across every tab. */
-export default function OwnProfile() {
+export default function OwnProfile({
+  initialProfile,
+}: { initialProfile?: OwnProfileInfo } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, signOut } = useSupabaseSession();
@@ -85,7 +87,9 @@ export default function OwnProfile() {
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<"en" | "km">("en");
 
-  const [info, setInfo] = useState<OwnProfileInfo | null>(null);
+  const [info, setInfo] = useState<OwnProfileInfo | null>(
+    initialProfile ?? null,
+  );
   const [tab, setTab] = useState<"templates" | "liked">("templates");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -100,22 +104,32 @@ export default function OwnProfile() {
   const nameInput = useRef<HTMLInputElement>(null);
   const usernameInput = useRef<HTMLInputElement>(null);
 
-  const [displayName, setDisplayNameField] = useState("");
-  const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
+  const [displayName, setDisplayNameField] = useState(
+    initialProfile?.displayName ?? "",
+  );
+  const [savedDisplayName, setSavedDisplayName] = useState<string | null>(
+    initialProfile?.displayName ?? null,
+  );
   const [savingProfile, setSavingProfile] = useState(false);
-  const [profileReady, setProfileReady] = useState(false);
+  const [profileReady, setProfileReady] = useState(Boolean(initialProfile));
   const dialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const [bio, setBio] = useState("");
-  const [savedBio, setSavedBio] = useState<string | null>(null);
-  const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(null);
+  const [bio, setBio] = useState(initialProfile?.bio ?? "");
+  const [savedBio, setSavedBio] = useState<string | null>(
+    initialProfile?.bio ?? null,
+  );
+  const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(
+    initialProfile?.avatarUrl ?? null,
+  );
   const [picture, setPicture] = useState<File | null>(null);
   const [picturePreview, setPicturePreview] = useState<string | null>(null);
   const [removePicture, setRemovePicture] = useState(false);
   const pictureInput = useRef<HTMLInputElement>(null);
 
-  const [username, setUsernameField] = useState("");
-  const [savedUsername, setSavedUsername] = useState<string | null>(null);
+  const [username, setUsernameField] = useState(initialProfile?.username ?? "");
+  const [savedUsername, setSavedUsername] = useState<string | null>(
+    initialProfile?.username ?? null,
+  );
   const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(
     null,
   );
@@ -124,10 +138,17 @@ export default function OwnProfile() {
   useEffect(() => {
     if (!HOSTED || !user || !savedUsername) return;
     const canonical = profilePath(user.id, savedUsername);
-    if (pathname === "/me" || pathname.startsWith("/@")) {
-      if (pathname !== canonical) router.replace(canonical);
+    if (
+      pathname === "/me" ||
+      pathname.startsWith("/@") ||
+      pathname.startsWith("/u/")
+    ) {
+      // The view is already this owner's profile; only its public address changed.
+      // Retain the mounted page, scroll, dialog, and fetched data.
+      if (pathname !== canonical)
+        window.history.replaceState(null, "", canonical);
     }
-  }, [pathname, savedUsername, user, router]);
+  }, [pathname, savedUsername, user]);
 
   useEffect(() => {
     if (settingsOpen) settingsHeading.current?.focus({ preventScroll: true });
@@ -222,36 +243,38 @@ export default function OwnProfile() {
           setUsage({ usedBytes: body.usedBytes, capBytes: body.capBytes });
       })
       .catch(() => {});
-    authFetch("/api/vcut/profile")
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (
-          body: {
-            displayName: string | null;
-            username: string | null;
-            bio: string | null;
-            avatarUrl: string | null;
-          } | null,
-        ) => {
-          if (!body) return;
-          setDisplayNameField(body.displayName ?? "");
-          setSavedDisplayName(body.displayName);
-          setUsernameField(body.username ?? "");
-          setSavedUsername(body.username);
-          setBio(body.bio ?? "");
-          setSavedBio(body.bio);
-          setSavedAvatarUrl(body.avatarUrl);
-          setProfileReady(true);
-        },
-      )
-      .catch(() => {});
-    authFetch(`/api/vcut/creators/${encodeURIComponent(user.id)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: OwnProfileInfo | null) => {
-        if (body) setInfo(body);
-      })
-      .catch(() => {});
-  }, [user]);
+    if (!initialProfile)
+      authFetch("/api/vcut/profile")
+        .then((res) => (res.ok ? res.json() : null))
+        .then(
+          (
+            body: {
+              displayName: string | null;
+              username: string | null;
+              bio: string | null;
+              avatarUrl: string | null;
+            } | null,
+          ) => {
+            if (!body) return;
+            setDisplayNameField(body.displayName ?? "");
+            setSavedDisplayName(body.displayName);
+            setUsernameField(body.username ?? "");
+            setSavedUsername(body.username);
+            setBio(body.bio ?? "");
+            setSavedBio(body.bio);
+            setSavedAvatarUrl(body.avatarUrl);
+            setProfileReady(true);
+          },
+        )
+        .catch(() => {});
+    if (!initialProfile)
+      authFetch(`/api/vcut/creators/${encodeURIComponent(user.id)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: OwnProfileInfo | null) => {
+          if (body) setInfo(body);
+        })
+        .catch(() => {});
+  }, [user, initialProfile]);
 
   const trimmedUsername = username.trim().toLowerCase();
   const usernameChanged = trimmedUsername !== (savedUsername ?? "");
@@ -455,7 +478,20 @@ export default function OwnProfile() {
 
       {!HOSTED && user && <p className="text-xs text-white/40">{user.email}</p>}
 
-      {HOSTED && user && !settingsOpen && (
+      {HOSTED && user && !profileReady && !settingsOpen && (
+        <div role="status" aria-label="Loading profile" className="space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="h-[72px] w-[72px] animate-pulse rounded-full bg-white/10 motion-reduce:animate-none" />
+            <div className="flex-1 space-y-3">
+              <div className="h-5 w-3/4 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+            </div>
+          </div>
+          <div className="h-9 animate-pulse rounded-md bg-white/5 motion-reduce:animate-none" />
+        </div>
+      )}
+
+      {HOSTED && user && profileReady && !settingsOpen && (
         <>
           <div className="flex items-center gap-4">
             <button

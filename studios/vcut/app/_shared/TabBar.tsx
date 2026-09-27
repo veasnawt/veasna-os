@@ -91,7 +91,7 @@ export function TabBar({ activeTab }: { activeTab?: string } = {}) {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="bottom" />
+          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`) || (tab.href === "/me" && pathname.startsWith("/@"))} orientation="bottom" />
         ))}
       </nav>
 
@@ -104,7 +104,7 @@ export function TabBar({ activeTab }: { activeTab?: string } = {}) {
           VCut
         </div>
         {TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="side" />
+          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`) || (tab.href === "/me" && pathname.startsWith("/@"))} orientation="side" />
         ))}
       </nav>
     </>
