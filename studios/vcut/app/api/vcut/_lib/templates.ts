@@ -1,3 +1,4 @@
+import { assertCanInteract } from "./contentSafety";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -596,6 +597,7 @@ export async function getViewableTemplate(templateId: string, viewerId: string):
   if (!data || (data.owner_id !== viewerId && !data.is_public)) {
     throw new ApiError(403, "You don't have access to that template", "forbidden");
   }
+  await assertCanInteract(viewerId, data.owner_id);
   return { ownerId: data.owner_id, isPublic: data.is_public, name: data.name, project: data.project as TemplateProjectData, tags: sanitizeTemplateTags(data.tags) };
 }
 

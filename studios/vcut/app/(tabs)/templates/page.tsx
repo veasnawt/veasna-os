@@ -27,6 +27,8 @@ export default function TemplatesPage() {
   // demonstrates nothing), while Discover always has real content once anything's published, matching
   // the TikTok/Reels-style default this whole feature is modeled on.
   const [mode, setMode] = useState<FeedMode>("discover");
+  const [safetyRevision, setSafetyRevision] = useState(0);
+  useEffect(() => { const refresh = () => setSafetyRevision(value => value + 1); window.addEventListener("vcut-safety-changed", refresh); return () => window.removeEventListener("vcut-safety-changed", refresh); }, []);
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // "My Templates" is Pro-only server-side (`requirePro`), so a Free account's request always comes
@@ -81,7 +83,7 @@ export default function TemplatesPage() {
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, safetyRevision]);
 
   // A template saved a moment ago is still rendering its preview in the background: check again until it is ready.
   const anyRendering = templates?.some((t) => t.previewReady === false) ?? false;

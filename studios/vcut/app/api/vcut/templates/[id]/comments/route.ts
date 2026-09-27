@@ -1,3 +1,4 @@
+import { blockedRelationships } from "../../../_lib/contentSafety";
 import { newId } from "@veasnawt/vcut/src/project/createProject";
 import { corsPreflight, hostedOnlyRoute, publicSessionRoute, withCors } from "../../../_lib/localOnly";
 import { ApiError } from "../../../_lib/paths";
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
 const getComments = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
   await getViewableTemplate(id, user?.id ?? "");
-  const comments = await listComments(id);
+  const blocked = user ? await blockedRelationships(user.id) : new Set<string>();
+  const comments = (await listComments(id)).filter(comment => !blocked.has(comment.userId));
   return Response.json({ comments });
 });
 

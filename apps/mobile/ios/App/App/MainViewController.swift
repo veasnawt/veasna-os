@@ -1,4 +1,5 @@
 import Capacitor
+import UIKit
 
 // Capacitor's iOS "auto-registration" only scans npm plugin packages via the generated
 // `capacitor.config.json` package-class list — it does NOT do an Objective-C runtime scan for
@@ -11,6 +12,12 @@ import Capacitor
 // so this hook runs.
 class MainViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
+        view.backgroundColor = UIColor(red: 10/255, green: 12/255, blue: 16/255, alpha: 1)
+        webView?.isOpaque = false
+        webView?.backgroundColor = view.backgroundColor
+        webView?.scrollView.showsVerticalScrollIndicator = false
+        webView?.scrollView.showsHorizontalScrollIndicator = false
+        (bridge as? CapacitorBridge)?.registerPluginInstance(AuthCallbackPlugin())
         (bridge as? CapacitorBridge)?.registerPluginInstance(FfmpegPlugin())
         (bridge as? CapacitorBridge)?.registerPluginInstance(MicPermissionPlugin())
     }

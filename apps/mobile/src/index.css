@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../../../packages/vcut/src/ui/appChrome.css";
 
 /* VCut is dark-only (no light-mode toggle anywhere in it) — see studios/vcut/app/globals.css's
    own comment for the full "why" (native form-control chrome, e.g. a <select>'s popup, otherwise

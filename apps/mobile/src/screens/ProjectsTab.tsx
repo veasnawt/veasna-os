@@ -110,13 +110,13 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (projectId: stri
                     </span>
                   </button>
 
-                  <button onClick={() => onOpenProject(p.id, p.name)} className="min-w-0 px-0.5 text-left">
+                  <div className="flex items-center gap-2"><button onClick={() => onOpenProject(p.id, p.name)} className="min-w-0 flex-1 px-0.5 text-left">
                     <p className="truncate text-sm text-white/85">{p.name}</p>
                     <p className="text-xs text-white/35">
                       {p.clipCount} clip{p.clipCount === 1 ? "" : "s"} · {formatUpdatedAt(p.updatedAt)}
                     </p>
                   </button>
-                  <CloudProjectButton projectId={p.id} onDownloaded={(project) => onOpenProject(project.bpProjectId, project.name)} />
+                  <CloudProjectButton projectId={p.id} onDownloaded={(project) => onOpenProject(project.bpProjectId, project.name)} /></div>
                 </div>
               );
             })}

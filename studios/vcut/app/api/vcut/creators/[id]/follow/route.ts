@@ -1,4 +1,5 @@
-import { hostedOnlyRoute } from "../../../_lib/localOnly";
+import { assertCanInteract } from "../../../_lib/contentSafety";
+import { hostedOnlyRoute, corsPreflight } from "../../../_lib/localOnly";
 import { followUser, unfollowUser } from "../../../_lib/follows";
 
 export const runtime = "nodejs";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
  *  liking, is browsing-adjacent, not a paid feature. */
 export const POST = hostedOnlyRoute(async (_req, user, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
+  await assertCanInteract(user.id, id);
   await followUser(user.id, id);
   return Response.json({ ok: true });
 });
@@ -18,3 +20,5 @@ export const DELETE = hostedOnlyRoute(async (_req, user, context: { params: Prom
   await unfollowUser(user.id, id);
   return Response.json({ ok: true });
 });
+
+export const OPTIONS = corsPreflight;

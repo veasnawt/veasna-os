@@ -4,8 +4,8 @@ ext {
     // rather than risk APIs the library assumes exist. An 8+ year old device is a reasonable line to
     // stop supporting for on-device video encoding specifically.
     minSdkVersion = 24
-    compileSdkVersion = 35
-    targetSdkVersion = 35
+    compileSdkVersion = 36
+    targetSdkVersion = 36
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'

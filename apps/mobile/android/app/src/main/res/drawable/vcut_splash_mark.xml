@@ -6,7 +6,7 @@
     android:height="288dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <group android:pivotX="512" android:pivotY="512" android:scaleX="0.76" android:scaleY="0.76">
+    <group android:pivotX="512" android:pivotY="512" android:scaleX="0.58" android:scaleY="0.58">
         <path android:pathData="M498,490 L618,329 L618,650 Q598,654 565,615 Z">
             <aapt:attr name="android:fillColor">
                 <gradient android:startX="600" android:startY="329" android:endX="535" android:endY="651" android:type="linear">

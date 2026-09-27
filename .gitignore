@@ -16,3 +16,9 @@ node_modules
 # _lib/paths.ts) — local project/media storage, never source. Confirmed a real gap: this directory
 # already held 374MB of local test project data, uncommitted only by luck (never actually excluded).
 .vcut/
+
+# Private release signing material
+*.jks
+*.keystore
+*.p12
+*.pfx

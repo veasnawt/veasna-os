@@ -1,4 +1,5 @@
 import { corsPreflight, hostedOnlyRoute } from "../../_lib/localOnly";
+import { blockedRelationships } from "../../_lib/contentSafety";
 import { getPublicProfiles } from "../../_lib/profiles";
 import { listPublicTemplates, templateAiCredits, templatePreviewReady } from "../../_lib/templates";
 import { getCommentCounts, getLikeCounts, getLikedSet } from "../../_lib/templateSocial";
@@ -19,7 +20,8 @@ export const dynamic = "force-dynamic";
  *  one list call (`getPublicProfiles`/`getLikeCounts`/`getCommentCounts` all take the WHOLE id list at
  *  once) is one extra round trip total, not one per tile. */
 export const GET = hostedOnlyRoute(async (_req, user) => {
-  const templates = await listPublicTemplates(user.id);
+  const blocked = await blockedRelationships(user.id);
+  const templates = (await listPublicTemplates(user.id)).filter(template => !blocked.has(template.ownerId));
   const ids = templates.map((t) => t.id);
   const [profiles, likeCounts, commentCounts, likedSet] = await Promise.all([
     getPublicProfiles(templates.map((t) => t.ownerId)),

@@ -18,6 +18,13 @@ buildscript {
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+def uploadStore = System.getenv("VCUT_UPLOAD_KEYSTORE")
+def hasUploadSigning = uploadStore && ["VCUT_UPLOAD_STORE_PASSWORD", "VCUT_UPLOAD_KEY_ALIAS", "VCUT_UPLOAD_KEY_PASSWORD"].every { System.getenv(it) }
+def requestedRelease = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
+if (requestedRelease && !hasUploadSigning && !project.hasProperty("vcutUnsignedReview")) {
+    throw new GradleException("Release signing is missing. Set the VCUT_UPLOAD_* environment variables. Use -PvcutUnsignedReview only for a non-uploadable review bundle.")
+}
+
 android {
     namespace "com.veasnawt.vcut"
     compileSdk rootProject.ext.compileSdkVersion
@@ -25,8 +32,8 @@ android {
         applicationId "com.veasnawt.vcut"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "0.2.8"
+        versionCode 13
+        versionName "0.2.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -34,8 +41,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasUploadSigning) {
+            upload {
+                storeFile file(uploadStore)
+                storePassword System.getenv("VCUT_UPLOAD_STORE_PASSWORD")
+                keyAlias System.getenv("VCUT_UPLOAD_KEY_ALIAS")
+                keyPassword System.getenv("VCUT_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasUploadSigning) signingConfig signingConfigs.upload
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

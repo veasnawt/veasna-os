@@ -19,7 +19,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen splash = SplashScreen.installSplashScreen(this);
         splash.setOnExitAnimationListener(provider ->
-            provider.getView().animate().alpha(0f).setDuration(180).withEndAction(provider::remove).start()
+            provider.getView().animate().alpha(0f).scaleX(0.98f).scaleY(0.98f).setDuration(220).setInterpolator(new android.view.animation.DecelerateInterpolator()).withEndAction(provider::remove).start()
         );
         registerPlugin(FfmpegPlugin.class);
         registerPlugin(AuthCallbackPlugin.class);

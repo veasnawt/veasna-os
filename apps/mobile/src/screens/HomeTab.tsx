@@ -37,6 +37,8 @@ export function HomeTab({
   const [retry, setRetry] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [tool, setTool] = useState<QuickTool | null>(null);
+  const [safetyRevision, setSafetyRevision] = useState(0);
+  useEffect(() => { const refresh = () => setSafetyRevision(value => value + 1); window.addEventListener("vcut-safety-changed", refresh); return () => window.removeEventListener("vcut-safety-changed", refresh); }, []);
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [templateError, setTemplateError] = useState(false);
   useEffect(() => {
@@ -70,7 +72,7 @@ export function HomeTab({
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user, safetyRevision]);
   const sorted = projects
     ? [...projects].sort((a, b) => b.updatedAt - a.updatedAt)
     : null;

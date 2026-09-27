@@ -45,6 +45,7 @@ export default function HomePage() {
   const [templateError, setTemplateError] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [projectsRetry, setProjectsRetry] = useState(0);
+  useEffect(() => { const refresh = () => setProjectsRetry(value => value + 1); window.addEventListener("vcut-safety-changed", refresh); return () => window.removeEventListener("vcut-safety-changed", refresh); }, []);
   const [quickTool, setQuickTool] = useState<QuickTool | null>(null);
 
   useEffect(() => {

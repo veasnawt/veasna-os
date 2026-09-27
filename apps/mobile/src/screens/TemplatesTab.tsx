@@ -8,6 +8,8 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
   const { user } = useSupabaseSession();
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [safetyRevision, setSafetyRevision] = useState(0);
+  useEffect(() => { const refresh = () => setSafetyRevision(value => value + 1); window.addEventListener("vcut-safety-changed", refresh); return () => window.removeEventListener("vcut-safety-changed", refresh); }, []);
   const [showSignIn, setShowSignIn] = useState(false);
 
   useEffect(() => {
@@ -17,7 +19,7 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
     listDiscoverTemplates()
       .then(setTemplates)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Couldn't load templates."));
-  }, [user]);
+  }, [user, safetyRevision]);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">

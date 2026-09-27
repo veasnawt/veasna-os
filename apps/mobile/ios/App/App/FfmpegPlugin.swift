@@ -34,6 +34,8 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Missing args")
             return
         }
+        let outputPath = call.getString("outputPath")
+        let fileName = call.getString("fileName")
         totalDurationMs[jobId] = (call.getDouble("duration") ?? 0) * 1000
 
         let session = FFmpegKit.execute(
@@ -43,7 +45,16 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
                 var payload: [String: Any] = ["jobId": jobId]
                 let returnCode = session.getReturnCode()
                 if ReturnCode.isSuccess(returnCode) {
-                    self.notifyListeners("done", data: payload)
+                    // Audio extraction shares run(); only video exports carry an output path/name.
+                    if let outputPath = outputPath, let fileName = fileName, !fileName.isEmpty {
+                        payload["fileName"] = fileName
+                        self.saveVideo(path: outputPath) { error in
+                            var finished = payload
+                            finished["gallerySaved"] = error == nil
+                            if let error = error { finished["galleryError"] = error }
+                            self.notifyListeners("done", data: finished)
+                        }
+                    } else { self.notifyListeners("done", data: payload) }
                 } else if ReturnCode.isCancel(returnCode) {
                     self.notifyListeners("cancelled", data: payload)
                 } else {
@@ -88,28 +99,21 @@ public class FfmpegPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    // Mirrors FfmpegPlugin.kt's `saveToGallery` — same Info.plist `NSPhotoLibraryAddUsageDescription`
-    // key this needs is NOT yet added (see the file-level unverified-on-Windows note); add it before
-    // testing on a Mac or this will crash the first time a save is attempted, not merely fail cleanly.
-    @objc func saveToGallery(_ call: CAPPluginCall) {
-        guard let path = call.getString("path") else {
-            call.reject("Missing path")
-            return
-        }
+    private func saveVideo(path: String, completion: @escaping (String?) -> Void) {
+        guard FileManager.default.fileExists(atPath: path) else { completion("The exported video is missing."); return }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                call.reject("Photo library access was denied")
-                return
-            }
+            guard status == .authorized || status == .limited else { completion("Photo library access was denied."); return }
             PHPhotoLibrary.shared().performChanges({
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: path))
             }) { success, error in
-                if success {
-                    call.resolve()
-                } else {
-                    call.reject(error?.localizedDescription ?? "Failed to save to Photos")
-                }
+                completion(success ? nil : (error?.localizedDescription ?? "Failed to save to Photos"))
             }
+        }
+    }
+    @objc func saveToGallery(_ call: CAPPluginCall) {
+        guard let path = call.getString("path") else { call.reject("Missing path"); return }
+        saveVideo(path: path) { error in
+            if let error = error { call.reject(error) } else { call.resolve(["uri": URL(fileURLWithPath: path).absoluteString]) }
         }
     }
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { ContentSafetyMenu } from "@veasnawt/vcut/src/ui/ContentSafety";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -140,10 +141,11 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
         <>
           <div className="mt-4 flex items-center gap-4">
             <Avatar seed={info.id} displayName={info.displayName} size={72} src={info.avatarUrl} />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="truncate text-lg font-semibold">{displayNameOrFallback(info.displayName)}</h1>
               <p className="mt-0.5 truncate text-xs text-white/40">{info.username ? `@${info.username}` : `ID: ${info.id.slice(0, 8).toUpperCase()}`}</p>
             </div>
+            <ContentSafetyMenu targetType="creator" targetId={info.id} ownerId={info.id} onBlocked={() => router.back()} />
           </div>
 
           {info.bio && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-white/70">{info.bio}</p>}

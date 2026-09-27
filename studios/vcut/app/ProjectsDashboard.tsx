@@ -518,16 +518,16 @@ export function ProjectsDashboard() {
                     </button>
                   </Link>
 
-                  <Link
+                  <div className="flex items-center gap-2"><Link
                     href={`/edit?projectId=${encodeURIComponent(p.id)}&projectName=${encodeURIComponent(p.name)}`}
-                    className="min-w-0 px-0.5"
+                    className="min-w-0 flex-1 px-0.5"
                   >
                     <p className="truncate text-sm text-white/85">{p.name}</p>
                     <p className="text-xs text-white/35">
                       {p.clipCount} clip{p.clipCount === 1 ? "" : "s"} · {formatUpdatedAt(p.updatedAt)}
                     </p>
                   </Link>
-                  {!HOSTED && <CloudProjectButton projectId={p.id} onDownloaded={(project) => router.push(`/edit?projectId=${encodeURIComponent(project.bpProjectId)}`)} />}
+                  {!HOSTED && <CloudProjectButton projectId={p.id} onDownloaded={(project) => router.push(`/edit?projectId=${encodeURIComponent(project.bpProjectId)}`)} />}</div>
                 </div>
               );
             })}

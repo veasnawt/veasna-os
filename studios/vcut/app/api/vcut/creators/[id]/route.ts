@@ -1,3 +1,4 @@
+import { blockedRelationships } from "../../_lib/contentSafety";
 import { getFollowerCount, getFollowingCount, isFollowing } from "../../_lib/follows";
 import { publicSessionRoute, withCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
@@ -28,6 +29,8 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
   const { id: segment } = await context.params;
   const id = await resolveProfileIdFromUrlSegment(segment);
   if (!id) throw new ApiError(404, "No such creator", "creator-not-found");
+  const blocked = user ? await blockedRelationships(user.id) : new Set<string>();
+  if (blocked.has(id)) throw new ApiError(403, "This profile is blocked.", "blocked-user");
   const [profile, templates, followerCount, followingCount, totalLikes, viewerIsFollowing, likedIds] = await Promise.all([
     getPublicProfile(id),
     listPublicTemplatesByOwner(id),
@@ -57,8 +60,8 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
     followingCount,
     totalLikes,
     viewerIsFollowing,
-    templates: templates.map(toRow),
-    likedTemplates: likedTemplates.map(toRow),
+    templates: templates.filter(template => !blocked.has(template.ownerId)).map(toRow),
+    likedTemplates: likedTemplates.filter(template => !blocked.has(template.ownerId)).map(toRow),
   }));
 });
 
