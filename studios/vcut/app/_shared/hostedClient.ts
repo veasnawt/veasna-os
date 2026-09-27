@@ -8,6 +8,11 @@ import { getAccessToken, getCachedAccessToken } from "@veasnawt/auth";
  *  git history on `ProjectsDashboard.tsx` for the original inline versions of everything below). */
 export const HOSTED = process.env.NEXT_PUBLIC_VCUT_HOSTED === "true";
 
+/** Readable public profile URL, with UUID fallback for accounts without a username. */
+export function profilePath(id: string, username?: string | null): string {
+  return username ? `/@${encodeURIComponent(username)}` : `/u/${encodeURIComponent(id)}`;
+}
+
 /** Same 401-retry `packages/vcut/src/api/client.ts`'s own `apiFetch` already has — copied here rather
  *  than shared code across the package boundary (see this file's own top comment on why dashboard-level
  *  pages stay independent of that package). A 401 isn't necessarily a genuinely dead session — it can
