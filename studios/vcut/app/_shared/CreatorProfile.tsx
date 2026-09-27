@@ -110,7 +110,7 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
     );
   }
   if (info && user === undefined) {
-    return <main className="mx-auto max-w-md px-4 py-6 text-xs text-white/40">Loading?</main>;
+    return <main className="mx-auto max-w-md px-4 py-6 text-xs text-white/40">Loading...</main>;
   }
 
   if (notFound) {

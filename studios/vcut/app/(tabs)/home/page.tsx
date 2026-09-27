@@ -172,7 +172,10 @@ export default function HomePage() {
             A little inspiration
           </span>
           <h2 className="mt-2 text-base font-semibold text-white">
-            Start with a template <span aria-hidden="true">?</span>
+            Start with a template{" "}
+            <span aria-hidden="true" className="inline-flex align-middle">
+              <ToolArrow />
+            </span>
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-white/45">
             Pick a style. Add your own moments.
@@ -256,7 +259,10 @@ export default function HomePage() {
             href="/projects"
             className="text-xs text-white/40 transition hover:text-white"
           >
-            All projects <span aria-hidden="true">?</span>
+            All projects{" "}
+            <span aria-hidden="true" className="inline-flex align-middle">
+              <ToolArrow />
+            </span>
           </Link>
         </div>
         {error ? (
@@ -305,7 +311,10 @@ export default function HomePage() {
             href="/templates"
             className="text-xs text-white/40 transition hover:text-white"
           >
-            Explore <span aria-hidden="true">?</span>
+            Explore{" "}
+            <span aria-hidden="true" className="inline-flex align-middle">
+              <ToolArrow />
+            </span>
           </Link>
         </div>
         {templateError ? (
@@ -329,7 +338,10 @@ export default function HomePage() {
             href="/templates"
             className="mt-3 block rounded-xl border border-white/10 p-4 text-xs text-white/50 hover:text-white"
           >
-            Discover styles in Templates <span aria-hidden="true">?</span>
+            Discover styles in Templates{" "}
+            <span aria-hidden="true" className="inline-flex align-middle">
+              <ToolArrow />
+            </span>
           </Link>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -682,7 +694,7 @@ function QuickToolProjectDialog({
                         {project.name}
                       </span>
                       <span className="mt-1 block text-[11px] text-white/40">
-                        {formatUpdatedAt(project.updatedAt)} ?{" "}
+                        {formatUpdatedAt(project.updatedAt)} -{" "}
                         {project.clipCount}{" "}
                         {project.clipCount === 1 ? "clip" : "clips"}
                       </span>
