@@ -22,7 +22,7 @@ import { createClip, createTextAsset, createTrack, sequenceDuration } from "@vea
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { isIdentityTextCrop, type Project } from "@veasnawt/vcut/src/project/types";
 import type { Asset, Clip } from "@veasnawt/vcut/src/project/types";
-import { hasTextCropKeyframes, hasTextStyleKeyframes } from "@veasnawt/vcut/src/timeline/keyframes";
+import { resolveTextStyle, resolveTextCrop, hasTextCropKeyframes, hasTextStyleKeyframes } from "@veasnawt/vcut/src/timeline/keyframes";
 import { checkProjectOwnership, requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { beginHeavyFfmpegJob, endHeavyFfmpegJob, MAX_CONCURRENT_HOSTED_EXPORTS } from "../_lib/ffmpegConcurrency";
 import { buildCustomFontDataUrls, openKhmerTextHarness } from "../_lib/khmerTextHarness";
@@ -719,9 +719,7 @@ async function runExportJob(
       .filter((clip) => {
         const asset = project.assets.find((a) => a.id === clip.assetId);
         if (!asset?.textContent || !asset.textStyle) return false;
-        if (hasTextStyleKeyframes(clip)) return false;
-        if ((clip.textCrop && !isIdentityTextCrop(clip.textCrop)) || hasTextCropKeyframes(clip)) return false;
-        return clipNeedsBrowserTextRender(clip, asset.textContent, asset.textStyle);
+        return hasTextStyleKeyframes(clip) || hasTextCropKeyframes(clip) || !isIdentityTextCrop(resolveTextCrop(clip,0)) || clipNeedsBrowserTextRender(clip, asset.textContent, resolveTextStyle(clip,0,asset.textStyle));
       });
 
     const khmerWindowsByClipId = new Map<string, KhmerTextWindow[]>();
@@ -752,10 +750,7 @@ async function runExportJob(
         let totalWindows = 0;
         for (const clip of khmerClips) {
           if (job.cancelRequested) throw new ApiError(499, "Export cancelled", "cancelled");
-          if (totalWindows >= MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) {
-            rendered++;
-            continue;
-          }
+          if (totalWindows >= MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
           const asset = project.assets.find((a) => a.id === clip.assetId)!;
           const windows = await renderKhmerClipWindows(clip, asset.textContent!, asset.textStyle!, {
             frameWidth: project.sequence.width,
@@ -776,10 +771,13 @@ async function runExportJob(
             // (wrong) fps in the first place.
             fps: project.exportSettings.fps,
             customFonts: project.customFonts,
-            renderFrame: harness.renderFrame,
+            renderFrame: async (params) => {
+              if (++totalWindows > MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
+              return harness.renderFrame({...params, crop: resolveTextCrop(clip,params.elapsedSeconds)});
+            },
           });
           khmerWindowsByClipId.set(clip.id, windows);
-          totalWindows += windows.length;
+
           rendered++;
           // "Text overlay" (singular per clip), not "window" — a viewer has no reason to know one
           // text clip can expand into several rendered images (per-word reveals, keyframed style
@@ -873,7 +871,7 @@ async function runExportJob(
       // again, ideally with a live container memory trace the way the ORIGINAL incident was diagnosed
       // (see this session's own export.ts/pids.max investigation for that methodology). Desktop/local
       // dev keep the original, finer defaults (omitted entirely) — no memory ceiling there to protect.
-      ...(VCUT_HOSTED ? { keyframeSliceTuning: { baseIntervalSeconds: 0.3, maxSlices: 120 } } : null),
+      ...(VCUT_HOSTED ? { keyframeSliceTuning: { baseIntervalSeconds: 1/project.exportSettings.fps, maxSlices: 600 } } : null),
     });
   } catch (err) {
     fail(err);

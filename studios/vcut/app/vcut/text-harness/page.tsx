@@ -24,6 +24,7 @@ interface RenderFrameParams {
   frameWidth: number;
   frameHeight: number;
   content: string;
+  crop?: import("@veasnawt/vcut/src/project/types").TextCrop;
   style: TextStyle;
   animation: Clip["textAnimation"];
   elapsedSeconds: number;
@@ -110,6 +111,8 @@ export default function TextHarnessPage() {
       const weight = params.style.bold ? 700 : 400;
       await document.fonts.load(`${weight} ${params.style.fontSize}px "${font.cssFamily}"`);
 
+      context.save();
+      if (params.crop) { const crop=params.crop; context.beginPath(); context.rect(params.frameWidth*crop.left,params.frameHeight*crop.top,params.frameWidth*(1-crop.left-crop.right),params.frameHeight*(1-crop.top-crop.bottom)); context.clip(); }
       drawAnimatedTextFrame(
         context,
         params.frameWidth,
@@ -123,6 +126,7 @@ export default function TextHarnessPage() {
         params.wordTimings,
         params.inOut
       );
+      context.restore();
     };
     window.__harnessReady = true;
     return () => {
