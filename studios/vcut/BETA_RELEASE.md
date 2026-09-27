@@ -1,4 +1,4 @@
-# VCut 0.2.10 public beta preparation
+# VCut 0.2.11 public beta preparation
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
@@ -6,15 +6,15 @@ The code targets a public beta. Store publication remains gated by the items bel
 
 | Artifact | Path | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.10-beta-debug.apk` | 201053896 | `a712495703c35992a9e7e064ce06706c1a3c31da06c0d8cdc45f03e8c08de374` |
-| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.10-unsigned-review.aab` | 96728404 | `80f7fe8431f395804ebb71fd2b33f32dc19751749054d9bf42b7b5f80ac60e1a` |
-| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.10.exe` | 235558254 | `07151c35fb31346f554a3fb938f8a368e8f951af03089f73b8381cd7ace7fe67` |
+| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.11-beta-debug.apk` | 200556835 | `82ef41e392f010eac46ec31b9cd21130847608e2bd686f4e7a2cca770d795d40` |
+| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.11-unsigned-review.aab` | 96729963 | `cdda02cb9bd7567d09c012ad9d55060304f6af2b82de83a74de29ea72a6ec443` |
+| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.11.exe` | 235561827 | `93b0323f70a6bf1441949bc79528adae9b36e4062538badaa76572f93ca2ec06` |
 
 APK/AAB shared assets match the final mobile build. APK v2 signature, ZIP alignment and all 20 ARM64/x86_64 native ELF libraries passed 16 KB alignment checks. Release signing protection also rejects aggregate `:app:bundle` without credentials or the explicit review flag. The Windows installer includes the final standalone server, static assets, fonts and FFmpeg; a real export from its packaged server saved matching bytes into Videos/VCut. These artifacts are local test builds, not Store submissions.
 
 ## Android / Play Console
 
-- Application ID: `com.veasnawt.vcut`; version 0.2.10, version code 14; target SDK 36.
+- Application ID: `com.veasnawt.vcut`; version 0.2.11, version code 15; target SDK 36.
 - Production upload signing is supplied only through `VCUT_UPLOAD_KEYSTORE`, `VCUT_UPLOAD_STORE_PASSWORD`, `VCUT_UPLOAD_KEY_ALIAS`, and `VCUT_UPLOAD_KEY_PASSWORD`. Keep the keystore outside the repository and back it up securely. Do not replace an existing Play upload key if this application already has one.
 - Build shared assets with `pnpm --filter vcut-mobile build`, then `pnpm --filter vcut-mobile exec cap sync android`.
 - From `apps/mobile/android`, run `gradlew.bat bundleRelease` with signing configured. Release builds fail if credentials are missing. `bundleRelease -PvcutUnsignedReview` creates an unsigned review bundle only.
@@ -74,7 +74,7 @@ An operator must monitor the private `content_reports` queue using Supabase serv
 
 ## Export validation limits
 
-The shared export regression suite exercises real FFmpeg rendering plus keyframes, transitions, filters, grading, text, sprites and cutout combinations. It passed 1,522 tests during this work. This is not a guarantee for every device or all combinations.
+The shared export regression suite exercises real FFmpeg rendering plus keyframes, transitions, filters, grading, text, sprites and cutout combinations. It passed 1,529 tests for the 0.2.11 release. This is not a guarantee for every device or all combinations.
 
 Native export now resolves project LUT files, blends partial LUT intensity, loads project custom fonts and renders all native text through the preview canvas, and explicitly fails oversized animated-text renders instead of silently losing styling. Animated text rasterization is capped at 4,096 frames. Face-effect preprocessing has no configured export provider and remains unsupported on all platforms; licensed provider configuration and an export adapter are required before advertising this feature as complete. Live paid AI provider jobs were not run as part of verification.
 
@@ -85,3 +85,17 @@ Before public release, run the same representative complex timeline on Android, 
 ## Current publication blockers
 
 Production Android upload signing; Partner Center identity; real-device export and keyboard checks; iOS archive validation; account deletion flow and store billing/sign-in compliance review; moderation operations; listing/legal declarations. This file is preparation, not a claim that the apps have been published or certified.
+
+## 0.2.11 verification and animation continuation
+
+Account, cloud download, empty project cover and duplicate timeline scrollbar fixes ship in
+these artifacts (root `bd913e8`, shared `8f23155`). Mobile assets are `index-B0ytBEH9.js`;
+Windows Next BUILD_ID is `OrogpiiIMhj1Rf1Lj_kpY`. Real packaged-server export passed
+byte-identical automatic saving. APK/AAB assets, debug signing, ZIP/native 16 KB alignment,
+version 0.2.11/build 15 and actual installer payload checks passed.
+
+Hosted deployment `987c4038-d73d-411c-bea7-297070a3bd91` is SUCCESS with a RUNNING instance
+and deploymentStopped=false. Homepage and Privacy Policy returned HTTP 200.
+
+The expanded keyframe request is being implemented after this release; it is not included
+in the artifacts above. See KEYFRAME_SYSTEM_PLAN.md for the audit and implementation plan.
