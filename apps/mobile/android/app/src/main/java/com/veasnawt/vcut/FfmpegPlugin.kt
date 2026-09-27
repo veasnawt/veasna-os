@@ -36,7 +36,8 @@ class FfmpegPlugin : Plugin() {
 
     @PluginMethod
     fun run(call: PluginCall) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && getPermissionState("legacyGallery") != PermissionState.GRANTED) {
+        val savesVideo = call.getString("outputPath") != null && call.getString("fileName") != null
+        if (savesVideo && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && getPermissionState("legacyGallery") != PermissionState.GRANTED) {
             requestPermissionForAlias("legacyGallery", call, "runWithGalleryPermission")
             return
         }
@@ -51,8 +52,9 @@ class FfmpegPlugin : Plugin() {
 
     private fun startRun(call: PluginCall) {
         val jobId = call.getString("jobId") ?: return call.reject("Missing jobId")
-        val outputPath = call.getString("outputPath") ?: return call.reject("Missing outputPath")
-        val fileName = call.getString("fileName") ?: return call.reject("Missing fileName")
+        // Audio extraction for captions also uses run(), without Gallery export metadata.
+        val outputPath = call.getString("outputPath")
+        val fileName = call.getString("fileName")
         val argsArray = call.getArray("args") ?: return call.reject("Missing args")
         val durationSeconds = call.getDouble("duration") ?: 0.0
         totalDurationMs[jobId] = durationSeconds * 1000.0
@@ -67,16 +69,18 @@ class FfmpegPlugin : Plugin() {
             { completed: Session ->
                 val payload = JSObject()
                 payload.put("jobId", jobId)
-                payload.put("fileName", fileName)
+                if (fileName != null) payload.put("fileName", fileName)
                 when {
                     ReturnCode.isSuccess(completed.returnCode) -> {
                         // Native callback owns saving, even after the export dialog is unmounted.
-                        try {
-                            copyToGallery(outputPath, fileName)
-                            payload.put("gallerySaved", true)
-                        } catch (e: Exception) {
-                            payload.put("gallerySaved", false)
-                            payload.put("galleryError", e.message ?: "Could not save to Gallery")
+                        if (outputPath != null && fileName != null) {
+                            try {
+                                copyToGallery(outputPath, fileName)
+                                payload.put("gallerySaved", true)
+                            } catch (e: Exception) {
+                                payload.put("gallerySaved", false)
+                                payload.put("galleryError", e.message ?: "Could not save to Gallery")
+                            }
                         }
                         notifyListeners("done", payload, true)
                     }
