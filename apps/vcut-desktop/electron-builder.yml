@@ -22,6 +22,11 @@ extraResources:
     to: vcut
     filter:
       - "**/*"
+  # Copy the hidden Next build directory explicitly; it must ship with server.js.
+  - from: resources/vcut/.next
+    to: vcut/.next
+    filter:
+      - "**/*"
 win:
   target: nsis
 nsis:
