@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
 import { importMediaBytes } from "../_lib/importMedia";
-import { localRoute } from "../_lib/localOnly";
+import { localRouteCors as localRoute, corsPreflight } from "../_lib/localOnly";
 import { kindForExtension, SUPPORTED_EXTENSIONS } from "../_lib/mediaFormats";
 import { ApiError, ensureProjectDirs, ensureUserMediaDirs, resolveWithin } from "../_lib/paths";
 import { getProfile } from "../_lib/profiles";
@@ -172,3 +172,5 @@ export const DELETE = localRoute(async (req) => {
 
   return Response.json({ ok: true });
 });
+
+export const OPTIONS = corsPreflight;

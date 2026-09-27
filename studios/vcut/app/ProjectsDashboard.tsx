@@ -1,6 +1,7 @@
 "use client";
 
 import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
+import { CloudProjects, CloudProjectButton } from "@veasnawt/vcut/src/ui/CloudProjects";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -426,6 +427,7 @@ export function ProjectsDashboard() {
 
       </header>
       <NewProjectCard onClick={() => setShowCreate(true)} className="sm:max-w-md" />
+      <CloudProjects onDownloaded={(project) => router.push(`/edit?projectId=${encodeURIComponent(project.bpProjectId)}`)} />
 
       {error && <p className="text-xs text-amber-200/80">{error}</p>}
 
@@ -525,6 +527,7 @@ export function ProjectsDashboard() {
                       {p.clipCount} clip{p.clipCount === 1 ? "" : "s"} · {formatUpdatedAt(p.updatedAt)}
                     </p>
                   </Link>
+                  {!HOSTED && <CloudProjectButton projectId={p.id} onDownloaded={(project) => router.push(`/edit?projectId=${encodeURIComponent(project.bpProjectId)}`)} />}
                 </div>
               );
             })}

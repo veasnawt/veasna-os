@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSupabaseSession, getSupabaseBrowserClient } from "@veasnawt/auth";
 import { subscribeToDesktopAuthCallback } from "@veasnawt/vcut/src/api/desktopAuth";
+import { startCloudSync } from "@veasnawt/vcut/src/api/cloudProjects";
 import { HOSTED } from "../_shared/hostedClient";
 import { TabBar, TabBarSpacer } from "../_shared/TabBar";
 
@@ -20,6 +21,7 @@ import { TabBar, TabBarSpacer } from "../_shared/TabBar";
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user } = useSupabaseSession();
+  useEffect(() => { if (!HOSTED && user) return startCloudSync(); }, [user?.id]);
 
   useEffect(() => {
     if (HOSTED && user === null) router.replace("/login");

@@ -3,7 +3,7 @@ import { createProject } from "@veasnawt/vcut/src/project/createProject";
 import { deserializeProject, serializeProject } from "@veasnawt/vcut/src/project/serialize";
 import { buildProjectFromTemplate } from "@veasnawt/vcut/src/project/template";
 import { requireSessionUser, upsertProjectIndex, deleteProjectIndex, VCUT_HOSTED } from "../_lib/auth";
-import { localRoute } from "../_lib/localOnly";
+import { localRouteCors as localRoute, corsPreflight } from "../_lib/localOnly";
 import { ApiError, ensureProjectDirs } from "../_lib/paths";
 import { checkRevision, readRevision, stampRevision } from "../_lib/projectRevision";
 import { getViewableTemplate, requirePro, requireProForAiTemplate, resolveTemplateBundledAudio } from "../_lib/templates";
@@ -193,3 +193,5 @@ export const PUT = localRoute(async (req) => {
 
   return Response.json({ ok: true, savedAt: Date.now(), revision: decision.nextRevision });
 });
+
+export const OPTIONS = corsPreflight;

@@ -5,6 +5,9 @@ import android.os.Build;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.View;
+import android.view.ViewGroup;
+import androidx.core.graphics.Insets;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.ViewCompat;
@@ -47,6 +50,23 @@ public class MainActivity extends BridgeActivity {
             if (webView.getParent() instanceof View) {
                 ((View) webView.getParent()).setBackgroundColor(background);
             }
+            // Capacitor's edge-to-edge listener reserves system bars only and consumes IME insets.
+            // Include the keyboard in the same single margin owner, so every screen and native
+            // HTML dialog receives a genuinely smaller WebView viewport while typing.
+            ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+                Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()
+                    | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
+                ViewGroup.LayoutParams params = view.getLayoutParams();
+                if (params instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) params;
+                    if (margins.leftMargin != insets.left || margins.topMargin != insets.top
+                        || margins.rightMargin != insets.right || margins.bottomMargin != insets.bottom) {
+                        margins.setMargins(insets.left, insets.top, insets.right, insets.bottom);
+                        view.setLayoutParams(margins);
+                    }
+                }
+                return WindowInsetsCompat.CONSUMED;
+            });
             ViewCompat.requestApplyInsets(webView);
         }
     }

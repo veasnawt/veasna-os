@@ -380,6 +380,8 @@ interface ExportJob {
   outputPath: string;
   fileName: string;
   error?: string;
+  savedPath?: string;
+  saveError?: string;
   /** Doesn't exist until `phase` reaches `encoding` — cancelling any earlier phase (see `DELETE`
    *  below) has no live process to kill, only this flag to check between the pre-pass's own awaits. */
   process?: ChildProcess;
@@ -942,6 +944,17 @@ async function runExportJob(
         }
       }
 
+      if (!VCUT_HOSTED && process.env.VCUT_EXPORTS_DIR) {
+        try {
+          const directory = process.env.VCUT_EXPORTS_DIR;
+          await fs.promises.mkdir(directory, { recursive: true });
+          const destination = path.join(directory, `${path.parse(job.fileName).name}-${job.id.slice(0, 8)}.mp4`);
+          await fs.promises.copyFile(outputPath, destination, fs.constants.COPYFILE_EXCL);
+          job.savedPath = destination;
+        } catch (error) {
+          job.saveError = error instanceof Error ? error.message : String(error);
+        }
+      }
       job.status = "done";
       job.progress = 1;
     })
@@ -1006,6 +1019,8 @@ export const GET = localRoute(async (req) => {
           phase: job.phase,
           progress: job.progress,
           fileName: job.fileName,
+          savedPath: job.savedPath,
+          saveError: job.saveError,
           ...(job.message ? { message: job.message } : null),
           ...(job.error ? { error: job.error } : null),
         };

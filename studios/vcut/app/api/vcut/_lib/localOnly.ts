@@ -193,7 +193,7 @@ export function withCors(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
-  headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   return new Response(res.body, { status: res.status, headers });
 }
 
@@ -202,6 +202,16 @@ export function withCors(res: Response): Response {
  *  each HTTP method separately and there's no way to attach this to `GET`/`POST` themselves. */
 export function corsPreflight(): Response {
   return withCors(new Response(null, { status: 204 }));
+}
+
+/** Cross-origin project transfer retains the existing session and project ownership gates.
+ * Local desktop filesystem APIs never receive permissive CORS. */
+export function localRouteCors<T extends unknown[]>(handler: (req: Request, ...rest: T) => Promise<Response>) {
+  const guarded = localRoute(handler);
+  return async (req: Request, ...rest: T) => {
+    const response = await guarded(req, ...rest);
+    return VCUT_HOSTED ? withCors(response) : response;
+  };
 }
 
 /** `hostedDisabledRoute`'s mirror image — for a route that only means anything ONCE `VCUT_HOSTED` is

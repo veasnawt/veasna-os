@@ -22,19 +22,21 @@ export const dynamic = "force-dynamic";
  *  `[file]` is checked against the template's own real asset list rather than trusted as a raw path —
  *  same "known set, not a filesystem path" discipline `sfx/[file]/route.ts` already uses — so a request
  *  can't be used to probe or read anything outside what this template actually bundles. */
-const getAudio = publicSessionRoute(async (_req, user, context: { params: Promise<{ id: string; file: string }> }) => {
+const getAudio = publicSessionRoute(async (req, user, context: { params: Promise<{ id: string; file: string }> }) => {
   const { id, file } = await context.params;
   const template = await getViewableTemplate(id, user?.id ?? "");
-  const known = template.project.assets.some((a) => a.templateBundledAudio && a.relPath === file);
+  const thumbnail = new URL(req.url).searchParams.get("kind") === "thumbnail";
+  const known = template.project.assets.some((a) => a.templateBundledAudio && (thumbnail ? a.animation?.spriteRelPath === file : a.relPath === file));
   if (!known) throw new ApiError(404, "Unknown template audio file", "template-audio-not-found");
 
-  const filePath = resolveWithin(templateAudioPaths(id).mediaDir, file);
+  const directories = templateAudioPaths(id);
+  const filePath = resolveWithin(thumbnail ? directories.thumbnailsDir : directories.mediaDir, file);
   if (!fs.existsSync(filePath)) throw new ApiError(404, "Unknown template audio file", "template-audio-not-found");
   const stat = fs.statSync(filePath);
 
   const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
   const contentType =
-    { mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac" }[ext] ??
+    { png: "image/png", jpg: "image/jpeg", webp: "image/webp", mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac" }[ext] ??
     "application/octet-stream";
 
   return new Response(new Uint8Array(fs.readFileSync(filePath)), {

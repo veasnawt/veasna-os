@@ -72,7 +72,7 @@ function workspaceRoot(): string {
 }
 
 async function spawnPackagedServer(): Promise<string> {
-  const server = await spawnNextServer({ VEASNA_WORKSPACE_ROOT: workspaceRoot() });
+  const server = await spawnNextServer({ VEASNA_WORKSPACE_ROOT: workspaceRoot(), VCUT_EXPORTS_DIR: path.join(app.getPath("videos"), "VCut") });
   stopFns.push(server.stop);
   return server.url;
 }

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { requireSessionUser, VCUT_HOSTED } from "../../_lib/auth";
-import { localRoute } from "../../_lib/localOnly";
+import { localRouteCors as localRoute, corsPreflight } from "../../_lib/localOnly";
 import { ApiError, projectPaths, resolveWithin, userMediaPaths } from "../../_lib/paths";
 import { serveFileWithRange } from "../../_lib/serveFile";
 
@@ -101,3 +101,5 @@ export const GET = localRoute(async (req) => {
   // the rare case a file WAS replaced out from under an unchanged relPath (e.g. manual disk surgery).
   return serveFileWithRange(req, filePath, contentType, "private, max-age=604800, must-revalidate");
 });
+
+export const OPTIONS = corsPreflight;

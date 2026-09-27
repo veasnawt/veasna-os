@@ -3,7 +3,7 @@ import path from "path";
 import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
 import type { Project } from "@veasnawt/vcut/src/project/types";
 import { listProjectsForOwner, requireSessionUser, VCUT_HOSTED } from "../_lib/auth";
-import { localRoute } from "../_lib/localOnly";
+import { localRouteCors as localRoute, corsPreflight } from "../_lib/localOnly";
 import { projectPaths, VCUT_ROOT } from "../_lib/paths";
 import { resolveCoverAsset } from "../_lib/projectIndex";
 
@@ -127,3 +127,5 @@ export const GET = localRoute(async (req) => {
   summaries.sort((a, b) => b.updatedAt - a.updatedAt);
   return Response.json({ projects: summaries });
 });
+
+export const OPTIONS = corsPreflight;

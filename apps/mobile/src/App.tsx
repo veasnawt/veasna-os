@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "@veasnawt/auth";
+import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
+import { startCloudSync } from "@veasnawt/vcut/src/api/cloudProjects";
 import { TemplateDraftApp, VCutApp } from "@veasnawt/vcut";
 import { subscribeToNativeAuthCallback } from "@veasnawt/vcut/src/api/nativeAuth";
 import { TabBar, TabBarSpacer, type TabId } from "./TabBar";
@@ -9,18 +10,22 @@ import { TemplatesTab } from "./screens/TemplatesTab";
 import type { QuickTool } from "@veasnawt/vcut/src/ui/QuickTools";
 import { MeTab } from "./screens/MeTab";
 import { TemplateDetailScreen } from "./screens/TemplateDetailScreen";
+import { installKeyboardViewport } from "./keyboardViewport";
 
 type View =
   | { kind: "tabs"; tab: TabId }
   | { kind: "editor"; projectId: string; projectName?: string; initialTool?: QuickTool }
-  | { kind: "templatePreview"; templateId: string; returnTab: TabId }
-  | { kind: "templateDraft"; templateId: string; returnTab: TabId };
+  | { kind: "templatePreview"; templateId: string; templateIds?: string[]; returnTab: TabId }
+  | { kind: "templateDraft"; templateId: string; templateIds?: string[]; returnTab: TabId };
 
 /** The real Home/Projects/Templates/Me shell this app never had — see the scaffold this replaces
  *  (previously: one hardcoded local project, no list, no way back to it). `VCutApp`'s own `onHome` prop
  *  (already built, previously unused by this app — see its own doc comment in `VCutApp.tsx`) is what
  *  lets the editor hand control back to this shell instead of being the app's only screen. */
 export default function App() {
+  useEffect(installKeyboardViewport, []);
+  const { user } = useSupabaseSession();
+  useEffect(() => { if (user) return startCloudSync(); }, [user?.id]);
   const [view, setView] = useState<View>({ kind: "tabs", tab: "home" });
 
   // `VCutApp.tsx` has this exact same effect, but only while it's actually mounted (a project open) —
@@ -43,8 +48,8 @@ export default function App() {
   function goHome() {
     setView({ kind: "tabs", tab: "home" });
   }
-  function previewTemplate(templateId: string) {
-    setView({ kind: "templatePreview", templateId, returnTab: view.kind === "tabs" ? view.tab : "templates" });
+  function previewTemplate(templateId: string, templateIds?: string[]) {
+    setView({ kind: "templatePreview", templateId, templateIds, returnTab: view.kind === "tabs" ? view.tab : "templates" });
   }
 
   if (view.kind === "editor") {
@@ -52,15 +57,15 @@ export default function App() {
   }
 
   if (view.kind === "templatePreview") {
-    return <TemplateDetailScreen key={view.templateId} templateId={view.templateId}
+    return <TemplateDetailScreen key={view.templateId} templateId={view.templateId} templateIds={view.templateIds}
       onBack={() => setView({ kind: "tabs", tab: view.returnTab })}
-      onUse={() => setView({ kind: "templateDraft", templateId: view.templateId, returnTab: view.returnTab })} />;
+      onUse={(templateId) => setView({ kind: "templateDraft", templateId, templateIds: view.templateIds, returnTab: view.returnTab })} />;
   }
 
   if (view.kind === "templateDraft") {
     return (
       <div className="h-dvh">
-        <TemplateDraftApp templateId={view.templateId} onHome={() => setView({ kind: "templatePreview", templateId: view.templateId, returnTab: view.returnTab })} onProjectCreated={openProject} />
+        <TemplateDraftApp templateId={view.templateId} onHome={() => setView({ kind: "templatePreview", templateId: view.templateId, templateIds: view.templateIds, returnTab: view.returnTab })} onProjectCreated={openProject} />
       </div>
     );
   }
@@ -73,7 +78,7 @@ export default function App() {
         )}
         {view.tab === "projects" && <ProjectsTab onOpenProject={openProject} />}
         {view.tab === "templates" && <TemplatesTab onUseTemplate={previewTemplate} />}
-        {view.tab === "me" && <MeTab />}
+        {view.tab === "me" && <MeTab onOpenTemplate={previewTemplate} />}
       </TabBarSpacer>
       <TabBar active={view.tab} onChange={(tab) => setView({ kind: "tabs", tab })} />
     </div>

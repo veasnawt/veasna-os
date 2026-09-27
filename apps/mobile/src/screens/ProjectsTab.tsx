@@ -6,6 +6,7 @@ import { formatUpdatedAt } from "../format";
 import { ProjectThumbnail } from "../ProjectThumbnail";
 import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
 import { NewProjectDialog } from "./NewProjectDialog";
+import { CloudProjects, CloudProjectButton } from "@veasnawt/vcut/src/ui/CloudProjects";
 
 /** The exhaustive, searchable project grid — mirrors `studios/vcut/app/ProjectsDashboard.tsx`'s own
  *  search/delete UI, built on `nativeListProjects`/`nativeDeleteProject` instead of `authFetch`-ed
@@ -51,6 +52,7 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (projectId: stri
 
       </header>
       <NewProjectCard onClick={() => setShowCreate(true)} />
+      <CloudProjects onDownloaded={(project) => onOpenProject(project.bpProjectId, project.name)} />
 
       {error && <p className="text-xs text-amber-200/80">{error}</p>}
 
@@ -114,6 +116,7 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (projectId: stri
                       {p.clipCount} clip{p.clipCount === 1 ? "" : "s"} · {formatUpdatedAt(p.updatedAt)}
                     </p>
                   </button>
+                  <CloudProjectButton projectId={p.id} onDownloaded={(project) => onOpenProject(project.bpProjectId, project.name)} />
                 </div>
               );
             })}

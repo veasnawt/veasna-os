@@ -4,7 +4,7 @@ import { useSupabaseSession } from "@veasnawt/auth";
 import { MobileSignInDialog } from "@veasnawt/vcut/src/ui/MobileSignInDialog";
 
 /** Discover tiles open the playback detail screen. Its Use action opens the shared fill-slot flow. */
-export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: string) => void }) {
+export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: string, templateIds?: string[]) => void }) {
   const { user } = useSupabaseSession();
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
               {templates?.map((tpl) => (
                 <button
                   key={tpl.id}
-                  onClick={() => onUseTemplate(tpl.id)}
+                  onClick={() => onUseTemplate(tpl.id, templates.map((template) => template.id))}
                   className="group mb-3 block w-full break-inside-avoid overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-left"
                 >
                   <div className="relative aspect-[9/16] w-full bg-black">
