@@ -13,8 +13,9 @@ import {
   isDesktopSignInAvailable,
   openDesktopSignIn,
 } from "@veasnawt/vcut/src/api/desktopAuth";
-import { Settings } from "@veasnawt/vicons";
+import { Close, Settings } from "@veasnawt/vicons";
 import { Avatar } from "./Avatar";
+import { ProfilePictureCropper } from "./ProfilePictureCropper";
 import {
   authFetch,
   displayNameOrFallback,
@@ -125,6 +126,15 @@ export default function OwnProfile({
   const [picturePreview, setPicturePreview] = useState<string | null>(null);
   const [removePicture, setRemovePicture] = useState(false);
   const pictureInput = useRef<HTMLInputElement>(null);
+  const pictureTrigger = useRef<HTMLButtonElement>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const wasCropping = useRef(false);
+
+  useEffect(() => {
+    if (wasCropping.current && !cropFile)
+      pictureTrigger.current?.focus({ preventScroll: true });
+    wasCropping.current = Boolean(cropFile);
+  }, [cropFile]);
 
   const [username, setUsernameField] = useState(initialProfile?.username ?? "");
   const [savedUsername, setSavedUsername] = useState<string | null>(
@@ -190,6 +200,7 @@ export default function OwnProfile({
   function closeProfileEditor() {
     if (savingProfile) return;
     setEditTarget(null);
+    setCropFile(null);
     setNameError(null);
     setDisplayNameField(savedDisplayName ?? "");
     setUsernameField(savedUsername ?? "");
@@ -211,8 +222,7 @@ export default function OwnProfile({
       return;
     }
     setNameError(null);
-    setPicture(file);
-    setRemovePicture(false);
+    setCropFile(file);
   }
 
   useEffect(() => {
@@ -614,10 +624,13 @@ export default function OwnProfile({
             <dialog
               ref={dialog}
               id="profile-editor"
-              aria-labelledby="profile-editor-title"
+              aria-labelledby={
+                cropFile ? "profile-picture-crop-title" : "profile-editor-title"
+              }
               onCancel={(event) => {
                 event.preventDefault();
-                closeProfileEditor();
+                if (cropFile) setCropFile(null);
+                else closeProfileEditor();
               }}
               onClick={(event) => {
                 if (event.target === event.currentTarget) {
@@ -627,203 +640,218 @@ export default function OwnProfile({
                     event.clientX > rect.right ||
                     event.clientY < rect.top ||
                     event.clientY > rect.bottom
-                  )
-                    closeProfileEditor();
+                  ) {
+                    if (cropFile) setCropFile(null);
+                    else closeProfileEditor();
+                  }
                 }
               }}
               className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-md overflow-y-auto rounded-2xl border border-white/15 bg-[#111318] p-0 text-white shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm"
             >
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveProfile();
-                }}
-                className="p-5 sm:p-6"
-              >
-                <div className="mb-6 flex items-center justify-between gap-4">
-                  <h2
-                    id="profile-editor-title"
-                    className="text-lg font-semibold"
-                  >
-                    Edit profile
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={closeProfileEditor}
-                    disabled={savingProfile}
-                    aria-label="Close edit profile"
-                    className="rounded-md px-2 py-1 text-xl text-white/60 hover:bg-white/10 disabled:opacity-40"
-                  >
-                    ?
-                  </button>
-                </div>
-                <fieldset
-                  disabled={savingProfile}
-                  className="space-y-5 disabled:opacity-60"
+              {cropFile ? (
+                <ProfilePictureCropper
+                  file={cropFile}
+                  onCancel={() => setCropFile(null)}
+                  onApply={(file) => {
+                    setPicture(file);
+                    setRemovePicture(false);
+                    setCropFile(null);
+                  }}
+                />
+              ) : (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveProfile();
+                  }}
+                  className="p-5 sm:p-6"
                 >
-                  <div className="flex items-center gap-4">
-                    <Avatar
-                      seed={user.id}
-                      displayName={displayName}
-                      size={80}
-                      src={
-                        picturePreview ??
-                        (removePicture ? null : savedAvatarUrl)
-                      }
-                    />
-                    <div>
-                      <input
-                        ref={pictureInput}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={(event) => {
-                          choosePicture(event.target.files?.[0]);
-                          event.target.value = "";
-                        }}
+                  <div className="mb-6 flex items-center justify-between gap-4">
+                    <h2
+                      id="profile-editor-title"
+                      className="text-lg font-semibold"
+                    >
+                      Edit profile
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={closeProfileEditor}
+                      disabled={savingProfile}
+                      aria-label="Close edit profile"
+                      className="rounded-lg p-2 text-white/60 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-40"
+                    >
+                      <Close size={20} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <fieldset
+                    disabled={savingProfile}
+                    className="space-y-5 disabled:opacity-60"
+                  >
+                    <div className="flex items-center gap-4">
+                      <Avatar
+                        seed={user.id}
+                        displayName={displayName}
+                        size={80}
+                        src={
+                          picturePreview ??
+                          (removePicture ? null : savedAvatarUrl)
+                        }
                       />
-                      <button
-                        type="button"
-                        onClick={() => pictureInput.current?.click()}
-                        className="rounded-md border border-white/15 px-3 py-2 text-xs font-medium hover:bg-white/10"
-                      >
-                        Change picture
-                      </button>
-                      {(picture || savedAvatarUrl) && !removePicture && (
+                      <div>
+                        <input
+                          ref={pictureInput}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={(event) => {
+                            choosePicture(event.target.files?.[0]);
+                            event.target.value = "";
+                          }}
+                        />
                         <button
                           type="button"
-                          onClick={() => {
-                            setPicture(null);
-                            setRemovePicture(true);
-                          }}
-                          className="ml-3 text-xs text-white/50 hover:text-white"
+                          ref={pictureTrigger}
+                          onClick={() => pictureInput.current?.click()}
+                          className="rounded-md border border-white/15 px-3 py-2 text-xs font-medium hover:bg-white/10"
                         >
-                          Remove
+                          Change picture
                         </button>
-                      )}
-                      <p className="mt-2 text-[11px] text-white/40">
-                        JPG, PNG, or WebP ? Up to 5 MB
+                        {(picture || savedAvatarUrl) && !removePicture && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPicture(null);
+                              setRemovePicture(true);
+                            }}
+                            className="ml-3 text-xs text-white/50 hover:text-white"
+                          >
+                            Remove
+                          </button>
+                        )}
+                        <p className="mt-2 text-[11px] text-white/40">
+                          JPG, PNG, or WebP. Up to 5 MB
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="profile-name"
+                        className="mb-2 block text-xs font-medium text-white/70"
+                      >
+                        Creator name
+                      </label>
+                      <input
+                        ref={nameInput}
+                        id="profile-name"
+                        maxLength={60}
+                        value={displayName}
+                        onChange={(event) =>
+                          setDisplayNameField(event.target.value)
+                        }
+                        placeholder="Your creator name"
+                        className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+                      />
+                      <p className="mt-1.5 text-[11px] text-white/40">
+                        Shown on your profile, templates, and comments.
                       </p>
                     </div>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="profile-name"
-                      className="mb-2 block text-xs font-medium text-white/70"
-                    >
-                      Creator name
-                    </label>
-                    <input
-                      ref={nameInput}
-                      id="profile-name"
-                      maxLength={60}
-                      value={displayName}
-                      onChange={(event) =>
-                        setDisplayNameField(event.target.value)
-                      }
-                      placeholder="Your creator name"
-                      className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
-                    />
-                    <p className="mt-1.5 text-[11px] text-white/40">
-                      Shown on your profile, templates, and comments.
-                    </p>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="profile-username"
-                      className="mb-2 block text-xs font-medium text-white/70"
-                    >
-                      Username
-                    </label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">
-                        @
-                      </span>
-                      <input
-                        ref={usernameInput}
-                        id="profile-username"
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        aria-describedby="username-status"
-                        value={username}
-                        onChange={(event) =>
-                          setUsernameField(event.target.value.toLowerCase())
-                        }
-                        placeholder="yourname"
-                        maxLength={20}
-                        className="w-full rounded-lg border border-white/15 bg-white/5 py-2.5 pl-7 pr-3 text-sm outline-none focus:border-sky-400"
-                      />
+                    <div>
+                      <label
+                        htmlFor="profile-username"
+                        className="mb-2 block text-xs font-medium text-white/70"
+                      >
+                        Username
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">
+                          @
+                        </span>
+                        <input
+                          ref={usernameInput}
+                          id="profile-username"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          aria-describedby="username-status"
+                          value={username}
+                          onChange={(event) =>
+                            setUsernameField(event.target.value.toLowerCase())
+                          }
+                          placeholder="yourname"
+                          maxLength={20}
+                          className="w-full rounded-lg border border-white/15 bg-white/5 py-2.5 pl-7 pr-3 text-sm outline-none focus:border-sky-400"
+                        />
+                      </div>
+                      <p
+                        id="username-status"
+                        role="status"
+                        className={`mt-1.5 text-[11px] ${usernameError || (usernameChanged && usernameCheck && !usernameCheck.checking && (!usernameCheck.valid || !usernameCheck.available)) ? "text-amber-200/80" : usernameChanged && usernameCheck?.available ? "text-emerald-300/80" : "text-white/40"}`}
+                      >
+                        {usernameChanged
+                          ? (usernameError ??
+                            (!usernameCheck ||
+                            usernameCheck.candidate !== trimmedUsername ||
+                            usernameCheck.checking
+                              ? "Checking..."
+                              : !usernameCheck.valid
+                                ? "3-20 characters: lowercase letters, numbers, and underscores."
+                                : !usernameCheck.available
+                                  ? "That username is already taken."
+                                  : `vcut.io/@${trimmedUsername} is available`))
+                          : savedUsername
+                            ? `vcut.io/@${savedUsername}`
+                            : "Choose a username for your profile link."}
+                      </p>
                     </div>
-                    <p
-                      id="username-status"
-                      role="status"
-                      className={`mt-1.5 text-[11px] ${usernameError || (usernameChanged && usernameCheck && !usernameCheck.checking && (!usernameCheck.valid || !usernameCheck.available)) ? "text-amber-200/80" : usernameChanged && usernameCheck?.available ? "text-emerald-300/80" : "text-white/40"}`}
-                    >
-                      {usernameChanged
-                        ? (usernameError ??
-                          (!usernameCheck ||
-                          usernameCheck.candidate !== trimmedUsername ||
-                          usernameCheck.checking
-                            ? "Checking?"
-                            : !usernameCheck.valid
-                              ? "3?20 characters: lowercase letters, numbers, and underscores."
-                              : !usernameCheck.available
-                                ? "That username is already taken."
-                                : `vcut.io/@${trimmedUsername} is available`))
-                        : savedUsername
-                          ? `vcut.io/@${savedUsername}`
-                          : "Choose a username for your profile link."}
+                    <div>
+                      <label
+                        htmlFor="profile-bio"
+                        className="mb-2 block text-xs font-medium text-white/70"
+                      >
+                        Bio
+                      </label>
+                      <textarea
+                        id="profile-bio"
+                        value={bio}
+                        onChange={(event) => setBio(event.target.value)}
+                        maxLength={160}
+                        rows={3}
+                        placeholder="Tell people a little about yourself"
+                        aria-describedby="bio-count"
+                        className="w-full resize-none rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+                      />
+                      <p
+                        id="bio-count"
+                        className="mt-1 text-right text-[11px] text-white/40"
+                      >
+                        {bio.length}/160
+                      </p>
+                    </div>
+                  </fieldset>
+                  {nameError && (
+                    <p role="alert" className="mt-4 text-xs text-amber-200">
+                      {nameError}
                     </p>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="profile-bio"
-                      className="mb-2 block text-xs font-medium text-white/70"
+                  )}
+                  <div className="mt-6 flex justify-end gap-3 border-t border-white/10 pt-4">
+                    <button
+                      type="button"
+                      onClick={closeProfileEditor}
+                      disabled={savingProfile}
+                      className="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-medium disabled:opacity-40"
                     >
-                      Bio
-                    </label>
-                    <textarea
-                      id="profile-bio"
-                      value={bio}
-                      onChange={(event) => setBio(event.target.value)}
-                      maxLength={160}
-                      rows={3}
-                      placeholder="Tell people a little about yourself"
-                      aria-describedby="bio-count"
-                      className="w-full resize-none rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
-                    />
-                    <p
-                      id="bio-count"
-                      className="mt-1 text-right text-[11px] text-white/40"
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!canSaveProfile || savingProfile}
+                      className="btn-brand-gradient rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
                     >
-                      {bio.length}/160
-                    </p>
+                      {savingProfile ? "Saving..." : "Save changes"}
+                    </button>
                   </div>
-                </fieldset>
-                {nameError && (
-                  <p role="alert" className="mt-4 text-xs text-amber-200">
-                    {nameError}
-                  </p>
-                )}
-                <div className="mt-6 flex justify-end gap-3 border-t border-white/10 pt-4">
-                  <button
-                    type="button"
-                    onClick={closeProfileEditor}
-                    disabled={savingProfile}
-                    className="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-medium disabled:opacity-40"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!canSaveProfile || savingProfile}
-                    className="btn-brand-gradient rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
-                  >
-                    {savingProfile ? "Saving?" : "Save changes"}
-                  </button>
-                </div>
-              </form>
+                </form>
+              )}
             </dialog>
           )}
         </>
