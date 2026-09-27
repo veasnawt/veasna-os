@@ -5,6 +5,21 @@
    defaults to the OS's light rendering regardless of this app's own dark utility classes). */
 :root {
   color-scheme: dark;
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Android's native WebView margins already reserve the system-bar insets. */
+html[data-platform="android"] {
+  --app-safe-bottom: 0px;
+}
+
+html[data-platform="android"] * {
+  scrollbar-width: none;
+}
+html[data-platform="android"] *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* index.html's viewport meta opts into `viewport-fit=cover` (edge-to-edge — content draws under the
@@ -21,9 +36,11 @@
 html,
 body {
   height: 100%;
+  margin: 0;
+  background: #0a0c10;
 }
 #root {
-  height: 100dvh;
+  height: 100%;
   box-sizing: border-box;
 }
 

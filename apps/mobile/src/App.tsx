@@ -55,7 +55,7 @@ export default function App() {
   }
 
   return (
-    <div className="bg-[#0a0c10] text-white">
+    <div className="h-full min-h-0 bg-[#0a0c10] text-white">
       <TabBarSpacer>
         {view.tab === "home" && (
           <HomeTab onOpenProject={openProject} onOpenTemplates={() => setView({ kind: "tabs", tab: "templates" })} onOpenProjects={() => setView({ kind: "tabs", tab: "projects" })} onUseTemplate={(templateId) => setView({ kind: "templateDraft", templateId })} />

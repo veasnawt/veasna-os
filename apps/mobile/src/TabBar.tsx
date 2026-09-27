@@ -67,17 +67,13 @@ const TABS: Tab[] = [
   { id: "me", label: "Me", icon: (active) => <MeIcon active={active} /> },
 ];
 
-/** The persistent bottom tab bar — mobile-only (no `lg` side-rail variant, unlike the web host's own
- *  `TabBar`, since this app never runs at desktop width). `env(safe-area-inset-bottom)` matches
- *  `index.css`'s own Android/iOS split (see that file's own doc comment): this padding is always safe
- *  to apply here regardless of platform, since Android's native edge-to-edge margin only pushes `#root`
- *  as a whole, not this bar's own bottom edge specifically. */
+/** Persistent bottom navigation. CSS reserves iOS's safe area; Android uses native margins. */
 export function TabBar({ active, onChange }: { active: TabId; onChange: (tab: TabId) => void }) {
   return (
     <nav
       aria-label="Primary"
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#0a0c10]/95 backdrop-blur"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ paddingBottom: "var(--app-safe-bottom)" }}
     >
       {TABS.map((tab) => (
         <button
@@ -95,8 +91,14 @@ export function TabBar({ active, onChange }: { active: TabId; onChange: (tab: Ta
   );
 }
 
-/** Reserves room for `TabBar` so page content never renders underneath it — same `pb-20` approximation
- *  `TabBarSpacer` (the web host's own version) uses, deliberately generous rather than exact. */
+/** Tabs scroll inside the viewport; body scrolling stays disabled for the editor. */
 export function TabBarSpacer({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-dvh pb-20">{children}</div>;
+  return (
+    <div
+      className="h-full min-h-0 overflow-y-auto overscroll-y-contain scrollbar-none"
+      style={{ paddingBottom: "calc(5rem + var(--app-safe-bottom))" }}
+    >
+      {children}
+    </div>
+  );
 }
