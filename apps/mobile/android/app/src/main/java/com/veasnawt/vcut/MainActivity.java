@@ -5,11 +5,16 @@ import android.os.Build;
 import android.graphics.Color;
 import android.view.View;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        SplashScreen splash = SplashScreen.installSplashScreen(this);
+        splash.setOnExitAnimationListener(provider ->
+            provider.getView().animate().alpha(0f).setDuration(180).withEndAction(provider::remove).start()
+        );
         registerPlugin(FfmpegPlugin.class);
         registerPlugin(AuthCallbackPlugin.class);
         registerPlugin(MicPermissionPlugin.class);
