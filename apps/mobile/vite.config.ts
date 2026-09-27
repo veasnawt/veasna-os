@@ -15,7 +15,10 @@ const publicAuth = JSON.parse(readFileSync(new URL("../../scripts/vcut-public-au
 // on every request instead, matching what transpilePackages does for the Next.js host.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Native builds generate HTML/assets under the app; they must not reload an active editor.
+  server: { watch: { ignored: ["**/android/**", "**/ios/**"] } },
   optimizeDeps: {
+    entries: ["index.html"],
     exclude: ["@veasnawt/vcut"],
   },
   // packages/vcut/src/api/client.ts and packages/auth/src/browser.ts read bare `process.env.X` —

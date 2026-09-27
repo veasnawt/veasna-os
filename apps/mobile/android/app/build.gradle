@@ -20,9 +20,12 @@ apply plugin: 'kotlin-android'
 
 def uploadStore = System.getenv("VCUT_UPLOAD_KEYSTORE")
 def hasUploadSigning = uploadStore && ["VCUT_UPLOAD_STORE_PASSWORD", "VCUT_UPLOAD_KEY_ALIAS", "VCUT_UPLOAD_KEY_PASSWORD"].every { System.getenv(it) }
-def requestedRelease = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
-if (requestedRelease && !hasUploadSigning && !project.hasProperty("vcutUnsignedReview")) {
-    throw new GradleException("Release signing is missing. Set the VCUT_UPLOAD_* environment variables. Use -PvcutUnsignedReview only for a non-uploadable review bundle.")
+// Inspect the resolved graph too: aggregate tasks such as `bundle` include release output.
+gradle.taskGraph.whenReady { graph ->
+    def buildsRelease = graph.allTasks.any { it.project == project && it.name in ['bundleRelease', 'packageRelease', 'assembleRelease'] }
+    if (buildsRelease && !hasUploadSigning && !project.hasProperty("vcutUnsignedReview")) {
+        throw new GradleException("Release signing is missing. Set the VCUT_UPLOAD_* environment variables. Use -PvcutUnsignedReview only for a non-uploadable review bundle.")
+    }
 }
 
 android {
