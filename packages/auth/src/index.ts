@@ -5,5 +5,5 @@
  *  module") the moment any server file does `import { getSessionUser } from "@veasnawt/auth"` — this
  *  bit a real `studios/vcut/app/api/vcut/_lib/auth.ts` import and broke every page. Server code
  *  imports `@veasnawt/auth/server` instead; see that subpath's own file. */
-export { getSupabaseBrowserClient, getAccessToken, getCachedAccessToken } from "./browser.ts";
+export { getSupabaseBrowserClient, getAccessToken, getCachedAccessToken, sessionFetch, isSessionUnavailable, SESSION_REQUIRED_EVENT } from "./browser.ts";
 export { useSupabaseSession, type SessionState } from "./useSession.ts";

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSupabaseSession } from "@veasnawt/auth";
 import { startCheckout } from "@veasnawt/vcut/src/api/billing";
 import { isDesktopSignInAvailable, openDesktopSignIn } from "@veasnawt/vcut/src/api/desktopAuth";
 import { Avatar } from "../../_shared/Avatar";
@@ -23,6 +24,7 @@ type FeedMode = "mine" | "discover";
  *  there's no creator-profile system yet (Phase 3), so a Discover tile shows the template itself with
  *  no "by so-and-so" attribution. */
 export default function TemplatesPage() {
+  const { user } = useSupabaseSession();
   // Discover, not "My Templates" — a first-time visitor has saved nothing yet (an empty state that
   // demonstrates nothing), while Discover always has real content once anything's published, matching
   // the TikTok/Reels-style default this whole feature is modeled on.
@@ -53,11 +55,13 @@ export default function TemplatesPage() {
     // Starting a (re)fetch resets the previous result; this is the effect's own synchronisation with `mode`.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTemplates(null);
+    setOpenIndex(null);
     setError(null);
     setNeedsPro(false);
     setNeedsSignIn(false);
     setSearch("");
     setActiveTag(null);
+    if (!user) { setNeedsSignIn(user === null); return; }
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
     centralAuthFetch(url)
       .then(async (res) => {
@@ -83,7 +87,7 @@ export default function TemplatesPage() {
     return () => {
       cancelled = true;
     };
-  }, [mode, safetyRevision]);
+  }, [mode, safetyRevision, user?.id]);
 
   // A template saved a moment ago is still rendering its preview in the background: check again until it is ready.
   const anyRendering = templates?.some((t) => t.previewReady === false) ?? false;

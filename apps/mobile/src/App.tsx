@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
 import { startCloudSync } from "@veasnawt/vcut/src/api/cloudProjects";
+import { SessionRecovery } from "@veasnawt/vcut/src/ui/SessionRecovery";
 import { TemplateDraftApp, VCutApp } from "@veasnawt/vcut";
 import { subscribeToNativeAuthCallback } from "@veasnawt/vcut/src/api/nativeAuth";
 import { TabBar, TabBarSpacer, type TabId } from "./TabBar";
@@ -23,6 +24,10 @@ type View =
  *  (already built, previously unused by this app — see its own doc comment in `VCutApp.tsx`) is what
  *  lets the editor hand control back to this shell instead of being the app's only screen. */
 export default function App() {
+  return <><SessionRecovery /><AppContent /></>;
+}
+
+function AppContent() {
   useEffect(installKeyboardViewport, []);
   const { user } = useSupabaseSession();
   useEffect(() => { if (user) return startCloudSync(); }, [user?.id]);

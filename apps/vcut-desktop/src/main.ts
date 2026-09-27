@@ -2,9 +2,12 @@ import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "node:path";
 import { createMainWindow } from "./windows/createMainWindow";
 import { spawnNextServer } from "./server/spawnNextServer";
+import { installSessionStorage } from "./auth/sessionStorage";
 
 const stopFns: (() => Promise<void>)[] = [];
 let mainWindow: BrowserWindow | null = null;
+let serverOrigin = "";
+installSessionStorage(path.join(app.getPath("userData"), "auth-session.enc"), () => mainWindow, () => serverOrigin);
 
 // The desktop half of sign-in: no Stripe/Supabase wiring lives in this app at all (see
 // `packages/vcut/src/api/billing.ts`'s own doc comment) — this only needs to get a real Supabase
@@ -85,6 +88,7 @@ async function launch() {
   // `pnpm dev` to point at, so the bundled server gets spawned here instead, on its own
   // dynamically-chosen loopback port.
   const serverUrl = app.isPackaged ? await spawnPackagedServer() : "http://localhost:3002";
+  serverOrigin = new URL(serverUrl).origin;
 
   const win = createMainWindow();
   mainWindow = win;

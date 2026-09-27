@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld("veasnaCrashReporter", {
  *  lives in the shared package despite being desktop-only (feature-detected via `window.veasnaAuth`'s
  *  presence, not a platform branch). */
 contextBridge.exposeInMainWorld("veasnaAuth", {
+  storage: {
+    getItem: (key: string) => ipcRenderer.invoke("auth:storage-get", key),
+    canMigrate: (key: string) => ipcRenderer.invoke("auth:storage-can-migrate", key),
+    setItem: (key: string, value: string) => ipcRenderer.invoke("auth:storage-set", key, value),
+    removeItem: (key: string) => ipcRenderer.invoke("auth:storage-remove", key),
+  },
   openSignIn: () => ipcRenderer.invoke("auth:open-sign-in"),
   onCallback: (callback: (tokens: { accessToken: string; refreshToken: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, tokens: { accessToken: string; refreshToken: string }) => callback(tokens);

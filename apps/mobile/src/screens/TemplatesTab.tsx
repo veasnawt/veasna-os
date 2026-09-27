@@ -13,12 +13,14 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
   const [showSignIn, setShowSignIn] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
     setTemplates(null);
     setError(null);
+    if (!user) return;
+    let active = true;
     listDiscoverTemplates()
-      .then(setTemplates)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Couldn't load templates."));
+      .then(rows => { if (active) setTemplates(rows); })
+      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Couldn't load templates."); });
+    return () => { active = false; };
   }, [user, safetyRevision]);
 
   return (

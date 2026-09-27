@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSupabaseSession, getSupabaseBrowserClient } from "@veasnawt/auth";
 import { subscribeToDesktopAuthCallback } from "@veasnawt/vcut/src/api/desktopAuth";
 import { startCloudSync } from "@veasnawt/vcut/src/api/cloudProjects";
+import { SessionRecovery } from "@veasnawt/vcut/src/ui/SessionRecovery";
 import { HOSTED } from "../_shared/hostedClient";
 import { TabBar, TabBarSpacer } from "../_shared/TabBar";
 
@@ -47,6 +48,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-[#0a0c10] text-white">
+      <SessionRecovery />
       <TabBar />
       <TabBarSpacer>{children}</TabBarSpacer>
     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "./browser.ts";
+import { getSupabaseBrowserClient, isSessionUnavailable, SESSION_REQUIRED_EVENT } from "./browser.ts";
 
 export interface SessionState {
   /** `undefined` while the initial session check is still in flight — deliberately distinct from
@@ -28,14 +28,20 @@ export function useSupabaseSession(): SessionState {
       setUser(null);
       return;
     }
+    let active = true;
+    let authEvents = 0;
     void supabase.auth.getSession().then(({ data }) => {
+      if (!active || authEvents) return;
       const sessionUser = data.session?.user;
-      setUser(sessionUser ? { id: sessionUser.id, email: sessionUser.email ?? null } : null);
+      setUser(!isSessionUnavailable() && sessionUser ? { id: sessionUser.id, email: sessionUser.email ?? null } : null);
     });
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ? { id: session.user.id, email: session.user.email ?? null } : null);
+      authEvents++;
+      setUser(!isSessionUnavailable() && session?.user ? { id: session.user.id, email: session.user.email ?? null } : null);
     });
-    return () => subscription.subscription.unsubscribe();
+    const unavailable = () => setUser(null);
+    window.addEventListener(SESSION_REQUIRED_EVENT, unavailable);
+    return () => { active = false; subscription.subscription.unsubscribe(); window.removeEventListener(SESSION_REQUIRED_EVENT, unavailable); };
   }, []);
 
   async function signOut() {

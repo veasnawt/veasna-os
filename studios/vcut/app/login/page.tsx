@@ -282,6 +282,7 @@ function LoginPageInner() {
             </button>
           </div>
         )}
+        <a href="/privacy" className="mt-5 block text-center text-xs text-white/45 underline underline-offset-4">Privacy Policy</a>
       </div>
     </main>
   );
