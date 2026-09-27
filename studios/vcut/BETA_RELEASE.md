@@ -99,3 +99,34 @@ and deploymentStopped=false. Homepage and Privacy Policy returned HTTP 200.
 
 The expanded keyframe request is being implemented after this release; it is not included
 in the artifacts above. See KEYFRAME_SYSTEM_PLAN.md for the audit and implementation plan.
+
+## 0.2.12 animation and groups
+
+Shared editor `1746e22` and host `862400c` add the completed animation/corners/mask
+foundation and persistent animated groups. Old schema-1 projects load; new saves use
+schema 2 and must be opened by an updated app. No database migration is required.
+Deployment `7d5ccdca-d7a6-40c0-ac38-9f7d722a50a4` is SUCCESS/RUNNING and the home and
+privacy pages return HTTP 200.
+
+The full editor suite passed 1,587 tests; 29 focused tests passed after the final
+multi-group move and collage-copy fixes. Browser workflows passed, grouped text
+preview/export pixels matched over 48 frames, and a real packaged-server export
+with rounded media, outlined text and animated group scale/rotation/opacity passed
+with automatic saving. Mobile production build and Android/iOS asset sync passed.
+iOS CocoaPods/Xcode steps require the Mac and were not executed on Windows.
+
+Windows packaging now bundles Puppeteer's matching headless renderer and license,
+and passes its executable to the server. A clean build machine must first run
+`pnpm --filter vcut exec puppeteer browsers install chrome-headless-shell`.
+End users do not need a browser cache for styled, grouped or Khmer text export.
+The empty-cache packaged-server group/text export passed. Browser startup allows
+120 seconds for first-install OS scanning; normal verified startup was 525 ms.
+
+Android verification completed: APK 0.2.12/build 16, target SDK 36, v2 debug signing,
+ZIP alignment and all 20 checked 64-bit ELF libraries passed 16 KB alignment.
+APK SHA256: `e81f2fad835c0dafd4719452bf107568f96251fa93340bd4d7a0d00a1accd671`.
+Unsigned review AAB SHA256: `3b1526f42107520f985c67f2b65abd2288811a19f8b2911a2c170e02e3a505b9`.
+AAB and iOS HTML/assets match the final mobile production build.
+
+Artifact verification and hashes for the final 0.2.12 builds are recorded below
+once packaging completes. Existing public-beta publication blockers still apply.

@@ -49,6 +49,8 @@ export async function openKhmerTextHarness(baseUrl: string, outDir: string, cust
   // mode. Harmless outside Docker too, same reasoning as the sandbox flags above.
   const browser: Browser = await puppeteer.launch({
     headless: true,
+    // A freshly installed portable renderer can be delayed by OS executable scanning.
+    timeout: 120_000,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
   // Everything between launch and the harness signaling ready can throw (a slow first-compile of the

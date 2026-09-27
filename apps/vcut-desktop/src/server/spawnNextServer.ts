@@ -40,6 +40,14 @@ export async function spawnNextServer(extraEnv: Record<string, string>): Promise
   // matters even for a single-window app (nothing here relies on localStorage today, but there's
   // no reason to invite the question).
   const port = await pickFreePort(3002);
+  const browserManifest=path.join(path.dirname(serverJsPath),"vcut-browser.json");
+  const browserEnv:Record<string,string>={};
+  if(fs.existsSync(browserManifest)){
+    const manifest=JSON.parse(fs.readFileSync(browserManifest,"utf8")) as {executable:string};
+    const executable=path.resolve(path.dirname(serverJsPath),manifest.executable);
+    if(!executable.startsWith(path.dirname(serverJsPath)+path.sep)||!fs.existsSync(executable))throw new Error("Bundled text export renderer is missing");
+    browserEnv.PUPPETEER_EXECUTABLE_PATH=executable;
+  }
   const child: UtilityProcess = utilityProcess.fork(serverJsPath, [], {
     cwd: path.dirname(serverJsPath),
     stdio: "pipe",
@@ -47,6 +55,7 @@ export async function spawnNextServer(extraEnv: Record<string, string>): Promise
       ...process.env,
       PORT: String(port),
       HOSTNAME: "127.0.0.1",
+      ...browserEnv,
       ...extraEnv,
     },
   });

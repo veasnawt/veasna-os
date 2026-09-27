@@ -18,7 +18,8 @@
 // Omitting the Supabase vars entirely is also fine: `getSupabaseBrowserClient()` returns `null` and
 // the packaged app behaves exactly as it always has, no sign-in button shown.
 
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -243,7 +244,7 @@ function findExternalSymlinks(outDir, dir = outDir, found = []) {
 /** Copies VCut's standalone build output into apps/vcut-desktop/resources/vcut, producing
  *  a fully self-contained, portable copy (no symlinks pointing outside it, no `next`
  *  MODULE_NOT_FOUND shadowing bug — see the two functions above for why each step exists). */
-function buildNextStandaloneResources() {
+async function buildNextStandaloneResources() {
   const appRoot = path.join(repoRoot, "studios", "vcut");
   const standaloneDir = path.join(appRoot, ".next", "standalone");
   const staticDir = path.join(appRoot, ".next", "static");
@@ -329,7 +330,7 @@ function buildNextStandaloneResources() {
   }
 
   ensureFfmpegBinaries(outDir);
-  ensurePuppeteer(outDir);
+  await ensurePuppeteer(outDir);
   ensureFontAssets(outDir);
   ensureSfxAssets(outDir);
 
@@ -415,13 +416,11 @@ function ensureFfmpegBinaries(outDir) {
  *  regardless of whether the export in question uses Khmer text at all. Same hoist-from-repo-root
  *  fallback as `ensureFfmpegBinaries` fixes it the same way.
  *
- *  This does NOT bundle puppeteer's actual Chromium browser binary — that lives outside node_modules
- *  entirely, in the OS user cache dir (`~/.cache/puppeteer` on this machine), so it's absent from any
- *  node_modules-based packaging step by construction and won't exist on an end user's machine either.
- *  `puppeteer.launch()` itself will still fail on a packaged install until that's addressed
- *  separately — this fix's scope is just restoring every OTHER export (the overwhelming majority)
- *  that never needed Khmer text rendering in the first place. */
-function ensurePuppeteer(outDir) {
+ *  Copy the matching headless browser and its license/resources from Puppeteer's build cache.
+ *  The packaged server receives this executable path from spawnNextServer, so export never
+ *  depends on a browser installed or downloaded on the user's machine. Install it for a
+ *  clean build with `pnpm --filter vcut exec puppeteer browsers install chrome-headless-shell`. */
+async function ensurePuppeteer(outDir) {
   const repoRootPnpm = path.join(repoRoot, "node_modules", ".pnpm");
 
   for (const pkg of ["puppeteer", "puppeteer-core"]) {
@@ -436,7 +435,13 @@ function ensurePuppeteer(outDir) {
     }
   }
 
-  console.log("Done — vcut's export route can load puppeteer (Khmer-text rendering itself still needs a bundled Chromium — separate follow-up).");
+  const puppeteer=createRequire(path.join(outDir,"server.js"))("puppeteer");
+  const executable=await puppeteer.executablePath({headless:"shell"});
+  if(!existsSync(executable))throw new Error("Install Puppeteer's chrome-headless-shell before packaging VCut. Text exports require the bundled renderer.");
+  const browserDir=path.join(outDir,"vcut-browser");
+  copyRecursiveDereferenced(path.dirname(executable),browserDir);
+  writeFileSync(path.join(outDir,"vcut-browser.json"),JSON.stringify({executable:path.join("vcut-browser",path.basename(executable))}));
+  console.log("Done — vcut has a bundled browser for text exports; no user browser cache is required.");
 }
 
 /** VCut's drawtext export (and its browser preview, via /api/vcut/fonts) both read the bundled
@@ -475,5 +480,5 @@ function ensureSfxAssets(outDir) {
   console.log("Done — vcut has bundled SFX.");
 }
 
-buildNextStandaloneResources();
+await buildNextStandaloneResources();
 console.log("Resources ready for electron-builder.");
