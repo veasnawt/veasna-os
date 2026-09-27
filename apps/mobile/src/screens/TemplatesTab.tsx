@@ -3,12 +3,7 @@ import { listDiscoverTemplates, templatePosterUrl, templatePreviewUrl, type Temp
 import { useSupabaseSession } from "@veasnawt/auth";
 import { MobileSignInDialog } from "@veasnawt/vcut/src/ui/MobileSignInDialog";
 
-/** Mobile's Templates tab — Discover only (everyone else's published templates; see
- *  `packages/vcut/src/api/templates.ts`'s own doc comment on why "My Templates" has no save path from a
- *  native project). Tapping a tile hands its id up to `App.tsx`, which mounts the shared
- *  `TemplateDraftApp` (the SAME fill-screen flow `studios/vcut/app/edit/page.tsx` already uses for
- *  "Use this template" on web/desktop) — no separate fill/preview UI built here, `loadTemplateForDraft`/
- *  `createProjectFromTemplate` already grew native branches for exactly this. */
+/** Discover tiles open the playback detail screen. Its Use action opens the shared fill-slot flow. */
 export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: string) => void }) {
   const { user } = useSupabaseSession();
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);

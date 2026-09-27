@@ -8,11 +8,13 @@ import { ProjectsTab } from "./screens/ProjectsTab";
 import { TemplatesTab } from "./screens/TemplatesTab";
 import type { QuickTool } from "@veasnawt/vcut/src/ui/QuickTools";
 import { MeTab } from "./screens/MeTab";
+import { TemplateDetailScreen } from "./screens/TemplateDetailScreen";
 
 type View =
   | { kind: "tabs"; tab: TabId }
   | { kind: "editor"; projectId: string; projectName?: string; initialTool?: QuickTool }
-  | { kind: "templateDraft"; templateId: string };
+  | { kind: "templatePreview"; templateId: string; returnTab: TabId }
+  | { kind: "templateDraft"; templateId: string; returnTab: TabId };
 
 /** The real Home/Projects/Templates/Me shell this app never had — see the scaffold this replaces
  *  (previously: one hardcoded local project, no list, no way back to it). `VCutApp`'s own `onHome` prop
@@ -41,15 +43,24 @@ export default function App() {
   function goHome() {
     setView({ kind: "tabs", tab: "home" });
   }
+  function previewTemplate(templateId: string) {
+    setView({ kind: "templatePreview", templateId, returnTab: view.kind === "tabs" ? view.tab : "templates" });
+  }
 
   if (view.kind === "editor") {
     return <VCutApp projectId={view.projectId} projectName={view.projectName} onHome={goHome} initialTool={view.initialTool} />;
   }
 
+  if (view.kind === "templatePreview") {
+    return <TemplateDetailScreen key={view.templateId} templateId={view.templateId}
+      onBack={() => setView({ kind: "tabs", tab: view.returnTab })}
+      onUse={() => setView({ kind: "templateDraft", templateId: view.templateId, returnTab: view.returnTab })} />;
+  }
+
   if (view.kind === "templateDraft") {
     return (
       <div className="h-dvh">
-        <TemplateDraftApp templateId={view.templateId} onHome={goHome} onProjectCreated={openProject} />
+        <TemplateDraftApp templateId={view.templateId} onHome={() => setView({ kind: "templatePreview", templateId: view.templateId, returnTab: view.returnTab })} onProjectCreated={openProject} />
       </div>
     );
   }
@@ -58,10 +69,10 @@ export default function App() {
     <div className="h-full min-h-0 bg-[#0a0c10] text-white">
       <TabBarSpacer>
         {view.tab === "home" && (
-          <HomeTab onOpenProject={openProject} onOpenTemplates={() => setView({ kind: "tabs", tab: "templates" })} onOpenProjects={() => setView({ kind: "tabs", tab: "projects" })} onUseTemplate={(templateId) => setView({ kind: "templateDraft", templateId })} />
+          <HomeTab onOpenProject={openProject} onOpenTemplates={() => setView({ kind: "tabs", tab: "templates" })} onOpenProjects={() => setView({ kind: "tabs", tab: "projects" })} onUseTemplate={previewTemplate} />
         )}
         {view.tab === "projects" && <ProjectsTab onOpenProject={openProject} />}
-        {view.tab === "templates" && <TemplatesTab onUseTemplate={(templateId) => setView({ kind: "templateDraft", templateId })} />}
+        {view.tab === "templates" && <TemplatesTab onUseTemplate={previewTemplate} />}
         {view.tab === "me" && <MeTab />}
       </TabBarSpacer>
       <TabBar active={view.tab} onChange={(tab) => setView({ kind: "tabs", tab })} />

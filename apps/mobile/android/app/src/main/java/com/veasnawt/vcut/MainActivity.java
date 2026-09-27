@@ -3,8 +3,11 @@ package com.veasnawt.vcut;
 import android.os.Bundle;
 import android.os.Build;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.view.View;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.ViewCompat;
 import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeActivity;
 
@@ -22,9 +25,13 @@ public class MainActivity extends BridgeActivity {
 
         // Keep Capacitor's safe native margins, but paint the exposed inset area like the app.
         int background = Color.rgb(10, 12, 16);
+        // One inset owner: draw the native container behind system bars, then Capacitor margins
+        // reserve content space. This avoids decor fitting plus WebView margins counting twice.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setBackgroundDrawable(new ColorDrawable(background));
         getWindow().getDecorView().setBackgroundColor(background);
-        getWindow().setStatusBarColor(background);
-        getWindow().setNavigationBarColor(background);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             getWindow().setStatusBarContrastEnforced(false);
             getWindow().setNavigationBarContrastEnforced(false);
@@ -40,6 +47,7 @@ public class MainActivity extends BridgeActivity {
             if (webView.getParent() instanceof View) {
                 ((View) webView.getParent()).setBackgroundColor(background);
             }
+            ViewCompat.requestApplyInsets(webView);
         }
     }
 }

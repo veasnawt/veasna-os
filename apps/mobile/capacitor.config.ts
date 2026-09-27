@@ -8,6 +8,7 @@ const config: CapacitorConfig = {
   appId: "com.veasnawt.vcut",
   appName: "VCut",
   webDir: "dist",
+  backgroundColor: "#0a0c10",
   android: {
     // `index.css`'s `env(safe-area-inset-*)` padding on `#root` was confirmed on a real device to be
     // NOT enough by itself on Android — targetSdk 35 (`variables.gradle`) means Android 15+ enforces
