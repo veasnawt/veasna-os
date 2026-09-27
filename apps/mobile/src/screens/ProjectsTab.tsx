@@ -4,6 +4,7 @@ import { nativeDeleteProject, nativeListProjects, type LocalProjectSummary } fro
 import type { Project } from "@veasnawt/vcut/src/project/types";
 import { formatUpdatedAt } from "../format";
 import { ProjectThumbnail } from "../ProjectThumbnail";
+import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
 import { NewProjectDialog } from "./NewProjectDialog";
 
 /** The exhaustive, searchable project grid — mirrors `studios/vcut/app/ProjectsDashboard.tsx`'s own
@@ -47,16 +48,9 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (projectId: stri
     <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8">
       <header className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-white">Projects</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex shrink-0 items-center gap-1.5 rounded-md bg-sky-500 px-3.5 py-2 text-sm font-medium text-white"
-        >
-          <span aria-hidden className="text-base leading-none">
-            +
-          </span>
-          New Project
-        </button>
+
       </header>
+      <NewProjectCard onClick={() => setShowCreate(true)} />
 
       {error && <p className="text-xs text-amber-200/80">{error}</p>}
 

@@ -114,3 +114,5 @@ export const PATCH = hostedOnlyRoute(async (req, user) => {
   }
   return response(await getPublicProfile(user.id));
 });
+
+export { corsPreflight as OPTIONS } from "../_lib/localOnly";

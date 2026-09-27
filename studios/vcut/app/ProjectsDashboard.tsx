@@ -1,5 +1,7 @@
 "use client";
 
+import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -421,16 +423,9 @@ export function ProjectsDashboard() {
             <p className="mt-1 text-xs text-white/40">A focused video editor for short-form creative work.</p>
           </div>
         )}
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex shrink-0 items-center gap-1.5 rounded-md bg-sky-500 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-sky-400"
-        >
-          <span aria-hidden className="text-base leading-none">
-            +
-          </span>
-          New Project
-        </button>
+
       </header>
+      <NewProjectCard onClick={() => setShowCreate(true)} className="sm:max-w-md" />
 
       {error && <p className="text-xs text-amber-200/80">{error}</p>}
 

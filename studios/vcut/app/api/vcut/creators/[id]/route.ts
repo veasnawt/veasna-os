@@ -1,5 +1,5 @@
 import { getFollowerCount, getFollowingCount, isFollowing } from "../../_lib/follows";
-import { publicSessionRoute } from "../../_lib/localOnly";
+import { publicSessionRoute, withCors } from "../../_lib/localOnly";
 import { ApiError } from "../../_lib/paths";
 import { getPublicProfile, resolveProfileIdFromUrlSegment } from "../../_lib/profiles";
 import { getTemplatesByIds, listPublicTemplatesByOwner, templateAiCredits } from "../../_lib/templates";
@@ -47,7 +47,7 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
     ownerId: t.ownerId,
     aiCredits: templateAiCredits(t.project),
   });
-  return Response.json({
+  return withCors(Response.json({
     id,
     displayName: profile.displayName,
     username: profile.username,
@@ -59,5 +59,7 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
     viewerIsFollowing,
     templates: templates.map(toRow),
     likedTemplates: likedTemplates.map(toRow),
-  });
+  }));
 });
+
+export { corsPreflight as OPTIONS } from "../../_lib/localOnly";

@@ -16,6 +16,8 @@ const publicAuth = JSON.parse(readFileSync(path.join(repoRoot, "scripts", "vcut-
 
 const env = {
   ...process.env,
+  VCUT_HOSTED: "false",
+  NEXT_PUBLIC_VCUT_HOSTED: "false",
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || publicAuth.supabaseUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || publicAuth.supabaseAnonKey,
 };

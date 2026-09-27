@@ -18,3 +18,5 @@ export const GET = hostedOnlyRoute(async (req, user) => {
   const available = valid ? await isUsernameAvailable(username, user.id) : false;
   return Response.json({ username, valid, available });
 });
+
+export { corsPreflight as OPTIONS } from "../../_lib/localOnly";

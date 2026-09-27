@@ -6,11 +6,12 @@ import { TabBar, TabBarSpacer, type TabId } from "./TabBar";
 import { HomeTab } from "./screens/HomeTab";
 import { ProjectsTab } from "./screens/ProjectsTab";
 import { TemplatesTab } from "./screens/TemplatesTab";
+import type { QuickTool } from "@veasnawt/vcut/src/ui/QuickTools";
 import { MeTab } from "./screens/MeTab";
 
 type View =
   | { kind: "tabs"; tab: TabId }
-  | { kind: "editor"; projectId: string; projectName?: string }
+  | { kind: "editor"; projectId: string; projectName?: string; initialTool?: QuickTool }
   | { kind: "templateDraft"; templateId: string };
 
 /** The real Home/Projects/Templates/Me shell this app never had — see the scaffold this replaces
@@ -34,15 +35,15 @@ export default function App() {
     });
   }, []);
 
-  function openProject(projectId: string, projectName: string) {
-    setView({ kind: "editor", projectId, projectName });
+  function openProject(projectId: string, projectName: string, initialTool?: QuickTool) {
+    setView({ kind: "editor", projectId, projectName, initialTool });
   }
   function goHome() {
     setView({ kind: "tabs", tab: "home" });
   }
 
   if (view.kind === "editor") {
-    return <VCutApp projectId={view.projectId} projectName={view.projectName} onHome={goHome} />;
+    return <VCutApp projectId={view.projectId} projectName={view.projectName} onHome={goHome} initialTool={view.initialTool} />;
   }
 
   if (view.kind === "templateDraft") {
@@ -57,7 +58,7 @@ export default function App() {
     <div className="bg-[#0a0c10] text-white">
       <TabBarSpacer>
         {view.tab === "home" && (
-          <HomeTab onOpenProject={openProject} onOpenTemplates={() => setView({ kind: "tabs", tab: "templates" })} />
+          <HomeTab onOpenProject={openProject} onOpenTemplates={() => setView({ kind: "tabs", tab: "templates" })} onOpenProjects={() => setView({ kind: "tabs", tab: "projects" })} onUseTemplate={(templateId) => setView({ kind: "templateDraft", templateId })} />
         )}
         {view.tab === "projects" && <ProjectsTab onOpenProject={openProject} />}
         {view.tab === "templates" && <TemplatesTab onUseTemplate={(templateId) => setView({ kind: "templateDraft", templateId })} />}

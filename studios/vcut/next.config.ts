@@ -49,8 +49,8 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' blob: data: https://*.supabase.co https://*.pexels.com https://images.pexels.com https://*.giphy.com https://*.klipy.com https://lh3.googleusercontent.com https://*.mzstatic.com https://*.apple.com https://*.ytimg.com https://*.youtube.com https://*.ggpht.com",
-      "media-src 'self' blob: data: mediastream: https://*.pexels.com https://*.giphy.com https://*.klipy.com https://*.apple.com https://*.itunes.apple.com https://audio-ssl.itunes.apple.com",
+      "img-src 'self' https://vcut.io blob: data: https://*.supabase.co https://*.pexels.com https://images.pexels.com https://*.giphy.com https://*.klipy.com https://lh3.googleusercontent.com https://*.mzstatic.com https://*.apple.com https://*.ytimg.com https://*.youtube.com https://*.ggpht.com",
+      "media-src 'self' https://vcut.io blob: data: mediastream: https://*.pexels.com https://*.giphy.com https://*.klipy.com https://*.apple.com https://*.itunes.apple.com https://audio-ssl.itunes.apple.com",
       // `https://vcut.io` itself is included here even though this page IS vcut.io on the hosted
       // deployment (where it's already covered by 'self') — Desktop and Mobile serve this exact same
       // Next.js bundle locally (HOSTED=false), and `packages/vcut/src/api/client.ts`'s `centralFetch`/
