@@ -75,3 +75,11 @@ apps/mobile/build
 .env
 .env.*
 !.env.example
+
+# Store review output and private signing material
+apps/vcut-desktop/release-verified
+apps/vcut-desktop/release-store
+*.jks
+*.keystore
+*.p12
+*.pfx
