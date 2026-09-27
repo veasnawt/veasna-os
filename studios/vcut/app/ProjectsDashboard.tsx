@@ -1,6 +1,7 @@
 "use client";
 
 import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
+import { EmptyProjectThumbnail } from "@veasnawt/vcut/src/ui/EmptyProjectThumbnail";
 import { CloudProjects, CloudProjectButton } from "@veasnawt/vcut/src/ui/CloudProjects";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -467,12 +468,12 @@ export function ProjectsDashboard() {
           <div className="columns-2 gap-4 sm:columns-3 lg:columns-4 xl:columns-5">
             {filtered?.map((p) => {
               const portrait = p.height > p.width;
-              const url = thumbnailUrl(p.id, p.thumbnail);
+              const url = p.clipCount === 0 ? null : thumbnailUrl(p.id, p.thumbnail);
               return (
                 <div key={p.id} className="group mb-4 flex break-inside-avoid flex-col gap-2">
                   <Link
                     href={`/edit?projectId=${encodeURIComponent(p.id)}&projectName=${encodeURIComponent(p.name)}`}
-                    style={{ aspectRatio: `${p.width} / ${p.height}` }}
+                    style={{ aspectRatio: p.clipCount === 0 ? "4 / 3" : `${p.width} / ${p.height}` }}
                     className="relative block overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] transition group-hover:border-white/25"
                   >
                     {url ? (
@@ -483,12 +484,7 @@ export function ProjectsDashboard() {
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={url} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/15">
-                          <rect x="3" y="5" width="18" height="14" rx="2" />
-                          <path d="M9 9.5v5l4.5-2.5L9 9.5Z" fill="currentColor" stroke="none" />
-                        </svg>
-                      </div>
+                      <EmptyProjectThumbnail empty={p.clipCount === 0} />
                     )}
 
                     <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white/70 backdrop-blur-sm">

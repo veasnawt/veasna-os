@@ -1,18 +1,14 @@
 import fs from "fs";
+import { Readable } from "node:stream";
 
 /** Bridges a Node read stream to the Web `ReadableStream` a `Response` expects, propagating cancel
  *  so a seek that abandons an in-flight request doesn't leave a file handle open. */
 function toWebStream(nodeStream: fs.ReadStream): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      nodeStream.on("data", (chunk) => controller.enqueue(new Uint8Array(chunk as Buffer)));
-      nodeStream.on("end", () => controller.close());
-      nodeStream.on("error", (err) => controller.error(err));
-    },
-    cancel() {
-      nodeStream.destroy();
-    },
-  });
+  // Count queued bytes, not chunks. Large downloads must pause disk reads while the client
+  // drains the response; otherwise a slow connection can queue the entire video in memory.
+  return Readable.toWeb(nodeStream, {
+    strategy: { highWaterMark: nodeStream.readableHighWaterMark, size: (chunk: Uint8Array) => chunk.byteLength },
+  }) as ReadableStream<Uint8Array>;
 }
 
 /** Streams a file from disk with HTTP Range support — factored out of `media/raw/route.ts`'s own GET

@@ -88,7 +88,7 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (projectId: stri
                 <div key={p.id} className="group mb-4 flex break-inside-avoid flex-col gap-2">
                   <button
                     onClick={() => onOpenProject(p.id, p.name)}
-                    style={{ aspectRatio: `${p.width} / ${p.height}` }}
+                    style={{ aspectRatio: p.clipCount === 0 ? "4 / 3" : `${p.width} / ${p.height}` }}
                     className="relative block w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-left"
                   >
                     <ProjectThumbnail project={p} />
