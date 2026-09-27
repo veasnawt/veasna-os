@@ -40,6 +40,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <!-- Photo/video picking for media import (Camera plugin's pickImages). Android 13+ (API 33) uses
          the granular media permissions; older versions fall back to READ_EXTERNAL_STORAGE. -->

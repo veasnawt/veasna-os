@@ -1,6 +1,7 @@
 package com.veasnawt.vcut
 
 import android.content.ContentValues
+import android.Manifest
 import android.os.Build
 import android.provider.MediaStore
 import com.arthenica.ffmpegkit.FFmpegKit
@@ -11,7 +12,10 @@ import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.PermissionState
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.getcapacitor.annotation.Permission
+import com.getcapacitor.annotation.PermissionCallback
 import java.io.File
 
 /** Runs the exact FFmpeg argv `buildExportPlan.ts` already produces for desktop export, on-device —
@@ -25,14 +29,30 @@ import java.io.File
  *  otherwise need re-escaping into a single command string just to be un-escaped again — the JS side
  *  already hands over `plan.args` as a plain string array, so this passes it straight through with no
  *  quoting step to get wrong. */
-@CapacitorPlugin(name = "Ffmpeg")
+@CapacitorPlugin(name = "Ffmpeg", permissions = [Permission(alias = "legacyGallery", strings = [Manifest.permission.WRITE_EXTERNAL_STORAGE])])
 class FfmpegPlugin : Plugin() {
     private val sessions = mutableMapOf<String, Long>()
     private val totalDurationMs = mutableMapOf<String, Double>()
 
     @PluginMethod
     fun run(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && getPermissionState("legacyGallery") != PermissionState.GRANTED) {
+            requestPermissionForAlias("legacyGallery", call, "runWithGalleryPermission")
+            return
+        }
+        startRun(call)
+    }
+
+    @PermissionCallback
+    private fun runWithGalleryPermission(call: PluginCall) {
+        // A denied Gallery permission must not discard the export itself.
+        startRun(call)
+    }
+
+    private fun startRun(call: PluginCall) {
         val jobId = call.getString("jobId") ?: return call.reject("Missing jobId")
+        val outputPath = call.getString("outputPath") ?: return call.reject("Missing outputPath")
+        val fileName = call.getString("fileName") ?: return call.reject("Missing fileName")
         val argsArray = call.getArray("args") ?: return call.reject("Missing args")
         val durationSeconds = call.getDouble("duration") ?: 0.0
         totalDurationMs[jobId] = durationSeconds * 1000.0
@@ -47,8 +67,19 @@ class FfmpegPlugin : Plugin() {
             { completed: Session ->
                 val payload = JSObject()
                 payload.put("jobId", jobId)
+                payload.put("fileName", fileName)
                 when {
-                    ReturnCode.isSuccess(completed.returnCode) -> notifyListeners("done", payload)
+                    ReturnCode.isSuccess(completed.returnCode) -> {
+                        // Native callback owns saving, even after the export dialog is unmounted.
+                        try {
+                            copyToGallery(outputPath, fileName)
+                            payload.put("gallerySaved", true)
+                        } catch (e: Exception) {
+                            payload.put("gallerySaved", false)
+                            payload.put("galleryError", e.message ?: "Could not save to Gallery")
+                        }
+                        notifyListeners("done", payload, true)
+                    }
                     ReturnCode.isCancel(completed.returnCode) -> notifyListeners("cancelled", payload)
                     else -> {
                         // `allLogsAsString` includes FFmpeg's own startup banner — a "configuration:"
@@ -65,6 +96,9 @@ class FfmpegPlugin : Plugin() {
                 }
                 sessions.remove(jobId)
                 totalDurationMs.remove(jobId)
+                if (jobId.matches(Regex("[A-Za-z0-9_-]+"))) {
+                    File(context.cacheDir, "vcut-text/$jobId").deleteRecursively()
+                }
             },
             { /* log callback: not surfaced — `failStackTrace`/`allLogsAsString` above cover the failure case */ },
             { stats: Statistics ->
@@ -87,49 +121,64 @@ class FfmpegPlugin : Plugin() {
         call.resolve()
     }
 
-    /** Copies a finished export into the device's own Gallery/Movies app via `MediaStore`, so a
-     *  render is available the moment it finishes without requiring the user to go through the share
-     *  sheet just to keep a copy — the share sheet (`ExportDialog.tsx`'s "Save / Share") stays around
-     *  for sending it to a specific app (Telegram, etc.), this is just the automatic "don't lose it"
-     *  path. Scoped-storage `MediaStore` insert (API 29+) needs no runtime permission at all — this is
-     *  the primary, verified path (the only device this was tested on is API 29). Pre-29 devices are
-     *  vanishingly rare at this point (Android ≤8.1, 2016-2017 hardware) and would need a separate
-     *  `WRITE_EXTERNAL_STORAGE` runtime-permission flow this app doesn't have yet; `insert()` there
-     *  will just fail with a `SecurityException` that surfaces as a normal `reject`, not a crash — a
-     *  deliberate "best effort on old versions, not a hard requirement" scope cut, not an oversight. */
+    /** Gallery retry. Android 10+ uses scoped storage; older devices request legacy write access. */
     @PluginMethod
     fun saveToGallery(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && getPermissionState("legacyGallery") != PermissionState.GRANTED) {
+            requestPermissionForAlias("legacyGallery", call, "saveWithGalleryPermission")
+            return
+        }
+        saveGallery(call)
+    }
+
+    @PermissionCallback
+    private fun saveWithGalleryPermission(call: PluginCall) {
+        saveGallery(call)
+    }
+
+    private fun saveGallery(call: PluginCall) {
         val path = call.getString("path") ?: return call.reject("Missing path")
         val fileName = call.getString("fileName") ?: return call.reject("Missing fileName")
         try {
-            val resolver = context.contentResolver
-            val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VCut")
-                    put(MediaStore.Video.Media.IS_PENDING, 1)
-                }
-            }
-            val itemUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                ?: return call.reject("Could not create a gallery entry")
+            val result = JSObject()
+            result.put("uri", copyToGallery(path, fileName))
+            call.resolve(result)
+        } catch (e: Exception) {
+            call.reject(e.message ?: "Failed to save to gallery", e)
+        }
+    }
 
+    private fun copyToGallery(path: String, fileName: String): String {
+        val file = File(path)
+        require(file.isFile && file.length() > 0) { "The exported video could not be found" }
+        require(fileName.isNotBlank()) { "The exported video's filename is missing" }
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VCut")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        val itemUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create a gallery entry")
+        try {
             resolver.openOutputStream(itemUri).use { out ->
-                if (out == null) return call.reject("Could not open the gallery entry for writing")
-                File(path).inputStream().use { input -> input.copyTo(out) }
+                checkNotNull(out) { "Could not open the gallery entry for writing" }
+                file.inputStream().use { input -> input.copyTo(out) }
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
                 values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                resolver.update(itemUri, values, null, null)
+                check(resolver.update(itemUri, values, null, null) > 0) { "Could not publish the video to Gallery" }
             }
 
-            val result = JSObject()
-            result.put("uri", itemUri.toString())
-            call.resolve(result)
+            return itemUri.toString()
         } catch (e: Exception) {
-            call.reject(e.message ?: "Failed to save to gallery", e)
+            resolver.delete(itemUri, null, null)
+            throw e
         }
     }
 }
