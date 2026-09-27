@@ -24,6 +24,7 @@ interface RenderFrameParams {
   frameWidth: number;
   frameHeight: number;
   content: string;
+  groupPose?: {matrix:{a:number;b:number;c:number;d:number;e:number;f:number};opacity:number};
   crop?: import("@veasnawt/vcut/src/project/types").TextCrop;
   style: TextStyle;
   animation: Clip["textAnimation"];
@@ -112,6 +113,7 @@ export default function TextHarnessPage() {
       await document.fonts.load(`${weight} ${params.style.fontSize}px "${font.cssFamily}"`);
 
       context.save();
+      if(params.groupPose){const {matrix:m,opacity}=params.groupPose;context.transform(m.a,m.b,m.c,m.d,m.e,m.f);context.globalAlpha*=opacity;}
       if (params.crop) { const crop=params.crop; context.beginPath(); context.rect(params.frameWidth*crop.left,params.frameHeight*crop.top,params.frameWidth*(1-crop.left-crop.right),params.frameHeight*(1-crop.top-crop.bottom)); context.clip(); }
       drawAnimatedTextFrame(
         context,

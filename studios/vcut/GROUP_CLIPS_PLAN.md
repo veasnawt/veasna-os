@@ -66,3 +66,28 @@ export plan/native/browser text adapters; clipboard and regression/render tests.
 
 No Compound Clips, new template engine, destructive per-frame child rewrites,
 placeholder group controls or changes to template-track grouping.
+
+## Implemented and verified
+
+Persistent nested groups now compose parent matrices and opacity through the shared
+animation evaluator. Group/Ungroup, rename, lock, rigid timeline movement, canvas
+move/scale/rotate, child edit mode, shortcuts, contextual actions, property diamonds,
+timeline markers, hierarchy copy/paste/duplicate, scoped undo and save/load are wired.
+Original tracks and child curves stay intact. Ungroup retains independent, editable
+transform layers so animated compositions do not jump or lose their motion.
+
+Project schema is now 2: schema 1 projects remain readable without a database
+migration. Older apps reject new-format files explicitly rather than silently
+discarding groups and animation. Update cloud/web and native apps together.
+
+Verification: 1,587 full-suite tests passed, plus 29 focused tests after the final
+multi-group movement and collage-copy fixes. A real FFmpeg render checks animated
+parent scale/rotation/opacity and child movement. Actual browser Inspector/Preview/
+Timeline workflows and full-app keyboard shortcuts passed. Grouped text matched
+preview/export pixel-for-pixel across 48 frames. Host typecheck passed; mobile
+production build passed. Lint retains the existing 139 errors with no new errors.
+
+Native installers are being rebuilt as 0.2.12/build 16. Real-device Android export,
+touch/keyboard checks and a Mac iOS archive still require validation. Existing
+frame-rasterization budgets remain explicit export errors, never silent styling
+fallbacks. Group opacity multiplies child opacity; global track order is preserved.

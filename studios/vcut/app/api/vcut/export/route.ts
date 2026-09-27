@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { buildExportPlan, clipNeedsBrowserTextRender } from "@veasnawt/vcut/src/export/buildExportPlan";
 import { renderKhmerClipWindows, type KhmerTextWindow } from "@veasnawt/vcut/src/export/khmerTextRenderer";
+import { clipHasParentAnimation, parentPose } from "@veasnawt/vcut/src/project/groups";
 import {
   OUTRO_BG_ASSET_ID,
   OUTRO_BG_SIZE,
@@ -719,7 +720,7 @@ async function runExportJob(
       .filter((clip) => {
         const asset = project.assets.find((a) => a.id === clip.assetId);
         if (!asset?.textContent || !asset.textStyle) return false;
-        return hasTextStyleKeyframes(clip) || hasTextCropKeyframes(clip) || !isIdentityTextCrop(resolveTextCrop(clip,0)) || clipNeedsBrowserTextRender(clip, asset.textContent, resolveTextStyle(clip,0,asset.textStyle));
+        return clip.groupId || clip.transformLayers?.length || hasTextStyleKeyframes(clip) || hasTextCropKeyframes(clip) || !isIdentityTextCrop(resolveTextCrop(clip,0)) || clipNeedsBrowserTextRender(clip, asset.textContent, resolveTextStyle(clip,0,asset.textStyle));
       });
 
     const khmerWindowsByClipId = new Map<string, KhmerTextWindow[]>();
@@ -753,6 +754,7 @@ async function runExportJob(
           if (totalWindows >= MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
           const asset = project.assets.find((a) => a.id === clip.assetId)!;
           const windows = await renderKhmerClipWindows(clip, asset.textContent!, asset.textStyle!, {
+            parentAnimated:clipHasParentAnimation(project,clip),
             frameWidth: project.sequence.width,
             frameHeight: project.sequence.height,
             // `project.exportSettings.fps`, NOT `project.sequence.fps` — the latter is only the EDITING
@@ -773,7 +775,7 @@ async function runExportJob(
             customFonts: project.customFonts,
             renderFrame: async (params) => {
               if (++totalWindows > MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
-              return harness.renderFrame({...params, crop: resolveTextCrop(clip,params.elapsedSeconds)});
+              return harness.renderFrame({...params, crop: resolveTextCrop(clip,params.elapsedSeconds),groupPose:parentPose(project,clip,clip.timelineStart+params.elapsedSeconds)});
             },
           });
           khmerWindowsByClipId.set(clip.id, windows);
