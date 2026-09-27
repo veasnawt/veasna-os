@@ -15,6 +15,8 @@ function EditPageContent() {
   const params = useSearchParams();
   const projectId = params.get("projectId");
   const projectName = params.get("projectName");
+  const tool = params.get("tool");
+  const initialTool = tool === "captions" || tool === "music" || tool === "voiceover" ? tool : undefined;
   // "Use this template" lands here with a template, not a project — see `TemplateDraftApp`: the project
   // is only created once media is picked, then this page is replaced with that project's own URL.
   const templateId = params.get("templateId");
@@ -68,6 +70,7 @@ function EditPageContent() {
         <VCutApp
           projectId={projectId}
           projectName={projectName ?? undefined}
+          initialTool={initialTool}
           onHome={standalone ? () => router.push(process.env.NEXT_PUBLIC_VCUT_HOSTED === "true" ? "/home" : "/") : undefined}
         />
       </div>

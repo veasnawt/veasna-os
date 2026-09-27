@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSupabaseSession } from "@veasnawt/auth";
+import OwnProfile from "./OwnProfile";
+import { TabBar, TabBarSpacer } from "./TabBar";
 import { Avatar } from "./Avatar";
 import { authFetch, displayNameOrFallback, profilePath, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "./hostedClient";
 
@@ -95,6 +97,19 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
     } else {
       navigator.clipboard?.writeText(url).catch(() => {});
     }
+  }
+
+  // Identity, rather than merely being signed in, determines whether editing is available.
+  if (info && user?.id === info.id) {
+    return (
+      <>
+        <TabBar activeTab="/me" />
+        <TabBarSpacer><OwnProfile /></TabBarSpacer>
+      </>
+    );
+  }
+  if (info && user === undefined) {
+    return <main className="mx-auto max-w-md px-4 py-6 text-xs text-white/40">Loading?</main>;
   }
 
   if (notFound) {

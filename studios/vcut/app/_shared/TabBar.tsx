@@ -80,7 +80,7 @@ const TABS: Tab[] = [
  *  either way, just re-laid-out via `orientation`, so the two never drift out of sync with each other
  *  (which tabs exist, in what order, highlighted how) the way two independently-written components
  *  eventually would. */
-export function TabBar() {
+export function TabBar({ activeTab }: { activeTab?: string } = {}) {
   const pathname = usePathname();
 
   return (
@@ -91,7 +91,7 @@ export function TabBar() {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} active={pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="bottom" />
+          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="bottom" />
         ))}
       </nav>
 
@@ -104,7 +104,7 @@ export function TabBar() {
           VCut
         </div>
         {TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} active={pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="side" />
+          <TabLink key={tab.href} tab={tab} active={activeTab ? activeTab === tab.href : pathname === tab.href || pathname.startsWith(`${tab.href}/`)} orientation="side" />
         ))}
       </nav>
     </>
