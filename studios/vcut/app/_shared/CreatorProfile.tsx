@@ -13,6 +13,8 @@ interface CreatorInfo {
   id: string;
   displayName: string | null;
   username: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
   followerCount: number;
   followingCount: number;
   totalLikes: number;
@@ -138,12 +140,14 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
       ) : (
         <>
           <div className="mt-4 flex items-center gap-4">
-            <Avatar seed={info.id} displayName={info.displayName} size={72} />
+            <Avatar seed={info.id} displayName={info.displayName} size={72} src={info.avatarUrl} />
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold">{displayNameOrFallback(info.displayName)}</h1>
               <p className="mt-0.5 truncate text-xs text-white/40">{info.username ? `@${info.username}` : `ID: ${info.id.slice(0, 8).toUpperCase()}`}</p>
             </div>
           </div>
+
+          {info.bio && <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-white/70">{info.bio}</p>}
 
           <div className="mt-5 flex items-center gap-6">
             <div className="text-center">

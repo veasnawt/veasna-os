@@ -46,6 +46,8 @@ interface OwnProfileInfo {
   id: string;
   displayName: string | null;
   username: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
   followerCount: number;
   followingCount: number;
   totalLikes: number;
@@ -100,14 +102,23 @@ export default function OwnProfile() {
 
   const [displayName, setDisplayNameField] = useState("");
   const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
-  const [savingName, setSavingName] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileReady, setProfileReady] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const [bio, setBio] = useState("");
+  const [savedBio, setSavedBio] = useState<string | null>(null);
+  const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(null);
+  const [picture, setPicture] = useState<File | null>(null);
+  const [picturePreview, setPicturePreview] = useState<string | null>(null);
+  const [removePicture, setRemovePicture] = useState(false);
+  const pictureInput = useRef<HTMLInputElement>(null);
 
   const [username, setUsernameField] = useState("");
   const [savedUsername, setSavedUsername] = useState<string | null>(null);
   const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(
     null,
   );
-  const [savingUsername, setSavingUsername] = useState(false);
   const [usernameError, setUsernameError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,29 +137,61 @@ export default function OwnProfile() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    if (editTarget) {
-      const input =
-        editTarget === "name" ? nameInput.current : usernameInput.current;
-      input?.focus({ preventScroll: true });
-    }
+    if (!editTarget) return;
+    const modal = dialog.current;
+    modal?.showModal();
+    (editTarget === "username"
+      ? usernameInput.current
+      : nameInput.current
+    )?.focus();
+    return () => {
+      modal?.close();
+      returnFocus.current?.focus({ preventScroll: true });
+    };
   }, [editTarget]);
 
+  useEffect(() => {
+    if (!picture) {
+      setPicturePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(picture);
+    setPicturePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [picture]);
+
   function openProfileEditor(target: "name" | "username") {
+    if (!profileReady) return;
+    returnFocus.current = document.activeElement as HTMLElement | null;
     setEditTarget(target);
-    (target === "name" ? nameInput.current : usernameInput.current)?.focus({
-      preventScroll: true,
-    });
   }
 
   function closeProfileEditor() {
-    if (savingName || savingUsername) return;
-    editTrigger.current?.focus({ preventScroll: true });
+    if (savingProfile) return;
     setEditTarget(null);
     setNameError(null);
     setDisplayNameField(savedDisplayName ?? "");
     setUsernameField(savedUsername ?? "");
+    setBio(savedBio ?? "");
+    setPicture(null);
+    setRemovePicture(false);
     setUsernameCheck(null);
     setUsernameError(null);
+  }
+
+  function choosePicture(file: File | undefined) {
+    if (!file) return;
+    if (
+      !file.size ||
+      file.size > 5 * 1024 * 1024 ||
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+    ) {
+      setNameError("Choose a JPG, PNG, or WebP picture under 5 MB.");
+      return;
+    }
+    setNameError(null);
+    setPicture(file);
+    setRemovePicture(false);
   }
 
   useEffect(() => {
@@ -183,13 +226,22 @@ export default function OwnProfile() {
       .then((res) => (res.ok ? res.json() : null))
       .then(
         (
-          body: { displayName: string | null; username: string | null } | null,
+          body: {
+            displayName: string | null;
+            username: string | null;
+            bio: string | null;
+            avatarUrl: string | null;
+          } | null,
         ) => {
           if (!body) return;
           setDisplayNameField(body.displayName ?? "");
           setSavedDisplayName(body.displayName);
           setUsernameField(body.username ?? "");
           setSavedUsername(body.username);
+          setBio(body.bio ?? "");
+          setSavedBio(body.bio);
+          setSavedAvatarUrl(body.avatarUrl);
+          setProfileReady(true);
         },
       )
       .catch(() => {});
@@ -201,32 +253,8 @@ export default function OwnProfile() {
       .catch(() => {});
   }, [user]);
 
-  async function saveDisplayName() {
-    setSavingName(true);
-    setNameError(null);
-    try {
-      const res = await authFetch("/api/vcut/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName }),
-      });
-      if (!res.ok) throw new Error();
-      const body = (await res.json()) as { displayName: string | null };
-      setDisplayNameField(body.displayName ?? "");
-      setSavedDisplayName(body.displayName);
-      setInfo((prev) =>
-        prev ? { ...prev, displayName: body.displayName } : prev,
-      );
-    } catch {
-      setNameError("Couldn't save your name — try again in a moment.");
-    } finally {
-      setSavingName(false);
-    }
-  }
-
   const trimmedUsername = username.trim().toLowerCase();
-  const usernameChanged =
-    trimmedUsername !== (savedUsername ?? "") && trimmedUsername.length > 0;
+  const usernameChanged = trimmedUsername !== (savedUsername ?? "");
 
   // Debounced "is this taken?" check while typing — same shape any username field elsewhere expects.
   // Skipped entirely once the candidate matches what's already saved (nothing to check).
@@ -282,36 +310,54 @@ export default function OwnProfile() {
     };
   }, [trimmedUsername, usernameChanged, editTarget]);
 
-  async function saveUsername() {
-    if (!canSaveUsername || savingUsername) return;
-    setSavingUsername(true);
-    setUsernameError(null);
+  async function saveProfile() {
+    if (!canSaveProfile || savingProfile) return;
+    setSavingProfile(true);
+    setNameError(null);
     try {
+      const form = new FormData();
+      form.set("displayName", displayName);
+      form.set("bio", bio);
+      if (usernameChanged) form.set("username", trimmedUsername);
+      if (picture) form.set("picture", picture);
+      if (removePicture) form.set("removePicture", "true");
       const res = await authFetch("/api/vcut/profile", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmedUsername }),
+        body: form,
       });
-      const body = (await res.json().catch(() => ({}))) as {
-        username?: string | null;
-        error?: string;
-      };
-      if (!res.ok) {
-        setUsernameError(
-          body.error ?? "Couldn't save that username — try again in a moment.",
-        );
-        return;
-      }
+      const body = await res.json();
+      if (!res.ok)
+        throw new Error(body.error ?? "Couldn't save your profile. Try again.");
+      setDisplayNameField(body.displayName ?? "");
+      setSavedDisplayName(body.displayName);
       setUsernameField(body.username ?? "");
-      setSavedUsername(body.username ?? null);
-      setUsernameCheck(null);
+      setSavedUsername(body.username);
+      setBio(body.bio ?? "");
+      setSavedBio(body.bio);
+      setSavedAvatarUrl(body.avatarUrl);
       setInfo((prev) =>
-        prev ? { ...prev, username: body.username ?? null } : prev,
+        prev
+          ? {
+              ...prev,
+              displayName: body.displayName,
+              username: body.username,
+              bio: body.bio,
+              avatarUrl: body.avatarUrl,
+            }
+          : prev,
       );
-    } catch {
-      setUsernameError("Couldn't save that username — try again in a moment.");
+      setPicture(null);
+      setRemovePicture(false);
+      setEditTarget(null);
+      setUsernameCheck(null);
+    } catch (err) {
+      setNameError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't save your profile. Try again.",
+      );
     } finally {
-      setSavingUsername(false);
+      setSavingProfile(false);
     }
   }
 
@@ -365,6 +411,14 @@ export default function OwnProfile() {
     !usernameCheck.checking &&
     usernameCheck.valid &&
     usernameCheck.available;
+  const profileChanged =
+    displayName.trim() !== (savedDisplayName ?? "") ||
+    usernameChanged ||
+    bio.trim() !== (savedBio ?? "") ||
+    picture !== null ||
+    removePicture;
+  const canSaveProfile =
+    profileReady && profileChanged && (!usernameChanged || canSaveUsername);
   const shownTemplates = info
     ? tab === "templates"
       ? info.templates
@@ -377,7 +431,6 @@ export default function OwnProfile() {
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         if (settingsOpen) setSettingsOpen(false);
-        else if (editTarget) closeProfileEditor();
       }}
     >
       {/* Desktop's own sign-in entry point — the hosted web build never reaches this: a signed-out
@@ -405,11 +458,25 @@ export default function OwnProfile() {
       {HOSTED && user && !settingsOpen && (
         <>
           <div className="flex items-center gap-4">
-            <Avatar seed={user.id} displayName={savedDisplayName} size={72} />
+            <button
+              onClick={() => openProfileEditor("name")}
+              disabled={!profileReady}
+              aria-label="Edit profile picture"
+              className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              <Avatar
+                seed={user.id}
+                displayName={savedDisplayName}
+                size={72}
+                src={savedAvatarUrl}
+              />
+            </button>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg font-semibold">
                 <button
                   onClick={() => openProfileEditor("name")}
+                  disabled={!profileReady}
+                  aria-haspopup="dialog"
                   aria-label="Edit creator name"
                   aria-expanded={editTarget !== null}
                   aria-controls="profile-editor"
@@ -420,6 +487,8 @@ export default function OwnProfile() {
               </h1>
               <button
                 onClick={() => openProfileEditor("username")}
+                disabled={!profileReady}
+                aria-haspopup="dialog"
                 aria-label="Edit username"
                 aria-expanded={editTarget !== null}
                 aria-controls="profile-editor"
@@ -429,6 +498,12 @@ export default function OwnProfile() {
               </button>
             </div>
           </div>
+
+          {savedBio && (
+            <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-white/70">
+              {savedBio}
+            </p>
+          )}
 
           {info && (
             <div className="mt-5 flex items-center gap-6">
@@ -456,15 +531,14 @@ export default function OwnProfile() {
           <div className="mt-4 flex gap-2">
             <button
               ref={editTrigger}
-              onClick={() =>
-                editTarget ? closeProfileEditor() : openProfileEditor("name")
-              }
-              disabled={savingName || savingUsername}
+              onClick={() => openProfileEditor("name")}
+              aria-haspopup="dialog"
+              disabled={savingProfile || !profileReady}
               aria-expanded={editTarget !== null}
               aria-controls="profile-editor"
               className="min-w-0 flex-1 rounded-md border border-white/15 bg-white/10 py-2 text-center text-xs font-medium text-white transition hover:bg-white/15 disabled:opacity-40"
             >
-              {editTarget ? "Close editor" : "Edit profile"}
+              Edit profile
             </button>
             <button
               ref={settingsTrigger}
@@ -472,7 +546,7 @@ export default function OwnProfile() {
                 closeProfileEditor();
                 setSettingsOpen(true);
               }}
-              disabled={savingName || savingUsername}
+              disabled={savingProfile || !profileReady}
               aria-label="Open account settings"
               title="Account settings"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/15 bg-white/[0.03] text-white/70 transition hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-40"
@@ -501,124 +575,220 @@ export default function OwnProfile() {
           </div>
 
           {editTarget && (
-            <div
+            <dialog
+              ref={dialog}
               id="profile-editor"
-              className="mt-6 space-y-4 rounded-lg border border-white/10 bg-white/[0.03] p-4"
+              aria-labelledby="profile-editor-title"
+              onCancel={(event) => {
+                event.preventDefault();
+                closeProfileEditor();
+              }}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  if (
+                    event.clientX < rect.left ||
+                    event.clientX > rect.right ||
+                    event.clientY < rect.top ||
+                    event.clientY > rect.bottom
+                  )
+                    closeProfileEditor();
+                }
+              }}
+              className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-md overflow-y-auto rounded-2xl border border-white/15 bg-[#111318] p-0 text-white shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm"
             >
-              {nameError && (
-                <p role="alert" className="text-xs text-amber-200/80">
-                  {nameError}
-                </p>
-              )}
-              <div>
-                <label
-                  htmlFor="profile-name"
-                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40"
-                >
-                  Creator name
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    ref={nameInput}
-                    disabled={savingName}
-                    id="profile-name"
-                    maxLength={60}
-                    value={displayName}
-                    onChange={(e) => setDisplayNameField(e.target.value)}
-                    placeholder="Your creator name"
-                    className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30"
-                  />
-                  {displayName.trim() !== (savedDisplayName ?? "") && (
-                    <button
-                      onClick={() => void saveDisplayName()}
-                      disabled={savingName}
-                      className="shrink-0 rounded-md bg-white/10 px-3 py-2 text-xs font-medium text-white disabled:opacity-40"
-                    >
-                      {savingName ? "…" : "Save"}
-                    </button>
-                  )}
-                </div>
-                <p className="mt-1.5 text-[11px] text-white/35">
-                  Shown on any template you publish — Discover, comments, and
-                  your own creator page.
-                </p>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="profile-username"
-                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40"
-                >
-                  Username
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative min-w-0 flex-1">
-                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/30">
-                      @
-                    </span>
-                    <input
-                      ref={usernameInput}
-                      disabled={savingUsername}
-                      id="profile-username"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      aria-describedby="username-status"
-                      value={username}
-                      onChange={(e) =>
-                        setUsernameField(e.target.value.toLowerCase())
-                      }
-                      placeholder="yourname"
-                      maxLength={20}
-                      className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-7 pr-3 text-sm text-white placeholder:text-white/30"
-                    />
-                  </div>
-                  {usernameChanged && (
-                    <button
-                      onClick={() => void saveUsername()}
-                      disabled={savingUsername || !canSaveUsername}
-                      className="shrink-0 rounded-md bg-white/10 px-3 py-2 text-xs font-medium text-white disabled:opacity-40"
-                    >
-                      {savingUsername ? "…" : "Save"}
-                    </button>
-                  )}
-                </div>
-                {usernameChanged ? (
-                  <p
-                    id="username-status"
-                    role="status"
-                    className={`mt-1.5 text-[11px] ${
-                      usernameError ||
-                      (usernameCheck &&
-                        !usernameCheck.checking &&
-                        (!usernameCheck.valid || !usernameCheck.available))
-                        ? "text-amber-200/80"
-                        : usernameCheck?.available
-                          ? "text-emerald-300/80"
-                          : "text-white/40"
-                    }`}
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveProfile();
+                }}
+                className="p-5 sm:p-6"
+              >
+                <div className="mb-6 flex items-center justify-between gap-4">
+                  <h2
+                    id="profile-editor-title"
+                    className="text-lg font-semibold"
                   >
-                    {usernameError
-                      ? usernameError
-                      : !usernameCheck ||
+                    Edit profile
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={closeProfileEditor}
+                    disabled={savingProfile}
+                    aria-label="Close edit profile"
+                    className="rounded-md px-2 py-1 text-xl text-white/60 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    ?
+                  </button>
+                </div>
+                <fieldset
+                  disabled={savingProfile}
+                  className="space-y-5 disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-4">
+                    <Avatar
+                      seed={user.id}
+                      displayName={displayName}
+                      size={80}
+                      src={
+                        picturePreview ??
+                        (removePicture ? null : savedAvatarUrl)
+                      }
+                    />
+                    <div>
+                      <input
+                        ref={pictureInput}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          choosePicture(event.target.files?.[0]);
+                          event.target.value = "";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => pictureInput.current?.click()}
+                        className="rounded-md border border-white/15 px-3 py-2 text-xs font-medium hover:bg-white/10"
+                      >
+                        Change picture
+                      </button>
+                      {(picture || savedAvatarUrl) && !removePicture && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPicture(null);
+                            setRemovePicture(true);
+                          }}
+                          className="ml-3 text-xs text-white/50 hover:text-white"
+                        >
+                          Remove
+                        </button>
+                      )}
+                      <p className="mt-2 text-[11px] text-white/40">
+                        JPG, PNG, or WebP ? Up to 5 MB
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="profile-name"
+                      className="mb-2 block text-xs font-medium text-white/70"
+                    >
+                      Creator name
+                    </label>
+                    <input
+                      ref={nameInput}
+                      id="profile-name"
+                      maxLength={60}
+                      value={displayName}
+                      onChange={(event) =>
+                        setDisplayNameField(event.target.value)
+                      }
+                      placeholder="Your creator name"
+                      className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+                    />
+                    <p className="mt-1.5 text-[11px] text-white/40">
+                      Shown on your profile, templates, and comments.
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="profile-username"
+                      className="mb-2 block text-xs font-medium text-white/70"
+                    >
+                      Username
+                    </label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">
+                        @
+                      </span>
+                      <input
+                        ref={usernameInput}
+                        id="profile-username"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-describedby="username-status"
+                        value={username}
+                        onChange={(event) =>
+                          setUsernameField(event.target.value.toLowerCase())
+                        }
+                        placeholder="yourname"
+                        maxLength={20}
+                        className="w-full rounded-lg border border-white/15 bg-white/5 py-2.5 pl-7 pr-3 text-sm outline-none focus:border-sky-400"
+                      />
+                    </div>
+                    <p
+                      id="username-status"
+                      role="status"
+                      className={`mt-1.5 text-[11px] ${usernameError || (usernameChanged && usernameCheck && !usernameCheck.checking && (!usernameCheck.valid || !usernameCheck.available)) ? "text-amber-200/80" : usernameChanged && usernameCheck?.available ? "text-emerald-300/80" : "text-white/40"}`}
+                    >
+                      {usernameChanged
+                        ? (usernameError ??
+                          (!usernameCheck ||
                           usernameCheck.candidate !== trimmedUsername ||
                           usernameCheck.checking
-                        ? "Checking…"
-                        : !usernameCheck.valid
-                          ? "3-20 characters: lowercase letters, numbers, and underscores only"
-                          : !usernameCheck.available
-                            ? "That username is already taken"
-                            : `vcut.io/@${trimmedUsername} is available`}
-                  </p>
-                ) : (
-                  !savedUsername && (
-                    <p className="mt-1.5 text-[11px] text-white/35">
-                      Pick a username for a readable profile link.
+                            ? "Checking?"
+                            : !usernameCheck.valid
+                              ? "3?20 characters: lowercase letters, numbers, and underscores."
+                              : !usernameCheck.available
+                                ? "That username is already taken."
+                                : `vcut.io/@${trimmedUsername} is available`))
+                        : savedUsername
+                          ? `vcut.io/@${savedUsername}`
+                          : "Choose a username for your profile link."}
                     </p>
-                  )
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="profile-bio"
+                      className="mb-2 block text-xs font-medium text-white/70"
+                    >
+                      Bio
+                    </label>
+                    <textarea
+                      id="profile-bio"
+                      value={bio}
+                      onChange={(event) => setBio(event.target.value)}
+                      maxLength={160}
+                      rows={3}
+                      placeholder="Tell people a little about yourself"
+                      aria-describedby="bio-count"
+                      className="w-full resize-none rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+                    />
+                    <p
+                      id="bio-count"
+                      className="mt-1 text-right text-[11px] text-white/40"
+                    >
+                      {bio.length}/160
+                    </p>
+                  </div>
+                </fieldset>
+                {nameError && (
+                  <p role="alert" className="mt-4 text-xs text-amber-200">
+                    {nameError}
+                  </p>
                 )}
-              </div>
-            </div>
+                <div className="mt-6 flex justify-end gap-3 border-t border-white/10 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeProfileEditor}
+                    disabled={savingProfile}
+                    className="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-medium disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!canSaveProfile || savingProfile}
+                    className="btn-brand-gradient rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
+                  >
+                    {savingProfile ? "Saving?" : "Save changes"}
+                  </button>
+                </div>
+              </form>
+            </dialog>
           )}
         </>
       )}

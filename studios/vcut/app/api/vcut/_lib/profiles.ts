@@ -42,6 +42,8 @@ export interface PublicProfile {
    *  `/u/[id]`'s own URL, to the id it was already given), same "absent is a normal, handled state"
    *  convention `displayName` already established. */
   username: string | null;
+  bio: string | null;
+  avatarPath: string | null;
 }
 
 /** `null` means no row exists yet — a user who has never started a checkout. Treated identically to
@@ -84,18 +86,18 @@ export async function getPublicProfiles(userIds: string[]): Promise<Map<string, 
   const result = new Map<string, PublicProfile>();
   if (unique.length === 0) return result;
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("profiles").select("id, display_name, username").in("id", unique);
+  const { data, error } = await supabase.from("profiles").select("id, display_name, username, bio, avatar_path").in("id", unique);
   if (error) {
     console.error("[vcut] profiles: could not batch-read display names for", unique, error);
     return result;
   }
-  for (const row of data ?? []) result.set(row.id, { id: row.id, displayName: row.display_name, username: row.username });
+  for (const row of data ?? []) result.set(row.id, { id: row.id, displayName: row.display_name, username: row.username, bio: row.bio, avatarPath: row.avatar_path });
   return result;
 }
 
 export async function getPublicProfile(userId: string): Promise<PublicProfile> {
   const profiles = await getPublicProfiles([userId]);
-  return profiles.get(userId) ?? { id: userId, displayName: null, username: null };
+  return profiles.get(userId) ?? { id: userId, displayName: null, username: null, bio: null, avatarPath: null };
 }
 
 /** Resolves a `/u/[id]` URL SEGMENT to a user id — accepts either the raw Supabase auth UUID (existing
@@ -149,8 +151,8 @@ export async function setUsername(userId: string, rawUsername: string): Promise<
 
 /** Validate every requested field before one atomic upsert so a taken username
  *  cannot leave the display name changed after a failed combined save. */
-export async function setProfileIdentity(userId: string, fields: { displayName?: string; username?: string }): Promise<void> {
-  const update: { id: string; display_name?: string | null; username?: string } = { id: userId };
+export async function setProfileIdentity(userId: string, fields: { displayName?: string; username?: string; bio?: string; avatarPath?: string | null }): Promise<void> {
+  const update: { id: string; display_name?: string | null; username?: string; bio?: string | null; avatar_path?: string | null } = { id: userId };
   if (fields.displayName !== undefined) {
     if (typeof fields.displayName !== "string") throw new ApiError(400, "Invalid displayName", "invalid-display-name");
     update.display_name = fields.displayName.trim().slice(0, 60) || null;
@@ -162,6 +164,11 @@ export async function setProfileIdentity(userId: string, fields: { displayName?:
       throw new ApiError(400, "Usernames are 3-20 characters: lowercase letters, numbers, and underscores only", "invalid-username");
     }
   }
+  if (fields.bio !== undefined) {
+    if (typeof fields.bio !== "string" || [...fields.bio].length > 160) throw new ApiError(400, "Bio must be 160 characters or fewer", "invalid-bio");
+    update.bio = fields.bio.trim() || null;
+  }
+  if (fields.avatarPath !== undefined) update.avatar_path = fields.avatarPath;
   const supabase = getSupabaseAdminClient();
   const { error } = await supabase.from("profiles").upsert(update, { onConflict: "id" });
   if (error) {

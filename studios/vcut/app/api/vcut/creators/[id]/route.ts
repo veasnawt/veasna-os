@@ -51,6 +51,8 @@ export const GET = publicSessionRoute(async (_req, user, context: { params: Prom
     id,
     displayName: profile.displayName,
     username: profile.username,
+    bio: profile.bio,
+    avatarUrl: profile.avatarPath ? `/api/vcut/creators/${id}/avatar?v=${profile.avatarPath}` : null,
     followerCount,
     followingCount,
     totalLikes,
