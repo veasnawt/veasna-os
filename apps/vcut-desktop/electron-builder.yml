@@ -1,5 +1,9 @@
 appId: com.veasnawt.vcut
 productName: VCut
+protocols:
+  - name: VCut
+    schemes:
+      - vcut
 # NSIS's solid LZMA compressor tries to mmap a buffer sized to roughly the whole payload in one
 # shot — on 32-bit makensis.exe this fails outright ("Internal compiler error #12345: error creating
 # mmap") once the app's bundled resources (ffmpeg/ffprobe, fonts, the Next.js standalone server) get

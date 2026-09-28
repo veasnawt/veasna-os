@@ -79,7 +79,11 @@ function LoginPageInner() {
       const session = data.session;
       if (!session) return;
       const params = new URLSearchParams({ access_token: session.access_token, refresh_token: session.refresh_token });
-      const url = `vcut://auth-callback#${params.toString()}`;
+      const paramStr = params.toString();
+      // Pass tokens in both query parameters (?) and hash fragment (#).
+      // Browsers (Chrome/Edge on Windows) drop the hash fragment when launching external protocol handlers,
+      // while query parameters are reliably preserved across operating systems.
+      const url = `vcut://auth-callback?${paramStr}#${paramStr}`;
       // Also shown as a button: browsers (Chrome on Android especially) may block a script-driven jump
       // into an app that no tap started, and a desktop browser's "Open VCut?" prompt can be dismissed.
       setHandoffUrl(url);

@@ -4,11 +4,25 @@ import path from "node:path";
 
 /** One encrypted app-owned store, independent of the Next server's changing loopback port. */
 export function installSessionStorage(file: string, window: () => BrowserWindow | null, origin: () => string) {
-  const sessionKey = /^sb-[a-z0-9-]+-auth-token(?:-user|-code-verifier|-flows-code-verifier|-flow-[A-Za-z0-9_-]{1,64}-code-verifier)?$/;
+  const sessionKey = /^sb-[a-z0-9._-]+$/i;
   function authorize(event: IpcMainInvokeEvent, key: unknown): asserts key is string {
     const win = window();
-    if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || new URL(event.senderFrame.url).origin !== origin()) throw new Error("Session storage is only available to the app window.");
-    if (typeof key !== "string" || key.length > 180 || !sessionKey.test(key)) throw new Error("Invalid session key.");
+    if (!win || event.sender !== win.webContents) {
+      throw new Error("Session storage is only available to the app window.");
+    }
+    if (event.senderFrame?.url) {
+      try {
+        const senderOrigin = new URL(event.senderFrame.url).origin;
+        const expectedOrigin = origin();
+        const normalizeLoopback = (o: string) => o.replace("127.0.0.1", "localhost");
+        if (expectedOrigin && senderOrigin !== expectedOrigin && normalizeLoopback(senderOrigin) !== normalizeLoopback(expectedOrigin)) {
+          throw new Error("Session storage is only available to the app window.");
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("Session storage")) throw err;
+      }
+    }
+    if (typeof key !== "string" || key.length > 200 || !sessionKey.test(key)) throw new Error("Invalid session key.");
   }
   function read(): Record<string, string> {
     if (!fs.existsSync(file)) return {};

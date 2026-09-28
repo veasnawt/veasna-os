@@ -36,7 +36,19 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   // the editor. A no-op everywhere `window.veasnaAuth` doesn't exist (hosted web, native mobile).
   useEffect(() => {
     return subscribeToDesktopAuthCallback(({ accessToken, refreshToken }) => {
-      void getSupabaseBrowserClient()?.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        console.error("[vcut] desktopAuth: Supabase client unavailable in renderer");
+        return;
+      }
+      void supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data, error }) => {
+          if (error) console.error("[vcut] desktopAuth: setSession error:", error);
+          else if (data.session) console.log("[vcut] desktopAuth: authenticated as", data.session.user.email);
+        })
+        .catch((err) => {
+          console.error("[vcut] desktopAuth: setSession exception:", err);
+        });
     });
   }, []);
 

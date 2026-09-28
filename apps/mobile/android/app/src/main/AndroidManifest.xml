@@ -75,4 +75,5 @@
          (non-dangerous) permission: once declared, it's auto-granted at install with no runtime prompt
          of its own, so this fixes the AND without adding any new dialog the user has to answer. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="com.android.vending.BILLING" />
 </manifest>
