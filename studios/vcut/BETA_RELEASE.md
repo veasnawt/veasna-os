@@ -1,4 +1,4 @@
-# VCut 0.2.11 public beta preparation
+# VCut 0.2.12 public beta preparation
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
@@ -6,15 +6,15 @@ The code targets a public beta. Store publication remains gated by the items bel
 
 | Artifact | Path | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.11-beta-debug.apk` | 200556835 | `82ef41e392f010eac46ec31b9cd21130847608e2bd686f4e7a2cca770d795d40` |
-| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.11-unsigned-review.aab` | 96729963 | `cdda02cb9bd7567d09c012ad9d55060304f6af2b82de83a74de29ea72a6ec443` |
-| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.11.exe` | 235561827 | `93b0323f70a6bf1441949bc79528adae9b36e4062538badaa76572f93ca2ec06` |
+| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.12-beta-debug.apk` | 200587038 | `21235eb5578cd3a4b0da0ec4d018248cdcc0caf217862447755f2be900099281` |
+| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.12-unsigned-review.aab` | 96754664 | `BC26BF7A1F1E53D543C4DB13FADB9A5DF271B41C109C6E65E427F1E0E108BD67` |
+| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.12.exe` | 342805088 | `2D2C0F7811F70BF3ED83F5F59F05CE75A7A9F817434CDF02758D42B1B3F2F056` |
 
 APK/AAB shared assets match the final mobile build. APK v2 signature, ZIP alignment and all 20 ARM64/x86_64 native ELF libraries passed 16 KB alignment checks. Release signing protection also rejects aggregate `:app:bundle` without credentials or the explicit review flag. The Windows installer includes the final standalone server, static assets, fonts and FFmpeg; a real export from its packaged server saved matching bytes into Videos/VCut. These artifacts are local test builds, not Store submissions.
 
 ## Android / Play Console
 
-- Application ID: `com.veasnawt.vcut`; version 0.2.11, version code 15; target SDK 36.
+- Application ID: `com.veasnawt.vcut`; version 0.2.12, version code 16; target SDK 36.
 - Production upload signing is supplied only through `VCUT_UPLOAD_KEYSTORE`, `VCUT_UPLOAD_STORE_PASSWORD`, `VCUT_UPLOAD_KEY_ALIAS`, and `VCUT_UPLOAD_KEY_PASSWORD`. Keep the keystore outside the repository and back it up securely. Do not replace an existing Play upload key if this application already has one.
 - Build shared assets with `pnpm --filter vcut-mobile build`, then `pnpm --filter vcut-mobile exec cap sync android`.
 - From `apps/mobile/android`, run `gradlew.bat bundleRelease` with signing configured. Release builds fail if credentials are missing. `bundleRelease -PvcutUnsignedReview` creates an unsigned review bundle only.
@@ -119,14 +119,42 @@ Windows packaging now bundles Puppeteer's matching headless renderer and license
 and passes its executable to the server. A clean build machine must first run
 `pnpm --filter vcut exec puppeteer browsers install chrome-headless-shell`.
 End users do not need a browser cache for styled, grouped or Khmer text export.
-The empty-cache packaged-server group/text export passed. Browser startup allows
-120 seconds for first-install OS scanning; normal verified startup was 525 ms.
+The empty-cache packaged-server group/text export passed. Browser startup and
+explicit page readiness allow 120 seconds for slow initial I/O; each frame loads
+its actual font before rendering. Export does not wait for unrelated network
+activity to become idle.
 
-Android verification completed: APK 0.2.12/build 16, target SDK 36, v2 debug signing,
-ZIP alignment and all 20 checked 64-bit ELF libraries passed 16 KB alignment.
-APK SHA256: `e81f2fad835c0dafd4719452bf107568f96251fa93340bd4d7a0d00a1accd671`.
-Unsigned review AAB SHA256: `3b1526f42107520f985c67f2b65abd2288811a19f8b2911a2c170e02e3a505b9`.
-AAB and iOS HTML/assets match the final mobile production build.
+Puppeteer is pinned to **24.43.1**, compatible with the packaged Electron runtime
+Node **20.18.3**. Puppeteer 25 requires Node 22.12+ and cannot be used here without
+updating Electron. The actual Electron runtime successfully launched the matching
+renderer and drew exact canvas pixels. Packaging checks both renderer package
+versions and the required browser V8 snapshot. The local browser download was
+repaired from its verified archive after C: ran out of space; its build cache is
+now on D: with the original cache paths preserved by directory junctions.
 
-Artifact verification and hashes for the final 0.2.12 builds are recorded below
-once packaging completes. Existing public-beta publication blockers still apply.
+Final editor polish is in shared `cbd9e01` (implementation `3ed6cb5`) and host
+`653946c`. The full editor suite passed 1,592 tests across 297 suites.
+Timeline keyframe controls now leave clip dragging alone; Animation presets
+indicate their real state and ask before replacing manual keys. Clear All
+Keyframes is undoable and retains the displayed pose. Properties panels and
+Linear Mask canvas controls received focused usability fixes; see
+`packages/vcut/EDITOR_UI_POLISH_AUDIT.md` for the audit and scope.
+
+Android verification completed after the final mobile build: APK 0.2.12/build
+16, target SDK 36, v2 debug signing, ZIP alignment and all 20 checked 64-bit
+ELF libraries passed 16 KB alignment. APK and unsigned review AAB assets,
+plus iOS synced assets, match that final mobile build. The hashes are in the
+table above. Neither binary has been tested on a physical Android device here.
+
+The Windows installer contains the current Next BUILD_ID
+`4gWaricY63UErQUm-IVqc`, static assets, fonts, FFmpeg, Puppeteer renderer and
+license. Its actual packaged Electron Node 20.18.3 runtime launched the
+bundled Chrome headless shell 148.0.7778.97. Its packaged server exported a
+project with animated groups, rounded media and styled text and saved the
+video automatically. The installer is unsigned and was not installed as an
+end-user app during this check. Existing public-beta publication blockers
+still apply.
+
+Hosted deployment `93ea212d-1239-4656-8ba1-b56f262d98a9` reached SUCCESS
+and its container reported ready. The home, editor and privacy pages returned
+HTTP 200 after deployment.
