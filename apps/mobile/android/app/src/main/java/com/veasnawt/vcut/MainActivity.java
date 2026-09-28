@@ -24,6 +24,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(FfmpegPlugin.class);
         registerPlugin(AuthCallbackPlugin.class);
         registerPlugin(MicPermissionPlugin.class);
+        registerPlugin(PlayBillingPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Keep Capacitor's safe native margins, but paint the exposed inset area like the app.

@@ -217,7 +217,7 @@ export async function upsertPlanByStripeCustomerId(stripeCustomerId: string, pla
   const supabase = getSupabaseAdminClient();
   const { data: existing, error: selectError } = await supabase
     .from("profiles")
-    .select("plan, current_period_end")
+    .select("id, plan, current_period_end")
     .eq("stripe_customer_id", stripeCustomerId)
     .maybeSingle();
   // Logged and reported through the return value rather than thrown: the webhook turns `false` into a 5xx
@@ -253,5 +253,29 @@ export async function upsertPlanByStripeCustomerId(stripeCustomerId: string, pla
     console.error("[vcut] webhook: no profile row matched stripe_customer_id", stripeCustomerId, "— update had no effect");
     return false;
   }
+
+  // Also mirror into canonical subscriptions table for multi-provider synchronization
+  if (existing?.id) {
+    try {
+      await supabase.from("subscriptions").upsert(
+        {
+          user_id: existing.id,
+          provider: "stripe",
+          provider_subscription_id: `stripe_${stripeCustomerId}`,
+          provider_customer_id: stripeCustomerId,
+          status: plan === "pro" ? "active" : "canceled",
+          plan,
+          product_id: "stripe_pro_monthly",
+          current_period_end: currentPeriodEnd,
+          cancel_at_period_end: plan !== "pro",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "provider,provider_subscription_id" }
+      );
+    } catch {
+      // Safe no-op if subscriptions table migration has not been applied yet
+    }
+  }
+
   return true;
 }

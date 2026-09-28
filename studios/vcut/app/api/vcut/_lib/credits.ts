@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
-import { ApiError } from "./paths";
+import { ApiError } from "./paths.ts";
 
 /** Must match `0005_credit_allotment_increase.sql`'s `spend_credits` function's own hardcoded
  *  allotments — that function is the one place a LAZY refill (a free-plan user's `credits_reset_at`
@@ -80,6 +80,6 @@ export async function getCreditsStatus(userId: string): Promise<CreditsStatus> {
     console.error("[vcut] credits: could not read credits for", userId, error);
     throw new ApiError(500, "Could not read credits", "credits-read-failed");
   }
-  if (!data) return { remaining: 5, resetAt: new Date().toISOString() };
+  if (!data) return { remaining: FREE_CREDITS_PER_MONTH, resetAt: new Date().toISOString() };
   return { remaining: data.credits_remaining, resetAt: data.credits_reset_at };
 }

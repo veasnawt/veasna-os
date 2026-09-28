@@ -32,7 +32,7 @@ import { localRoute, publicSessionRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
 import { resolveLutFilePath } from "../_lib/lutFile";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
-import { getProfile } from "../_lib/profiles";
+import { resolveUserEntitlements } from "../_lib/billingCore";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 
 export const runtime = "nodejs";
@@ -61,8 +61,8 @@ async function shouldIncludeOutro(req: Request): Promise<boolean> {
       if (!token) token = new URL(req.url).searchParams.get("token") ?? "";
       if (token) {
         const user = await requireSessionUser(req);
-        const profile = await getProfile(user.id);
-        return profile?.plan !== "pro";
+        const entitlement = await resolveUserEntitlements(user.id);
+        return !entitlement.isPro;
       }
     } catch {
       // In local dev without network/Supabase, treat unauthenticated as free
@@ -70,8 +70,8 @@ async function shouldIncludeOutro(req: Request): Promise<boolean> {
     return true;
   }
   const user = await requireSessionUser(req);
-  const profile = await getProfile(user.id);
-  return profile?.plan !== "pro";
+  const entitlement = await resolveUserEntitlements(user.id);
+  return !entitlement.isPro;
 }
 
 /** Builds a STANDALONE, throwaway project containing ONLY the branded end card — a solid black
