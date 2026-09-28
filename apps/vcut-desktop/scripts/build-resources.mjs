@@ -18,7 +18,7 @@
 // Omitting the Supabase vars entirely is also fine: `getSupabaseBrowserClient()` returns `null` and
 // the packaged app behaves exactly as it always has, no sign-in button shown.
 
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, rmSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -150,11 +150,12 @@ const repoRoot = path.resolve(desktopRoot, "..", "..");
 // folder rather than as a direct sibling of the original package — so every sibling copied in also
 // gets ITS OWN siblings hoisted into its own nested node_modules, recursively.
 //
-// `visited` is keyed by package name only (not name+version) — this dependency tree is small with
-// no real diamond deps in practice.
-function hoistPnpmPackage(outDir, pkgName, pnpmRoot = path.join(outDir, "node_modules", ".pnpm")) {
+// The recursion guard follows the current ancestry so shared dependencies remain
+// available beneath each package's own Node resolution path.
+function hoistPnpmPackage(outDir, pkgName, pnpmRoot = path.join(outDir, "node_modules", ".pnpm"), expectedVersion) {
   const storeKey = pkgName.startsWith("@") ? pkgName.replace("/", "+") : pkgName;
-  const versionDir = readdirSync(pnpmRoot).find((d) => d.startsWith(`${storeKey}@`));
+  const prefix = `${storeKey}@${expectedVersion ?? ""}`;
+  const versionDir = readdirSync(pnpmRoot).find((d) => expectedVersion ? d === prefix || d.startsWith(`${prefix}_`) : d.startsWith(prefix));
   if (!versionDir) {
     throw new Error(`Could not find ${pkgName} under ${pnpmRoot} to hoist — inspect the copied output directly.`);
   }
@@ -169,22 +170,49 @@ function hoistPnpmPackage(outDir, pkgName, pnpmRoot = path.join(outDir, "node_mo
  *  next's own .pnpm entry, not independently pnpm-resolvable packages). */
 function hoistPnpmPackageRecursive(intoNodeModulesDir, pkgName, copyFromDir, pnpmRoot, visited) {
   if (visited.has(pkgName)) return;
-  visited.add(pkgName);
-  const srcDir = path.join(copyFromDir, pkgName);
+  if (pkgName.startsWith("@") && !pkgName.includes("/")) {
+    const scopeDir = path.join(copyFromDir, pkgName);
+    if (!existsSync(scopeDir)) return;
+    for (const child of readdirSync(scopeDir)) {
+      hoistPnpmPackageRecursive(intoNodeModulesDir, `${pkgName}/${child}`, copyFromDir, pnpmRoot, visited);
+    }
+    return;
+  }
+  // `visited` follows this ancestry only. A dependency required by two sibling packages
+  // must be present under both of their Node resolution paths, not skipped globally.
+  const ancestry = new Set(visited);
+  ancestry.add(pkgName);
+  let srcDir = path.join(copyFromDir, pkgName);
+  // On Windows, pnpm's relative directory links can return EPERM from existsSync even
+  // when their targets exist. Resolve the link text directly before copying.
+  try {
+    if (lstatSync(srcDir).isSymbolicLink()) srcDir = path.resolve(path.dirname(srcDir), readlinkSync(srcDir));
+  } catch { return; }
   if (!existsSync(srcDir)) return;
   const destDir = path.join(intoNodeModulesDir, pkgName);
   copyRecursiveDereferenced(srcDir, destDir);
 
   const storeKey = pkgName.startsWith("@") ? pkgName.replace("/", "+") : pkgName;
-  const versionDir = existsSync(pnpmRoot) ? readdirSync(pnpmRoot).find((d) => d.startsWith(`${storeKey}@`)) : undefined;
+  const packageFile = path.join(destDir, "package.json");
+  const copiedVersion = existsSync(packageFile) ? JSON.parse(readFileSync(packageFile, "utf8")).version : undefined;
+  const prefix = `${storeKey}@${copiedVersion ?? ""}`;
+  const versionDir = existsSync(pnpmRoot) ? readdirSync(pnpmRoot).find((d) => copiedVersion ? d === prefix || d.startsWith(`${prefix}_`) : d.startsWith(prefix)) : undefined;
   if (!versionDir) return;
   const ownSiblingsDir = path.join(pnpmRoot, versionDir, "node_modules");
   if (!existsSync(ownSiblingsDir)) return;
   const destNodeModules = path.join(destDir, "node_modules");
   for (const sibling of readdirSync(ownSiblingsDir)) {
     if (sibling === pkgName) continue;
+    // Node already finds a package in an ancestor node_modules; duplicating it adds
+    // bytes and can make a different version shadow the one the parent expects.
+    let visible = false;
+    if (!sibling.startsWith("@")) for (let directory = destDir; directory.startsWith(path.join(desktopRoot, "resources", "vcut")); directory = path.dirname(directory)) {
+      if (existsSync(path.join(directory, "node_modules", sibling))) { visible = true; break; }
+      if (directory === path.dirname(directory)) break;
+    }
+    if (visible) continue;
     mkdirSync(destNodeModules, { recursive: true });
-    hoistPnpmPackageRecursive(destNodeModules, sibling, ownSiblingsDir, pnpmRoot, visited);
+    hoistPnpmPackageRecursive(destNodeModules, sibling, ownSiblingsDir, pnpmRoot, ancestry);
   }
 }
 
@@ -422,6 +450,7 @@ function ensureFfmpegBinaries(outDir) {
  *  clean build with `pnpm --filter vcut exec puppeteer browsers install chrome-headless-shell`. */
 async function ensurePuppeteer(outDir) {
   const repoRootPnpm = path.join(repoRoot, "node_modules", ".pnpm");
+  const expectedVersion = JSON.parse(readFileSync(path.join(repoRoot, "studios", "vcut", "package.json"), "utf8")).dependencies.puppeteer;
 
   for (const pkg of ["puppeteer", "puppeteer-core"]) {
     const entry = path.join(outDir, "node_modules", pkg);
@@ -431,14 +460,19 @@ async function ensurePuppeteer(outDir) {
         process.exit(1);
       }
       console.log(`${pkg} missing from vcut's standalone trace — hoisting it from the repo root's real install.`);
-      hoistPnpmPackage(outDir, pkg, repoRootPnpm);
+      hoistPnpmPackage(outDir, pkg, repoRootPnpm, expectedVersion);
     }
   }
 
   const puppeteer=createRequire(path.join(outDir,"server.js"))("puppeteer");
-  const executable=await puppeteer.executablePath({headless:"shell"});
-  if(!existsSync(executable))throw new Error("Install Puppeteer's chrome-headless-shell before packaging VCut. Text exports require the bundled renderer.");
-  const browserDir=path.join(outDir,"vcut-browser");
+  for (const pkg of ["puppeteer", "puppeteer-core"]) {
+    const version = JSON.parse(readFileSync(path.join(outDir, "node_modules", pkg, "package.json"), "utf8")).version;
+    if (version !== expectedVersion) throw new Error(`Packaged ${pkg} does not match the locked renderer version`);
+  }
+  const executable = await puppeteer.executablePath({ headless: "shell" });
+  if (!existsSync(executable)) throw new Error("Install Puppeteer's chrome-headless-shell before packaging VCut. Text exports require the bundled renderer.");
+  if (process.platform === "win32" && !existsSync(path.join(path.dirname(executable), "v8_context_snapshot.bin"))) throw new Error("The browser cache is incomplete: its V8 snapshot is missing. Reinstall chrome-headless-shell before packaging.");
+  const browserDir = path.join(outDir, "vcut-browser");
   copyRecursiveDereferenced(path.dirname(executable),browserDir);
   writeFileSync(path.join(outDir,"vcut-browser.json"),JSON.stringify({executable:path.join("vcut-browser",path.basename(executable))}));
   console.log("Done — vcut has a bundled browser for text exports; no user browser cache is required.");

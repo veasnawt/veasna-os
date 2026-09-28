@@ -65,8 +65,11 @@ export async function openKhmerTextHarness(baseUrl: string, outDir: string, cust
   let page: Page;
   try {
     page = await browser.newPage();
-    await page.goto(`${baseUrl}/vcut/text-harness`, { waitUntil: "networkidle0" });
-    await page.waitForFunction(() => (window as unknown as { __harnessReady?: boolean }).__harnessReady === true, { timeout: 30_000 });
+    page.setDefaultTimeout(120_000);
+    // The page's explicit readiness signal and per-frame font loading establish correctness.
+    // Unrelated network activity must not gate export preparation.
+    await page.goto(`${baseUrl}/vcut/text-harness`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    await page.waitForFunction(() => (window as unknown as { __harnessReady?: boolean }).__harnessReady === true, { timeout: 120_000 });
   } catch (err) {
     await browser.close().catch(() => {});
     throw err;
