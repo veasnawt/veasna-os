@@ -148,12 +148,22 @@ export async function getCommentCounts(templateIds: string[]): Promise<Map<strin
   const counts = new Map<string, number>();
   if (unique.length === 0) return counts;
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("template_comments").select("template_id").in("template_id", unique).is("deleted_at", null);
-  if (error) {
-    console.error("[vcut] templateSocial: could not batch-read comment counts for", unique, error);
-    return counts;
+  const rows: { id: string; template_id: string; parent_comment_id: string | null }[] = [];
+  for (let start = 0; ; start += 1000) {
+    const { data, error } = await supabase.from("template_comments")
+      .select("id,template_id,parent_comment_id").in("template_id", unique).is("deleted_at", null)
+      .order("id").range(start, start + 999);
+    if (error) {
+      console.error("[vcut] templateSocial: could not batch-read comment counts for", unique, error);
+      return counts;
+    }
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
   }
-  for (const row of data ?? []) counts.set(row.template_id, (counts.get(row.template_id) ?? 0) + 1);
+  const visibleRoots = new Set(rows.filter((row) => !row.parent_comment_id).map((row) => row.id));
+  for (const row of rows) if (!row.parent_comment_id || visibleRoots.has(row.parent_comment_id)) {
+    counts.set(row.template_id, (counts.get(row.template_id) ?? 0) + 1);
+  }
   return counts;
 }
 
@@ -168,22 +178,29 @@ export async function listComments(templateId: string, limit = 200): Promise<Com
     .from("template_comments")
     .select("id, template_id, user_id, body, created_at, parent_comment_id, updated_at, deleted_at, reply_count")
     .eq("template_id", templateId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true })
     .limit(limit);
   if (error) throw new ApiError(500, "Could not load comments", "template-comments-list-failed");
-  const rows = data ?? [];
+  const visible = data ?? [];
+  const visibleRoots = new Set(visible.filter((row) => !row.parent_comment_id).map((row) => row.id));
+  const rows = visible.filter((row) => !row.parent_comment_id || visibleRoots.has(row.parent_comment_id));
+  const replyCounts = new Map<string, number>();
+  for (const row of rows) if (row.parent_comment_id) {
+    replyCounts.set(row.parent_comment_id, (replyCounts.get(row.parent_comment_id) ?? 0) + 1);
+  }
   const profiles = await getPublicProfiles(rows.map((r) => r.user_id));
   return rows.map((row) => ({
     id: row.id,
     templateId: row.template_id,
     userId: row.user_id,
     authorDisplayName: profiles.get(row.user_id)?.displayName ?? null,
-    body: row.deleted_at ? "" : row.body,
+    body: row.body,
     createdAt: row.created_at,
     parentCommentId: row.parent_comment_id,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
-    replyCount: row.reply_count,
+    replyCount: row.parent_comment_id ? 0 : (replyCounts.get(row.id) ?? 0),
   }));
 }
 
@@ -224,25 +241,34 @@ export async function addComment(id: string, templateId: string, userId: string,
  *  has the template loaded via `getViewableTemplate` for its own visibility check) rather than this
  *  function re-fetching it — one fewer query, and keeps this file's own responsibility to just the two
  *  social tables. */
-export async function deleteComment(commentId: string, templateId: string, requesterId: string, templateOwnerId: string): Promise<void> {
+export async function deleteComment(commentId: string, templateId: string, requesterId: string, templateOwnerId: string): Promise<number> {
   const supabase = getSupabaseAdminClient();
   const { data, error: selectError } = await supabase
     .from("template_comments")
-    .select("user_id,deleted_at")
+    .select("user_id,parent_comment_id,deleted_at")
     .eq("id", commentId)
     .eq("template_id", templateId)
     .maybeSingle();
   if (selectError) throw new ApiError(500, "Could not delete that comment", "template-comment-delete-failed");
-  if (!data) return; // already gone — deleting twice is a no-op, not an error.
+  if (!data) return 0; // already gone — deleting twice is a no-op, not an error.
   if (data.user_id !== requesterId && templateOwnerId !== requesterId) {
     throw new ApiError(403, "You can't delete that comment", "forbidden");
   }
-  if (data.deleted_at) return;
-  // A tombstone retains replies and the original author/timestamp association.
+  if (data.deleted_at) return 0;
+  let removedCount = 1;
+  if (!data.parent_comment_id) {
+    const { count, error: countError } = await supabase.from("template_comments")
+      .select("id", { count: "exact", head: true }).eq("template_id", templateId)
+      .eq("parent_comment_id", commentId).is("deleted_at", null);
+    if (countError) throw new ApiError(500, "Could not count replies", "template-comment-count-failed");
+    removedCount += count ?? 0;
+  }
+  // Keep stored replies intact, but hide the deleted root and its descendants.
   const { error } = await supabase.from("template_comments")
     .update({ body: "", deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", commentId).eq("template_id", templateId).is("deleted_at", null);
   if (error) throw new ApiError(500, "Could not delete that comment", "template-comment-delete-failed");
+  return removedCount;
 }
 
 export async function editComment(commentId: string, templateId: string, requesterId: string, body: string): Promise<void> {

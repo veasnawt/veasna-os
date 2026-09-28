@@ -2,7 +2,48 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { sessionFetch, useSupabaseSession } from "@veasnawt/auth";
 import { TemplateDraftApp, VCutApp } from "@veasnawt/vcut";
+
+function HostedEditorAccess({ projectId, children }: { projectId: string; children: React.ReactNode }) {
+  const router = useRouter();
+  const { user } = useSupabaseSession();
+  const userId = user?.id;
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<{ key: string; status: "allowed" | "sign-in" | "error" } | null>(null);
+  const key = `${projectId}:${userId ?? ""}`;
+
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    void sessionFetch(`/api/vcut/project/editor-access?projectId=${encodeURIComponent(projectId)}`)
+      .then((response) => {
+        if (!active) return;
+        if (response.ok) setResult({ key, status: "allowed" });
+        else if (response.status === 403) router.replace(`/review/${encodeURIComponent(projectId)}`);
+        else setResult({ key, status: response.status === 401 ? "sign-in" : "error" });
+      })
+      .catch(() => { if (active) setResult({ key, status: "error" }); });
+    return () => { active = false; };
+  }, [projectId, userId, key, retry, router]);
+
+  if (user === undefined || (user && result?.key !== key)) {
+    return <main className="flex h-dvh items-center justify-center bg-[#0a0c10] text-sm text-white/55">Checking project access…</main>;
+  }
+  if (!user || result?.status === "sign-in") {
+    return <main className="flex h-dvh flex-col items-center justify-center gap-4 bg-[#0a0c10] text-white">
+      <p>Sign in to edit this project.</p>
+      <a href={`/login?next=${encodeURIComponent(`/edit?projectId=${projectId}`)}`} className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium">Sign in</a>
+    </main>;
+  }
+  if (result?.status === "error") {
+    return <main className="flex h-dvh flex-col items-center justify-center gap-4 bg-[#0a0c10] text-white">
+      <p>Could not check project access.</p>
+      <button onClick={() => setRetry((value) => value + 1)} className="rounded-md border border-white/20 px-4 py-2 text-sm">Try again</button>
+    </main>;
+  }
+  return children;
+}
 
 /** The editor's real entry point — embedded by a host app (BP Studio's Create page, today) via an
  *  `<iframe>` pointed at `${vcutUrl}/edit?projectId=...&projectName=...`. VCut no longer knows
@@ -64,7 +105,7 @@ function EditPageContent() {
     );
   }
 
-  return (
+  const editor = (
     <main className="flex h-dvh flex-col overflow-hidden bg-[#0a0c10]">
       <div className="min-h-0 min-w-0 flex-1">
         <VCutApp
@@ -76,6 +117,9 @@ function EditPageContent() {
       </div>
     </main>
   );
+  return process.env.NEXT_PUBLIC_VCUT_HOSTED === "true"
+    ? <HostedEditorAccess projectId={projectId}>{editor}</HostedEditorAccess>
+    : editor;
 }
 
 export default function EditPage() {

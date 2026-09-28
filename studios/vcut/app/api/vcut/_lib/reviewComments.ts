@@ -54,7 +54,7 @@ async function decorate(rows: DbComment[]): Promise<ReviewComment[]> {
 export async function listReviewThreads(projectId: string, resolved: boolean, before: string | null) {
   const db = getSupabaseAdminClient();
   let query = db.from("template_comments").select(columns)
-    .eq("project_id", projectId).is("parent_comment_id", null)
+    .eq("project_id", projectId).is("parent_comment_id", null).is("deleted_at", null)
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(31);
   query = resolved ? query.not("resolved_at", "is", null) : query.is("resolved_at", null);
   if (before) {
@@ -72,8 +72,27 @@ export async function listReviewThreads(projectId: string, resolved: boolean, be
   const { data, error } = await query;
   if (error) throw new ApiError(500, "Could not load comments", "comments-list-failed");
   const roots = (data ?? []).slice(0, 30) as DbComment[];
+  // The stored reply_count includes soft-deleted replies. Subtract their count
+  // in one batched query so a deleted reply never leaves an empty "Show 1 reply".
+  const deletedReplies = new Map<string, number>();
+  const withReplies = roots.filter((root) => root.reply_count > 0).map((root) => root.id);
+  if (withReplies.length) {
+    for (let start = 0; ; start += 1000) {
+      const { data: deleted, error: deletedError } = await db.from("template_comments")
+        .select("parent_comment_id").eq("project_id", projectId)
+        .in("parent_comment_id", withReplies).not("deleted_at", "is", null)
+        .order("parent_comment_id").order("id").range(start, start + 999);
+      if (deletedError) throw new ApiError(500, "Could not count replies", "reply-count-failed");
+      for (const row of deleted ?? []) {
+        const parent = row.parent_comment_id as string;
+        deletedReplies.set(parent, (deletedReplies.get(parent) ?? 0) + 1);
+      }
+      if ((deleted ?? []).length < 1000) break;
+    }
+  }
+  const comments = await decorate(roots);
   return {
-    comments: await decorate(roots),
+    comments: comments.map((comment) => ({ ...comment, replyCount: Math.max(0, comment.replyCount - (deletedReplies.get(comment.id) ?? 0)) })),
     nextCursor: (data ?? []).length > 30 ? Buffer.from(JSON.stringify({ createdAt: roots[roots.length - 1].created_at, id: roots[roots.length - 1].id })).toString("base64url") : null,
   };
 }
@@ -84,7 +103,7 @@ export async function listReviewMarkers(projectId: string) {
   for (let start = 0; start < 5000; start += 1000) {
     const { data, error } = await db.from("template_comments")
       .select("id,timeline_time,resolved_at").eq("project_id", projectId)
-      .is("parent_comment_id", null).not("timeline_time", "is", null)
+      .is("parent_comment_id", null).is("deleted_at", null).not("timeline_time", "is", null)
       .order("timeline_time", { ascending: true }).range(start, start + 999);
     if (error) throw new ApiError(500, "Could not load review markers", "markers-list-failed");
     for (const row of data ?? []) markers.push({ id: row.id, timelineTime: row.timeline_time!, resolvedAt: row.resolved_at });
@@ -104,11 +123,13 @@ async function readComment(projectId: string, commentId: string): Promise<DbComm
 export async function getReviewThread(projectId: string, commentId: string) {
   const selected = await readComment(projectId, commentId);
   const root = selected.parent_comment_id ? await readComment(projectId, selected.parent_comment_id) : selected;
-  const { data, error } = await getSupabaseAdminClient().from("template_comments")
-    .select(columns).eq("project_id", projectId).eq("parent_comment_id", root.id)
+  if (selected.deleted_at || root.deleted_at) throw new ApiError(404, "Comment not found", "comment-not-found");
+  const { data, error, count } = await getSupabaseAdminClient().from("template_comments")
+    .select(columns, { count: "exact" }).eq("project_id", projectId).eq("parent_comment_id", root.id).is("deleted_at", null)
     .order("created_at", { ascending: true }).limit(1000);
   if (error) throw new ApiError(500, "Could not load thread", "thread-read-failed");
-  return decorate([root, ...((data ?? []) as DbComment[])]);
+  const comments = await decorate([root, ...((data ?? []) as DbComment[])]);
+  return comments.map((comment) => comment.id === root.id ? { ...comment, replyCount: count ?? 0 } : comment);
 }
 
 function cleanBody(body: unknown): string {
@@ -180,6 +201,7 @@ export async function deleteReviewComment(projectId: string, commentId: string, 
 export async function setReviewResolution(projectId: string, commentId: string, resolved: boolean, userId: string) {
   const existing = await readComment(projectId, commentId);
   if (existing.parent_comment_id) throw new ApiError(400, "Resolve the thread, not a reply", "invalid-resolution");
+  if (existing.deleted_at) throw new ApiError(404, "Comment not found", "comment-not-found");
   const { data, error } = await getSupabaseAdminClient().from("template_comments")
     .update({ resolved_at: resolved ? new Date().toISOString() : null, resolved_by: resolved ? userId : null })
     .eq("id", commentId).eq("project_id", projectId).select(columns).single();

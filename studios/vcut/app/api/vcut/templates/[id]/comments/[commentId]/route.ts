@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
 export const DELETE = hostedOnlyRoute(async (_req, user, context: { params: Promise<{ id: string; commentId: string }> }) => {
   const { id, commentId } = await context.params;
   const template = await getViewableTemplate(id, user.id);
-  await deleteComment(commentId, id, user.id, template.ownerId);
-  return Response.json({ ok: true });
+  const removedCount = await deleteComment(commentId, id, user.id, template.ownerId);
+  return Response.json({ ok: true, removedCount });
 });
 
 export const PATCH = hostedOnlyRoute(async (req, user, context: { params: Promise<{ id: string; commentId: string }> }) => {

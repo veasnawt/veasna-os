@@ -173,8 +173,9 @@ export default function PublicTemplatePage() {
   async function deleteComment(id: string) {
     const response = await authFetch(`/api/vcut/templates/${encodeURIComponent(params.id)}/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!response.ok) throw new Error("Could not delete comment");
+    const { removedCount } = (await response.json()) as { removedCount: number };
     await refreshComments();
-    setInfo((current) => current ? { ...current, commentCount: Math.max(0, current.commentCount - 1) } : current);
+    setInfo((current) => current ? { ...current, commentCount: Math.max(0, current.commentCount - removedCount) } : current);
   }
 
   function share() {
