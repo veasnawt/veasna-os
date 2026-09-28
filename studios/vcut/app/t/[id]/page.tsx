@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useSupabaseSession } from "@veasnawt/auth";
+import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
 import { Avatar } from "../../_shared/Avatar";
+import { TemplateCommentList } from "@veasnawt/vcut/src/ui/TemplateCommentList";
 import {
   authFetch,
   displayNameOrFallback,
@@ -50,6 +51,8 @@ export default function PublicTemplatePage() {
   const [comments, setComments] = useState<CommentRow[] | null>(null);
   const [commentsFailed, setCommentsFailed] = useState(false);
   const [commentInput, setCommentInput] = useState("");
+  const [commentActionError, setCommentActionError] = useState<string | null>(null);
+  const [replyToComment, setReplyToComment] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [liking, setLiking] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -78,6 +81,25 @@ export default function PublicTemplatePage() {
       .catch(() => setCommentsFailed(true));
   }, [params.id]);
 
+  const refreshComments = useCallback(async () => {
+    const response = await authFetch(`/api/vcut/templates/${encodeURIComponent(params.id)}/comments`);
+    if (!response.ok) throw new Error("Could not load comments");
+    const result = (await response.json()) as { comments: CommentRow[] };
+    setComments(result.comments);
+  }, [params.id]);
+
+  useEffect(() => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = client.channel(`vcut-share-comments-${params.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "template_comments", filter: `template_id=eq.${params.id}` }, () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void refreshComments().catch(() => setCommentsFailed(true)), 180);
+      }).subscribe();
+    return () => { if (timer) clearTimeout(timer); void client.removeChannel(channel); };
+  }, [params.id, refreshComments]);
+
   async function startFromTemplate() {
     if (!info || creating) return;
     if (!user) {
@@ -101,7 +123,7 @@ export default function PublicTemplatePage() {
     setInfo({ ...info, viewerHasLiked: nextLiked, likeCount: info.likeCount + (nextLiked ? 1 : -1) });
     try {
       const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(info.id)}/like`, { method: nextLiked ? "POST" : "DELETE" });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Could not post comment");
     } catch {
       // Roll back — same real bug the creator page's Follow button had: a failed write shouldn't go on
       // looking successful until the next reload.
@@ -123,18 +145,36 @@ export default function PublicTemplatePage() {
       const res = await authFetch(`/api/vcut/templates/${encodeURIComponent(info.id)}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, parentCommentId: replyToComment }),
       });
       if (!res.ok) throw new Error();
       const { comment } = (await res.json()) as { comment: CommentRow };
-      setComments((prev) => [...(prev ?? []), comment]);
+      setComments((prev) => [...(prev ?? []).filter((row) => row.id !== comment.id), comment]);
       setInfo((prev) => (prev ? { ...prev, commentCount: prev.commentCount + 1 } : prev));
       setCommentInput("");
-    } catch {
+      setReplyToComment(null);
+      setCommentActionError(null);
+    } catch (cause) {
+      setCommentActionError(cause instanceof Error ? cause.message : "Could not post comment");
       // Left in the input — the user can just retry the same text.
     } finally {
       setPosting(false);
     }
+  }
+
+  async function editComment(id: string, body: string) {
+    const response = await authFetch(`/api/vcut/templates/${encodeURIComponent(params.id)}/comments/${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }),
+    });
+    if (!response.ok) throw new Error("Could not edit comment");
+    await refreshComments();
+  }
+
+  async function deleteComment(id: string) {
+    const response = await authFetch(`/api/vcut/templates/${encodeURIComponent(params.id)}/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error("Could not delete comment");
+    await refreshComments();
+    setInfo((current) => current ? { ...current, commentCount: Math.max(0, current.commentCount - 1) } : current);
   }
 
   function share() {
@@ -240,25 +280,20 @@ export default function PublicTemplatePage() {
             ) : comments.length === 0 ? (
               <p className="text-xs text-white/40">No comments yet.</p>
             ) : (
-              <ul className="space-y-3">
-                {comments.map((c) => (
-                  <li key={c.id} className="flex gap-2">
-                    <Avatar seed={c.userId} displayName={c.authorDisplayName} size={22} />
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-white/80">{displayNameOrFallback(c.authorDisplayName)}</p>
-                      <p className="break-words text-xs text-white/60">{c.body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <TemplateCommentList comments={comments} userId={user?.id ?? null} canModerate={info?.ownerId === user?.id}
+                onReply={setReplyToComment} onEdit={editComment} onDelete={deleteComment} />
             )}
 
             {user ? (
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4">
+                {commentActionError && <p role="alert" className="mb-2 text-xs text-amber-200">{commentActionError}</p>}
+                {replyToComment && <div className="mb-2 flex items-center justify-between text-[11px] text-sky-300"><span>Replying to comment</span><button onClick={() => setReplyToComment(null)} className="text-white/45">Cancel</button></div>}
+                <div className="flex gap-2">
                 <input
                   value={commentInput}
                   onChange={(e) => setCommentInput(e.target.value)}
-                  placeholder="Add a comment…"
+                  onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter" && !posting) void postComment(); }}
+                  placeholder={replyToComment ? "Write a reply…" : "Add a comment…"}
                   className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white placeholder:text-white/30"
                 />
                 <button
@@ -268,9 +303,10 @@ export default function PublicTemplatePage() {
                 >
                   Post
                 </button>
+                </div>
               </div>
             ) : (
-              <a href="/login" className="mt-4 block text-xs text-sky-300 underline">
+              <a href={`/login?next=${encodeURIComponent(`/t/${params.id}`)}`} className="mt-4 block text-xs text-sky-300 underline">
                 Sign in to like or comment
               </a>
             )}

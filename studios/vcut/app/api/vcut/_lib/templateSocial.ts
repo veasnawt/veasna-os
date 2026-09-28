@@ -137,6 +137,10 @@ export interface CommentRow {
   authorDisplayName: string | null;
   body: string;
   createdAt: string;
+  parentCommentId?: string | null;
+  updatedAt?: string | null;
+  deletedAt?: string | null;
+  replyCount?: number;
 }
 
 export async function getCommentCounts(templateIds: string[]): Promise<Map<string, number>> {
@@ -144,7 +148,7 @@ export async function getCommentCounts(templateIds: string[]): Promise<Map<strin
   const counts = new Map<string, number>();
   if (unique.length === 0) return counts;
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase.from("template_comments").select("template_id").in("template_id", unique);
+  const { data, error } = await supabase.from("template_comments").select("template_id").in("template_id", unique).is("deleted_at", null);
   if (error) {
     console.error("[vcut] templateSocial: could not batch-read comment counts for", unique, error);
     return counts;
@@ -162,7 +166,7 @@ export async function listComments(templateId: string, limit = 200): Promise<Com
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("template_comments")
-    .select("id, template_id, user_id, body, created_at")
+    .select("id, template_id, user_id, body, created_at, parent_comment_id, updated_at, deleted_at, reply_count")
     .eq("template_id", templateId)
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -174,19 +178,29 @@ export async function listComments(templateId: string, limit = 200): Promise<Com
     templateId: row.template_id,
     userId: row.user_id,
     authorDisplayName: profiles.get(row.user_id)?.displayName ?? null,
-    body: row.body,
+    body: row.deleted_at ? "" : row.body,
     createdAt: row.created_at,
+    parentCommentId: row.parent_comment_id,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    replyCount: row.reply_count,
   }));
 }
 
 /** `id` is client-minted (`crypto.randomUUID()`, same convention `template_comments.id`'s own migration
  *  comment documents) rather than DB-generated — the route handler mints it before calling this, the
  *  same pattern `insertTemplate`'s own caller already follows for a template's own id. */
-export async function addComment(id: string, templateId: string, userId: string, body: string): Promise<CommentRow> {
+export async function addComment(id: string, templateId: string, userId: string, body: string, parentCommentId: string | null = null): Promise<CommentRow> {
   const trimmed = body.trim().slice(0, 1000);
   if (!trimmed) throw new ApiError(400, "Comment can't be empty", "empty-comment");
   const supabase = getSupabaseAdminClient();
-  const { error } = await supabase.from("template_comments").insert({ id, template_id: templateId, user_id: userId, body: trimmed });
+  if (parentCommentId) {
+    const { data: parent, error: parentError } = await supabase.from("template_comments")
+      .select("id,parent_comment_id,deleted_at").eq("id", parentCommentId).eq("template_id", templateId).maybeSingle();
+    if (parentError) throw new ApiError(500, "Could not check reply target", "reply-check-failed");
+    if (!parent || parent.parent_comment_id || parent.deleted_at) throw new ApiError(400, "Reply to an active top-level comment", "invalid-parent");
+  }
+  const { error } = await supabase.from("template_comments").insert({ id, template_id: templateId, user_id: userId, body: trimmed, parent_comment_id: parentCommentId });
   if (error) throw new ApiError(500, "Could not post that comment", "template-comment-failed");
   const profile = await getPublicProfiles([userId]);
   return {
@@ -196,6 +210,10 @@ export async function addComment(id: string, templateId: string, userId: string,
     authorDisplayName: profile.get(userId)?.displayName ?? null,
     body: trimmed,
     createdAt: new Date().toISOString(),
+    parentCommentId,
+    updatedAt: null,
+    deletedAt: null,
+    replyCount: 0,
   };
 }
 
@@ -206,18 +224,38 @@ export async function addComment(id: string, templateId: string, userId: string,
  *  has the template loaded via `getViewableTemplate` for its own visibility check) rather than this
  *  function re-fetching it — one fewer query, and keeps this file's own responsibility to just the two
  *  social tables. */
-export async function deleteComment(commentId: string, requesterId: string, templateOwnerId: string): Promise<void> {
+export async function deleteComment(commentId: string, templateId: string, requesterId: string, templateOwnerId: string): Promise<void> {
   const supabase = getSupabaseAdminClient();
   const { data, error: selectError } = await supabase
     .from("template_comments")
-    .select("user_id")
+    .select("user_id,deleted_at")
     .eq("id", commentId)
+    .eq("template_id", templateId)
     .maybeSingle();
   if (selectError) throw new ApiError(500, "Could not delete that comment", "template-comment-delete-failed");
   if (!data) return; // already gone — deleting twice is a no-op, not an error.
   if (data.user_id !== requesterId && templateOwnerId !== requesterId) {
     throw new ApiError(403, "You can't delete that comment", "forbidden");
   }
-  const { error } = await supabase.from("template_comments").delete().eq("id", commentId);
+  if (data.deleted_at) return;
+  // A tombstone retains replies and the original author/timestamp association.
+  const { error } = await supabase.from("template_comments")
+    .update({ body: "", deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", commentId).eq("template_id", templateId).is("deleted_at", null);
   if (error) throw new ApiError(500, "Could not delete that comment", "template-comment-delete-failed");
+}
+
+export async function editComment(commentId: string, templateId: string, requesterId: string, body: string): Promise<void> {
+  const trimmed = body.trim();
+  if (!trimmed || trimmed.length > 1000) throw new ApiError(400, "Use 1–1000 characters", "invalid-comment");
+  const db = getSupabaseAdminClient();
+  const { data, error } = await db.from("template_comments").select("user_id,deleted_at")
+    .eq("id", commentId).eq("template_id", templateId).maybeSingle();
+  if (error) throw new ApiError(500, "Could not edit comment", "template-comment-edit-failed");
+  if (!data) throw new ApiError(404, "Comment not found", "comment-not-found");
+  if (data.user_id !== requesterId) throw new ApiError(403, "Only the author can edit this comment", "forbidden");
+  if (data.deleted_at) throw new ApiError(400, "Deleted comments cannot be edited", "comment-deleted");
+  const result = await db.from("template_comments").update({ body: trimmed, updated_at: new Date().toISOString() })
+    .eq("id", commentId).eq("template_id", templateId).is("deleted_at", null);
+  if (result.error) throw new ApiError(500, "Could not edit comment", "template-comment-edit-failed");
 }

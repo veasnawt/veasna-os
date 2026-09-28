@@ -64,7 +64,7 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
   const projectFile = paths.projectFile;
 
   let inputBytes: Buffer;
-  let inputMime = "image/png";
+  const inputMime = "image/png";
   let baseName = "ai-edit";
 
   if (body.imageBase64) {

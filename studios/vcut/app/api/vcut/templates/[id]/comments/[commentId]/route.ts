@@ -1,6 +1,7 @@
 import { corsPreflight, hostedOnlyRoute } from "../../../../_lib/localOnly";
 import { getViewableTemplate } from "../../../../_lib/templates";
-import { deleteComment } from "../../../../_lib/templateSocial";
+import { deleteComment, editComment } from "../../../../_lib/templateSocial";
+import { ApiError } from "../../../../_lib/paths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,16 @@ export const dynamic = "force-dynamic";
 export const DELETE = hostedOnlyRoute(async (_req, user, context: { params: Promise<{ id: string; commentId: string }> }) => {
   const { id, commentId } = await context.params;
   const template = await getViewableTemplate(id, user.id);
-  await deleteComment(commentId, user.id, template.ownerId);
+  await deleteComment(commentId, id, user.id, template.ownerId);
+  return Response.json({ ok: true });
+});
+
+export const PATCH = hostedOnlyRoute(async (req, user, context: { params: Promise<{ id: string; commentId: string }> }) => {
+  const { id, commentId } = await context.params;
+  await getViewableTemplate(id, user.id);
+  const body = (await req.json().catch(() => ({}))) as { body?: string };
+  if (typeof body.body !== "string") throw new ApiError(400, "Missing body", "missing-comment-body");
+  await editComment(commentId, id, user.id, body.body);
   return Response.json({ ok: true });
 });
 

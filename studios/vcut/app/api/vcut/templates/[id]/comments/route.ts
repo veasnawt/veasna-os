@@ -30,9 +30,9 @@ export const GET = async (req: Request, context: { params: Promise<{ id: string 
 export const POST = hostedOnlyRoute(async (req, user, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
   await getViewableTemplate(id, user.id);
-  const body = (await req.json().catch(() => ({}))) as { body?: string };
+  const body = (await req.json().catch(() => ({}))) as { body?: string; parentCommentId?: string | null };
   if (typeof body.body !== "string") throw new ApiError(400, "Missing body", "missing-comment-body");
-  const comment = await addComment(newId("cmt"), id, user.id, body.body);
+  const comment = await addComment(newId("cmt"), id, user.id, body.body, body.parentCommentId ?? null);
   return Response.json({ comment });
 });
 

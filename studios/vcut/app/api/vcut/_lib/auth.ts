@@ -1,6 +1,7 @@
 import { getSessionUser, getSupabaseAdminClient, type SessionUser } from "@veasnawt/auth/server";
 import { OWNERSHIP_TTL_MS, sessionCacheTtlMs, tokenKey, TtlCache } from "./authCache";
 import { ApiError } from "./paths";
+import { assertCanInteract } from "./contentSafety";
 
 /** Recently verified sessions, keyed by a hash of the bearer token — see `authCache.ts`. */
 const sessionCache = new TtlCache<SessionUser>();
@@ -90,6 +91,32 @@ export async function checkProjectOwnership(userId: string, projectId: string): 
   // Only a confirmed YES is remembered, so a project whose index row hasn't landed yet, or whose ownership just
   // changed, is picked up on the very next request.
   ownershipCache.set(ownershipKey, true, OWNERSHIP_TTL_MS);
+}
+
+/** Only the project JSON and raw media GET routes use this narrower read gate.
+ * Reviewers never pass the normal ownership gate for saves, exports or jobs. */
+export async function checkProjectReviewReadAccess(userId: string, projectId: string): Promise<void> {
+  const ownerKey = `${userId}:${projectId}`;
+  if (ownershipCache.get(ownerKey)) return;
+  const db = getSupabaseAdminClient();
+  const { data: project, error } = await db.from("projects_index").select("owner_id").eq("id", projectId).maybeSingle();
+  if (error) throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
+  if (project?.owner_id === userId) {
+    ownershipCache.set(ownerKey, true, OWNERSHIP_TTL_MS);
+    return;
+  }
+  if (project) {
+    // Do not cache reviewer permission: removing an invitation revokes media and
+    // project reads on the next request, including from a different app instance.
+    const { data: member, error: memberError } = await db.from("project_reviewers")
+      .select("user_id").eq("project_id", projectId).eq("user_id", userId).maybeSingle();
+    if (memberError) throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
+    if (member) {
+      await assertCanInteract(userId, project.owner_id);
+      return;
+    }
+  }
+  throw new ApiError(403, "You don't have access to this project", "forbidden");
 }
 
 /** Called once, from `project/route.ts`'s `POST`, right after a new project is created — the only

@@ -45,7 +45,7 @@ export const GET = localRoute(async (req) => {
     const name = rawName && rawName.trim() ? rawName.trim().slice(0, 120) : undefined;
     const project = createProject(bpProjectId, name);
     fs.writeFileSync(paths.projectFile, serializeProject(project), "utf8");
-    return Response.json({ project, created: true, revision: 0 });
+    return Response.json({ project, created: true, revision: 0 }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
   const raw = fs.readFileSync(paths.projectFile, "utf8");
@@ -53,7 +53,7 @@ export const GET = localRoute(async (req) => {
   // which localRoute turns into a 500 with that message rather than serving a half-parsed project.
   const project = deserializeProject(raw);
   // `revision`: what a later save must present as its `baseRevision` — see `_lib/projectRevision.ts`.
-  return Response.json({ project, created: false, revision: readRevision(raw) });
+  return Response.json({ project, created: false, revision: readRevision(raw) }, { headers: { "Cache-Control": "private, no-store" } });
 });
 
 /** Creates a brand-new project with a server-generated id — the path VCut's own home page (`/`)

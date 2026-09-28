@@ -37,6 +37,10 @@ function formatCount(n: number): string {
  *  like/comment prompts already use). Tapping a template tile opens its own `/t/[id]` share page rather
  *  than the in-app full-screen viewer, since an anonymous visitor has no viewer to open. */
 export default function CreatorProfile({ profileId }: { profileId: string }) {
+  return <CreatorProfileContent key={profileId} profileId={profileId} />;
+}
+
+function CreatorProfileContent({ profileId }: { profileId: string }) {
   const router = useRouter();
   const { user } = useSupabaseSession();
   const [info, setInfo] = useState<CreatorInfo | null>(null);
@@ -46,8 +50,6 @@ export default function CreatorProfile({ profileId }: { profileId: string }) {
 
   useEffect(() => {
     let active = true;
-    setInfo(null);
-    setNotFound(false);
     authFetch(`/api/vcut/creators/${encodeURIComponent(profileId)}`)
       .then(async (res) => {
         if (!active) return;

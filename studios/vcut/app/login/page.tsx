@@ -2,7 +2,16 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { getSupabaseBrowserClient, useSupabaseSession } from "@veasnawt/auth";
+
+function localReturnPath(raw: string | null): string {
+  if (!raw?.startsWith("/") || raw.startsWith("//")) return "/projects";
+  try {
+    const target = new URL(raw, "https://vcut.io");
+    return target.origin === "https://vcut.io" ? `${target.pathname}${target.search}${target.hash}` : "/projects";
+  } catch { return "/projects"; }
+}
 
 /** Email magic-link sign-in — no password to set, forget, or leak. Also the one page that has to
  *  work even before `NEXT_PUBLIC_VCUT_HOSTED` is confirmed configured, since a misconfigured hosted
@@ -35,6 +44,9 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const isDesktop = searchParams.get("desktop") === "1";
   const autoGoogle = searchParams.get("provider") === "google";
+  const nextParam = searchParams.get("next");
+  const next = localReturnPath(nextParam);
+  const loginReturn = `/login?next=${encodeURIComponent(next)}`;
   const { user } = useSupabaseSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -59,7 +71,7 @@ function LoginPageInner() {
   useEffect(() => {
     if (!user) return;
     if (!isDesktop) {
-      router.replace("/projects");
+      router.replace(next);
       return;
     }
     const supabase = getSupabaseBrowserClient();
@@ -73,7 +85,7 @@ function LoginPageInner() {
       setHandoffUrl(url);
       window.location.href = url;
     });
-  }, [user, isDesktop, router]);
+  }, [user, isDesktop, router, next]);
 
   // `user === null` (not `undefined`) means the session check finished and nobody's signed in here.
   useEffect(() => {
@@ -81,7 +93,7 @@ function LoginPageInner() {
     autoGoogleStarted.current = true;
     // Drop `provider` first, so pressing Back from Google's page shows the choices rather than bouncing
     // straight back to Google again.
-    window.history.replaceState(null, "", isDesktop ? "/login?desktop=1" : "/login");
+    window.history.replaceState(null, "", isDesktop ? "/login?desktop=1" : loginReturn);
     void continueWithGoogle();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, when the session check settles
   }, [autoGoogle, user]);
@@ -105,7 +117,7 @@ function LoginPageInner() {
     // comment for why: the token-exchange-then-`vcut://`-handoff logic above only runs from here.
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email: trimmed,
-      options: { emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}${isDesktop ? "/login?desktop=1" : "/projects"}` : undefined },
+      options: { emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}${isDesktop ? "/login?desktop=1" : loginReturn}` : undefined },
     });
     setSending(false);
     if (signInError) {
@@ -144,7 +156,7 @@ function LoginPageInner() {
     }
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: typeof window !== "undefined" ? `${window.location.origin}${isDesktop ? "/login?desktop=1" : "/projects"}` : undefined },
+      options: { redirectTo: typeof window !== "undefined" ? `${window.location.origin}${isDesktop ? "/login?desktop=1" : loginReturn}` : undefined },
     });
     if (oauthError) setError(oauthError.message);
   }
@@ -282,7 +294,7 @@ function LoginPageInner() {
             </button>
           </div>
         )}
-        <a href="/privacy" className="mt-5 block text-center text-xs text-white/45 underline underline-offset-4">Privacy Policy</a>
+        <Link href="/privacy" className="mt-5 block text-center text-xs text-white/45 underline underline-offset-4">Privacy Policy</Link>
       </div>
     </main>
   );

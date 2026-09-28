@@ -1,4 +1,4 @@
-import { checkProjectOwnership, requireSessionUser, VCUT_HOSTED } from "./auth";
+import { checkProjectOwnership, checkProjectReviewReadAccess, requireSessionUser, VCUT_HOSTED } from "./auth";
 import { spendCredits } from "./credits";
 import type { SessionUser } from "@veasnawt/auth/server";
 
@@ -108,7 +108,12 @@ export function localRoute<T extends unknown[]>(
       try {
         const user = await requireSessionUser(req);
         const projectId = new URL(req.url).searchParams.get("projectId");
-        if (projectId) await checkProjectOwnership(user.id, projectId);
+        if (projectId) {
+          const pathname = new URL(req.url).pathname;
+          const reviewRead = req.method === "GET" && (pathname === "/api/vcut/project" || pathname === "/api/vcut/media/raw");
+          if (reviewRead) await checkProjectReviewReadAccess(user.id, projectId);
+          else await checkProjectOwnership(user.id, projectId);
+        }
       } catch (err) {
         return errorResponse(err);
       }

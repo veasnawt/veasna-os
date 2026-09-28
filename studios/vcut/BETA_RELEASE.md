@@ -1,5 +1,11 @@
 # VCut 0.2.12 public beta preparation
 
+The review-comments extension under development uses
+`supabase/migrations/0019_review_comments.sql`. Its preparation was approved,
+but deployment and new native installers must wait for confirmation that the
+final migration ran in Supabase. The 0.2.12 artifacts listed below predate
+this extension; their hashes do not describe the review-comments code.
+
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
 ## Verified local builds

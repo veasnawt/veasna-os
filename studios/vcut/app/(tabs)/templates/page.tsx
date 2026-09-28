@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { startCheckout } from "@veasnawt/vcut/src/api/billing";
 import { isDesktopSignInAvailable, openDesktopSignIn } from "@veasnawt/vcut/src/api/desktopAuth";
@@ -173,12 +174,12 @@ export default function TemplatesPage() {
           <p className="text-sm font-medium text-white">Sign in to browse Templates</p>
           <p className="mt-1.5 text-xs leading-relaxed text-white/50">Templates are shared through your VCut account.</p>
           {HOSTED ? (
-            <a
+            <Link
               href="/login"
               className="mt-4 inline-block rounded-md bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-400"
             >
               Sign in
-            </a>
+            </Link>
           ) : isDesktopSignInAvailable() ? (
             <button
               onClick={openDesktopSignIn}

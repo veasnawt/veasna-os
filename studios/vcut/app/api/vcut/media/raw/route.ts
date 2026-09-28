@@ -3,6 +3,9 @@ import path from "path";
 import { requireSessionUser, VCUT_HOSTED } from "../../_lib/auth";
 import { localRouteCors as localRoute, corsPreflight } from "../../_lib/localOnly";
 import { ApiError, projectPaths, resolveWithin, userMediaPaths } from "../../_lib/paths";
+import { reviewAccess } from "../../_lib/reviewComments";
+import { deserializeProject } from "@veasnawt/vcut/src/project/serialize";
+import { canReadReviewMedia } from "../../_lib/reviewMedia";
 import { serveFileWithRange } from "../../_lib/serveFile";
 
 export const runtime = "nodejs";
@@ -62,11 +65,28 @@ export const GET = localRoute(async (req) => {
   // library file (no library-only export/lut/font/sfx concept exists).
   const isLibrary = url.searchParams.get("library") === "1";
   if (!relPath || (!projectId && !isLibrary)) throw new ApiError(400, "Missing projectId or relPath", "missing-params");
+  let libraryOwnerId: string | null = null;
+  let reviewerRead = false;
+  if (VCUT_HOSTED && projectId) {
+    const user = await requireSessionUser(req);
+    const access = await reviewAccess(projectId, user.id);
+    if (!access.isOwner) {
+      reviewerRead = true;
+      // The generic GET gate permits review-only access to project media. Restrict
+      // it to files actually referenced by this project, never arbitrary exports
+      // or another file from the owner's account-wide media library.
+      const projectFile = projectPaths(projectId).projectFile;
+      if (!fs.existsSync(projectFile)) throw new ApiError(404, "Project not found", "project-not-found");
+      const project = deserializeProject(fs.readFileSync(projectFile, "utf8"));
+      if (!canReadReviewMedia(project, kind, relPath, isLibrary)) throw new ApiError(403, "This file isn't part of the review", "forbidden");
+      libraryOwnerId = access.ownerId;
+    }
+  }
   let baseDir: string;
   if (isLibrary) {
     if (!VCUT_HOSTED) throw new ApiError(400, "Library media isn't available here", "library-unavailable");
     const user = await requireSessionUser(req);
-    const libraryPaths = userMediaPaths(user.id);
+    const libraryPaths = userMediaPaths(libraryOwnerId ?? user.id);
     baseDir = kind === "thumbnail" ? libraryPaths.thumbnailsDir : libraryPaths.mediaDir;
   } else {
     const paths = projectPaths(projectId!);
@@ -99,7 +119,8 @@ export const GET = localRoute(async (req) => {
   // from size+mtime (no content hashing — cheap) rather than a content hash. `must-revalidate` still
   // makes the browser check back after the week is up instead of serving indefinitely-stale bytes in
   // the rare case a file WAS replaced out from under an unchanged relPath (e.g. manual disk surgery).
-  return serveFileWithRange(req, filePath, contentType, "private, max-age=604800, must-revalidate");
+  return serveFileWithRange(req, filePath, contentType,
+    reviewerRead ? "private, no-store" : "private, max-age=604800, must-revalidate");
 });
 
 export const OPTIONS = corsPreflight;
