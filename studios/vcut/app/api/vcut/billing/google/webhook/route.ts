@@ -1,6 +1,6 @@
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
 import { VCUT_HOSTED } from "../../../_lib/auth";
-import { syncCanonicalSubscription, revokeCreditsIdempotent } from "../../../_lib/billingCore";
+import { syncCanonicalSubscription, revokeCreditsIdempotent, findCanonicalProduct } from "../../../_lib/billingCore";
 import {
   verifyGoogleSubscriptionPurchase,
   ANDROID_PACKAGE_NAME,
@@ -197,7 +197,7 @@ export async function POST(req: Request): Promise<Response> {
 
   // 4. Handle Consumable / One-time Product Revocation (Refunds)
   if (notification.oneTimeProductNotification) {
-    const { notificationType, purchaseToken } = notification.oneTimeProductNotification;
+    const { notificationType, purchaseToken, sku } = notification.oneTimeProductNotification;
 
     // 2 = Canceled / Refunded
     if (notificationType === 2) {

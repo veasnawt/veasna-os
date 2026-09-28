@@ -1,6 +1,6 @@
 import { corsPreflight, hostedOnlyRoute } from "../../../_lib/localOnly";
 import { ApiError } from "../../../_lib/paths";
-import { syncCanonicalSubscription, grantCreditsIdempotent } from "../../../_lib/billingCore";
+import { syncCanonicalSubscription, grantCreditsIdempotent, resolveUserEntitlements } from "../../../_lib/billingCore";
 import { getCreditsStatus } from "../../../_lib/credits";
 
 export const runtime = "nodejs";

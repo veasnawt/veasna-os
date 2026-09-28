@@ -1,6 +1,6 @@
 import { corsPreflight, hostedOnlyRoute } from "../../../_lib/localOnly";
 import { ApiError } from "../../../_lib/paths";
-import { findCanonicalProduct, syncCanonicalSubscription, grantCreditsIdempotent } from "../../../_lib/billingCore";
+import { findCanonicalProduct, syncCanonicalSubscription, grantCreditsIdempotent, resolveUserEntitlements } from "../../../_lib/billingCore";
 import {
   verifyGoogleSubscriptionPurchase,
   verifyGoogleProductPurchase,

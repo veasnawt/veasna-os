@@ -32,6 +32,7 @@ import { localRoute, publicSessionRoute } from "../_lib/localOnly";
 import { outroBackgroundPath, outroLogoPath } from "../_lib/outroAssets";
 import { resolveLutFilePath } from "../_lib/lutFile";
 import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMediaPaths, VCUT_ROOT } from "../_lib/paths";
+import { getProfile } from "../_lib/profiles";
 import { resolveUserEntitlements } from "../_lib/billingCore";
 import { resolveAssetInputPath } from "../_lib/assetInput";
 

@@ -3,6 +3,7 @@ import { test, describe } from "node:test";
 import {
   findCanonicalProduct,
   isSubscriptionRecordActive,
+  PRODUCT_CATALOG,
 } from "../app/api/vcut/_lib/billingCore.ts";
 import {
   verifyGoogleSubscriptionPurchase,
