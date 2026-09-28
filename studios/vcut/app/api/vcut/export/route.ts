@@ -54,7 +54,21 @@ async function shouldIncludeOutro(req: Request): Promise<boolean> {
   // budget regardless. Toggled via a Railway env var (no rebuild needed) rather than commenting out
   // the feature, so the SAME deployed image can be tested both ways back to back. Remove once answered.
   if (process.env.VCUT_DISABLE_OUTRO === "true") return false;
-  if (!VCUT_HOSTED) return false;
+  if (!VCUT_HOSTED) {
+    try {
+      const header = req.headers.get("authorization") ?? "";
+      let token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+      if (!token) token = new URL(req.url).searchParams.get("token") ?? "";
+      if (token) {
+        const user = await requireSessionUser(req);
+        const profile = await getProfile(user.id);
+        return profile?.plan !== "pro";
+      }
+    } catch {
+      // In local dev without network/Supabase, treat unauthenticated as free
+    }
+    return true;
+  }
   const user = await requireSessionUser(req);
   const profile = await getProfile(user.id);
   return profile?.plan !== "pro";
@@ -801,6 +815,8 @@ async function runExportJob(
 
     plan = buildExportPlan(project, {
       inputPathFor: (assetId) => {
+        const outroPath = resolveOutroAssetPath(assetId);
+        if (outroPath) return outroPath;
         const asset = project.assets.find((a) => a.id === assetId);
         if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
         return scaledImagePaths.get(assetId) ?? resolveAssetInputPath(paths, libraryMediaDir, asset);

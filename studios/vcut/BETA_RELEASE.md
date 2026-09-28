@@ -1,11 +1,24 @@
 # VCut public beta preparation
 
 The user confirmed running `supabase/migrations/0019_review_comments.sql`.
-Schema checks passed, and the review-comments extension is live in deployment
-`22975cbc-ba89-4774-9edd-a122191f30d2`. The 0.2.12 artifacts listed below
-predate this extension; their hashes do not describe the review-comments code.
+Schema checks passed. The review-comments extension and the owner-only editor,
+hidden-deletion and comment-tab loading fixes are live in deployment
+`75ca160c-266d-4b88-84e3-4c0fab823578`.
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
+
+## 0.2.14 verified local builds
+
+| Artifact | Path | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.14-beta-debug.apk` | 200595115 | `F4CE7F899571AEF5FB4FEF5939527051BF142DE6E5762E64A199738B84349CA2` |
+| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.14-unsigned-review.aab` | 96761539 | `019098448F7275838411DDB2F85FEF2C13C2D5690CDEF0DA134A87E1A00CFC16` |
+
+Android 0.2.14/build 18 targets SDK 36. The APK passed v2 signature and 16 KB
+ZIP alignment checks. The APK, AAB, Android and iOS shared assets contain the
+exact same `index-Cn4o_N_G.js` bundle (SHA-256
+`39A69EE32ADEBAECF283D17238C911F70F50CF6AD2040962ECABCD283785F9EE`).
+Native iOS building and device testing still require Xcode on a Mac.
 
 ## 0.2.13 verified local builds
 
@@ -36,7 +49,7 @@ The 0.2.12 APK/AAB shared assets match that earlier mobile build. APK v2 signatu
 
 ## Android / Play Console
 
-- Application ID: `com.veasnawt.vcut`; version 0.2.13, version code 17; target SDK 36.
+- Application ID: `com.veasnawt.vcut`; version 0.2.14, version code 18; target SDK 36.
 - Production upload signing is supplied only through `VCUT_UPLOAD_KEYSTORE`, `VCUT_UPLOAD_STORE_PASSWORD`, `VCUT_UPLOAD_KEY_ALIAS`, and `VCUT_UPLOAD_KEY_PASSWORD`. Keep the keystore outside the repository and back it up securely. Do not replace an existing Play upload key if this application already has one.
 - Build shared assets with `pnpm --filter vcut-mobile build`, then `pnpm --filter vcut-mobile exec cap sync android`.
 - From `apps/mobile/android`, run `gradlew.bat bundleRelease` with signing configured. Release builds fail if credentials are missing. `bundleRelease -PvcutUnsignedReview` creates an unsigned review bundle only.

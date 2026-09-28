@@ -361,6 +361,7 @@ async function buildNextStandaloneResources() {
   await ensurePuppeteer(outDir);
   ensureFontAssets(outDir);
   ensureSfxAssets(outDir);
+  ensureImageAssets(outDir);
 
   console.log(`Done — resources/vcut ready (internalized ${fixedCount} external symlink(s)).`);
 }
@@ -512,6 +513,21 @@ function ensureSfxAssets(outDir) {
   rmSync(destDir, { recursive: true, force: true });
   copyRecursiveDereferenced(srcDir, destDir);
   console.log("Done — vcut has bundled SFX.");
+}
+
+/** Bundles image assets (such as the transparent outro logo and outro background)
+ *  from packages/vcut/assets/images into outDir/vcut-images. Without this, packaged
+ *  desktop builds fail to resolve bundled outro images at runtime. */
+function ensureImageAssets(outDir) {
+  const srcDir = path.join(repoRoot, "packages", "vcut", "assets", "images");
+  if (!existsSync(srcDir)) {
+    console.error(`Refusing to package: image assets not found at\n  ${srcDir}`);
+    process.exit(1);
+  }
+  const destDir = path.join(outDir, "vcut-images");
+  rmSync(destDir, { recursive: true, force: true });
+  copyRecursiveDereferenced(srcDir, destDir);
+  console.log("Done — vcut has bundled images.");
 }
 
 await buildNextStandaloneResources();

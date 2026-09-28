@@ -30,8 +30,30 @@ let imagesDir: string | null = null;
  *  means this function never has to know which build it's running in. */
 function resolveImagesDir(): string {
   if (!imagesDir) {
-    const packaged = path.join(process.cwd(), "vcut-images");
-    imagesDir = fs.existsSync(packaged) ? packaged : path.resolve(process.cwd(), "../../packages/vcut/assets/images");
+    const candidates = [
+      path.join(process.cwd(), "vcut-images"),
+      path.resolve(process.cwd(), "packages/vcut/assets/images"),
+      path.resolve(process.cwd(), "../../packages/vcut/assets/images"),
+      path.resolve(process.cwd(), "../packages/vcut/assets/images"),
+      path.resolve(__dirname, "../../../../../../packages/vcut/assets/images"),
+      path.resolve(__dirname, "../../../../../packages/vcut/assets/images"),
+      path.join(process.cwd(), "resources", "vcut", "vcut-images"),
+      ...(typeof (process as unknown as { resourcesPath?: string }).resourcesPath === "string"
+        ? [
+            path.join((process as unknown as { resourcesPath: string }).resourcesPath, "vcut", "vcut-images"),
+            path.join((process as unknown as { resourcesPath: string }).resourcesPath, "vcut-images"),
+          ]
+        : []),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, "vcut-transparent.png"))) {
+        imagesDir = candidate;
+        break;
+      }
+    }
+    if (!imagesDir) {
+      imagesDir = candidates.find((c) => fs.existsSync(c)) ?? path.join(process.cwd(), "vcut-images");
+    }
   }
   return imagesDir;
 }
