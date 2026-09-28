@@ -1,14 +1,30 @@
-# VCut 0.2.12 public beta preparation
+# VCut public beta preparation
 
-The review-comments extension under development uses
-`supabase/migrations/0019_review_comments.sql`. Its preparation was approved,
-but deployment and new native installers must wait for confirmation that the
-final migration ran in Supabase. The 0.2.12 artifacts listed below predate
-this extension; their hashes do not describe the review-comments code.
+The user confirmed running `supabase/migrations/0019_review_comments.sql`.
+Schema checks passed, and the review-comments extension is live in deployment
+`22975cbc-ba89-4774-9edd-a122191f30d2`. The 0.2.12 artifacts listed below
+predate this extension; their hashes do not describe the review-comments code.
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
-## Verified local builds
+## 0.2.13 verified local builds
+
+| Artifact | Path | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.13-beta-debug.apk` | 200594955 | `D46E39D16573B8E2C1B77D0C51F9FE6578EBF0CCAC19AA6A60E1AF79E833076A` |
+| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.13-unsigned-review.aab` | 96761470 | `BA01CB95BFFE0045603553E48416F6D2033C1607EC849975C0CB2AE9D0366861` |
+| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.13.exe` | 342879778 | `3325FB2F342D785996AEEB80417A982DCEC375646C6FDAE8CA34A626EEE524CE` |
+
+Android 0.2.13/build 17 targets SDK 36. The APK passed v2 signature and 16 KB ZIP
+alignment checks. The APK, AAB, Android and iOS shared assets contain the exact same
+`index-ClVp2qJG.js` bundle (SHA-256
+`A82070D3268A9881BC83607A02FED018C5EF6E1B4A9EFCE290E29F45D7A66C84`).
+The Windows installer builds successfully and reports product version 0.2.13.0.
+Its packaged app contains the review API route and the same Next BUILD_ID
+`AEpuS43ABUDQ6Uuj18ZzP` as the production desktop build. Physical device and
+Mac/Xcode checks remain outstanding; these test artifacts are not Store uploads.
+
+## Prior 0.2.12 verified local builds
 
 | Artifact | Path | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
@@ -16,11 +32,11 @@ The code targets a public beta. Store publication remains gated by the items bel
 | Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.12-unsigned-review.aab` | 96754664 | `BC26BF7A1F1E53D543C4DB13FADB9A5DF271B41C109C6E65E427F1E0E108BD67` |
 | Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.12.exe` | 342805088 | `2D2C0F7811F70BF3ED83F5F59F05CE75A7A9F817434CDF02758D42B1B3F2F056` |
 
-APK/AAB shared assets match the final mobile build. APK v2 signature, ZIP alignment and all 20 ARM64/x86_64 native ELF libraries passed 16 KB alignment checks. Release signing protection also rejects aggregate `:app:bundle` without credentials or the explicit review flag. The Windows installer includes the final standalone server, static assets, fonts and FFmpeg; a real export from its packaged server saved matching bytes into Videos/VCut. These artifacts are local test builds, not Store submissions.
+The 0.2.12 APK/AAB shared assets match that earlier mobile build. APK v2 signature, ZIP alignment and all 20 ARM64/x86_64 native ELF libraries passed 16 KB alignment checks. Release signing protection also rejects aggregate `:app:bundle` without credentials or the explicit review flag. The older Windows installer includes the standalone server, static assets, fonts and FFmpeg; a real export from its packaged server saved matching bytes into Videos/VCut. These artifacts are local test builds, not Store submissions.
 
 ## Android / Play Console
 
-- Application ID: `com.veasnawt.vcut`; version 0.2.12, version code 16; target SDK 36.
+- Application ID: `com.veasnawt.vcut`; version 0.2.13, version code 17; target SDK 36.
 - Production upload signing is supplied only through `VCUT_UPLOAD_KEYSTORE`, `VCUT_UPLOAD_STORE_PASSWORD`, `VCUT_UPLOAD_KEY_ALIAS`, and `VCUT_UPLOAD_KEY_PASSWORD`. Keep the keystore outside the repository and back it up securely. Do not replace an existing Play upload key if this application already has one.
 - Build shared assets with `pnpm --filter vcut-mobile build`, then `pnpm --filter vcut-mobile exec cap sync android`.
 - From `apps/mobile/android`, run `gradlew.bat bundleRelease` with signing configured. Release builds fail if credentials are missing. `bundleRelease -PvcutUnsignedReview` creates an unsigned review bundle only.
@@ -164,3 +180,21 @@ still apply.
 Hosted deployment `93ea212d-1239-4656-8ba1-b56f262d98a9` reached SUCCESS
 and its container reported ready. The home, editor and privacy pages returned
 HTTP 200 after deployment.
+
+## 0.2.13 review comments
+
+Migration `0019_review_comments.sql` was confirmed applied by the user. Read-only
+schema checks returned 200 for `project_reviewers`, new `template_comments`
+columns and `can_read_project_review`. The production deployment
+`22975cbc-ba89-4774-9edd-a122191f30d2` reached SUCCESS, started its Next
+server, and returned HTTP 200 at `vcut.io`.
+
+An isolated live two-account workflow passed reviewer invitation, read-only
+project playback access, denial of project writes and unreferenced media,
+timestamped and general comments, one-level replies, invited-only mentions,
+author-only edits, resolution/reopen, parent tombstones preserving replies,
+timeline markers, Supabase RLS and access revocation. Its project and accounts
+were removed. CI run `36387913218` passed typecheck, 1,594 tests, lint and the
+production build. The feature reuses `template_comments` and Realtime; no
+notification delivery exists yet. Native device interaction and iOS compilation
+still require actual Android and Mac/iOS testing.
