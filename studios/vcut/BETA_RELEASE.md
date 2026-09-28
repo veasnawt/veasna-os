@@ -13,11 +13,17 @@ The code targets a public beta. Store publication remains gated by the items bel
 | --- | --- | ---: | --- |
 | Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.14-beta-debug.apk` | 201133493 | `DB7CF5EBF556C48BAC2ADDE6CF7B0FF1BEFB3FF03984E91C89A5C240603D27AB` |
 | Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.14-unsigned-review.aab` | 96762184 | `8062136E4AF4C860DFBC9A8A345289B621E875ACB6F3FD81DCD4079C40CDF0D1` |
+| Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.14.exe` | 345622432 | `BBC4A226E27055DC56E5587C54054A50243E0CEB2E169B8AAB20698C17B21754` |
 
 Android 0.2.14/build 18 targets SDK 36. The APK passed v2 signature and 16 KB
 ZIP alignment checks. The APK, AAB, and synced Android assets contain the
 exact same `index-hpN7WojR.js` bundle (SHA-256
 `CCBE2188776536A957C4D93F91BEB4C72A2B0CF87CB366BC49331FD1F4C998B5`).
+The Windows installer builds successfully with product version 0.2.14.0.
+Its packaged app contains the updated Next standalone server (BUILD_ID
+`HRInnUcMXpu3w65zriV1o`), bundled fonts, SFX, FFmpeg/FFprobe, Puppeteer browser,
+and bundled images (`vcut-transparent.png`, `vcut-outro-bg.png`) resolving the
+local outro export logo and timeline interaction readiness gating.
 Native iOS building and device testing still require Xcode on a Mac.
 
 ## 0.2.13 verified local builds
