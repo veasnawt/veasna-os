@@ -1,9 +1,9 @@
 # VCut public beta preparation
 
 The user confirmed running `supabase/migrations/0019_review_comments.sql`.
-Schema checks passed. The review-comments extension and the owner-only editor,
-hidden-deletion and comment-tab loading fixes are live in deployment
-`75ca160c-266d-4b88-84e3-4c0fab823578`.
+Schema checks passed. The review-comments extension, owner-only editor,
+hidden-deletion, outro export and timeline readiness fixes are live in deployment
+`b37a8c0b-d3fa-4d64-a7b5-1fa4fa15fc4b`.
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
@@ -11,13 +11,13 @@ The code targets a public beta. Store publication remains gated by the items bel
 
 | Artifact | Path | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.14-beta-debug.apk` | 200595115 | `F4CE7F899571AEF5FB4FEF5939527051BF142DE6E5762E64A199738B84349CA2` |
-| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.14-unsigned-review.aab` | 96761539 | `019098448F7275838411DDB2F85FEF2C13C2D5690CDEF0DA134A87E1A00CFC16` |
+| Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.14-beta-debug.apk` | 201133493 | `DB7CF5EBF556C48BAC2ADDE6CF7B0FF1BEFB3FF03984E91C89A5C240603D27AB` |
+| Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.14-unsigned-review.aab` | 96762184 | `8062136E4AF4C860DFBC9A8A345289B621E875ACB6F3FD81DCD4079C40CDF0D1` |
 
 Android 0.2.14/build 18 targets SDK 36. The APK passed v2 signature and 16 KB
-ZIP alignment checks. The APK, AAB, Android and iOS shared assets contain the
-exact same `index-Cn4o_N_G.js` bundle (SHA-256
-`39A69EE32ADEBAECF283D17238C911F70F50CF6AD2040962ECABCD283785F9EE`).
+ZIP alignment checks. The APK, AAB, and synced Android assets contain the
+exact same `index-hpN7WojR.js` bundle (SHA-256
+`CCBE2188776536A957C4D93F91BEB4C72A2B0CF87CB366BC49331FD1F4C998B5`).
 Native iOS building and device testing still require Xcode on a Mac.
 
 ## 0.2.13 verified local builds
