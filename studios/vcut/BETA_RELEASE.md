@@ -2,8 +2,8 @@
 
 The user confirmed running `supabase/migrations/0019_review_comments.sql`.
 Schema checks passed. The review-comments extension, owner-only editor,
-hidden-deletion, outro export and timeline readiness fixes are live in deployment
-`82baa8a4-3a1b-487d-8de1-8ed0d2a90ae9`.
+hidden-deletion, outro export, timeline readiness fixes, authentic full-editor showcase screenshot (with media drawer and properties inspector), @veasnawt/vicons integration, and /terms navigation are live in deployment
+`c9e212ae-06b1-4258-a8e0-101b35a534ad`.
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
