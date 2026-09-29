@@ -184,15 +184,52 @@ export class SupabaseExportJobStore implements ExportJobStore {
 }
 
 export function isDurableQueueActive(): boolean {
+  const hasUrl = Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const hasKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
   return Boolean(
     process.env.VCUT_HOSTED === "true" &&
       process.env.VCUT_DURABLE_QUEUE === "true" &&
-      process.env.SUPABASE_URL &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY
+      hasUrl &&
+      hasKey
   );
 }
 
-/** Global default job store instance, resolved based on environment configuration. */
-export const defaultExportJobStore: ExportJobStore = isDurableQueueActive()
-  ? new SupabaseExportJobStore()
-  : new MemoryExportJobStore();
+class DynamicExportJobStore implements ExportJobStore {
+  private memoryStore = new MemoryExportJobStore();
+  private supabaseStore = new SupabaseExportJobStore();
+
+  private get activeStore(): ExportJobStore {
+    return isDurableQueueActive() ? this.supabaseStore : this.memoryStore;
+  }
+
+  createJob(options: Parameters<ExportJobStore["createJob"]>[0]) {
+    return this.activeStore.createJob(options);
+  }
+  getJob(jobId: string) {
+    return this.activeStore.getJob(jobId);
+  }
+  findActiveJob(projectId: string) {
+    return this.activeStore.findActiveJob(projectId);
+  }
+  requestCancel(jobId: string) {
+    return this.activeStore.requestCancel(jobId);
+  }
+  claimJob(workerId: string, staleAfterSeconds?: number) {
+    return this.activeStore.claimJob(workerId, staleAfterSeconds);
+  }
+  heartbeat(jobId: string, workerId: string, update?: any) {
+    return this.activeStore.heartbeat(jobId, workerId, update);
+  }
+  complete(jobId: string, workerId: string, result: any) {
+    return this.activeStore.complete(jobId, workerId, result);
+  }
+  fail(jobId: string, workerId: string, errorMessage: string) {
+    return this.activeStore.fail(jobId, workerId, errorMessage);
+  }
+  cancel(jobId: string, workerId: string) {
+    return this.activeStore.cancel(jobId, workerId);
+  }
+}
+
+/** Global default job store instance, resolved dynamically based on environment configuration. */
+export const defaultExportJobStore: ExportJobStore = new DynamicExportJobStore();
