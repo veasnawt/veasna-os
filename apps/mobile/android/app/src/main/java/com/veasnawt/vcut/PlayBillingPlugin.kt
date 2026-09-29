@@ -120,12 +120,13 @@ class PlayBillingPlugin : Plugin(), PurchasesUpdatedListener {
                 .setProductList(productList)
                 .build()
 
-            billingClient?.queryProductDetailsAsync(params) { billingResult, queryProductDetailsList ->
+            billingClient?.queryProductDetailsAsync(params) { billingResult, result ->
                 if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
                     call.reject("Failed to query product details: ${billingResult.debugMessage} (code ${billingResult.responseCode})")
                     return@queryProductDetailsAsync
                 }
 
+                val queryProductDetailsList = result.productDetailsList
                 val results = JSArray()
                 for (details in queryProductDetailsList) {
                     cachedProductDetails[details.productId] = details
@@ -193,7 +194,8 @@ class PlayBillingPlugin : Plugin(), PurchasesUpdatedListener {
                     ))
                     .build()
 
-                billingClient?.queryProductDetailsAsync(params) { billingResult, queryProductDetailsList ->
+                billingClient?.queryProductDetailsAsync(params) { billingResult, result ->
+                    val queryProductDetailsList = result.productDetailsList
                     if (billingResult.responseCode != BillingClient.BillingResponseCode.OK || queryProductDetailsList.isEmpty()) {
                         call.reject("Product not found in Google Play: $productId")
                         return@queryProductDetailsAsync
