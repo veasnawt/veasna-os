@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowLeft } from "@veasnawt/vicons";
 
 export const metadata = {
   title: "Terms of Service — VCut",
@@ -9,7 +10,7 @@ export default function TermsPage() {
   return (
     <main className="mx-auto max-w-2xl px-5 py-12 text-white">
       <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-medium text-white/50 hover:text-white transition-colors">
-        ← Back to VCut
+        <ArrowLeft size={14} /> Back to VCut
       </Link>
       
       <h1 className="mb-2 mt-6 text-3xl font-bold tracking-tight">Terms of Service</h1>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ArrowLeft } from "@veasnawt/vicons";
 
 export default function DeleteAccountPage() {
   const [email, setEmail] = useState("");
@@ -45,7 +46,7 @@ export default function DeleteAccountPage() {
             href="/"
             className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-400 hover:text-sky-300"
           >
-            ← Back to VCut
+            <ArrowLeft size={13} /> Back to VCut
           </Link>
           <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Account &amp; Data Deletion
