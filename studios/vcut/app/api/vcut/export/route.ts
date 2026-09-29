@@ -35,6 +35,9 @@ import { ApiError, ensureProjectDirs, type ProjectPaths, resolveWithin, userMedi
 import { getProfile } from "../_lib/profiles";
 import { resolveUserEntitlements } from "../_lib/billingCore";
 import { resolveAssetInputPath } from "../_lib/assetInput";
+import { defaultExportJobStore, isDurableQueueActive } from "../_lib/exportQueue";
+import type { DurableExportJob } from "../_lib/exportJobs";
+import { executeExportRender } from "../_lib/exportRenderer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -509,6 +512,37 @@ export const POST = localRoute(async (req) => {
   const bpProjectId = url.searchParams.get("projectId");
   if (!bpProjectId) throw new ApiError(400, "Missing projectId", "missing-project-id");
 
+  if (isDurableQueueActive()) {
+    const active = await defaultExportJobStore.findActiveJob(bpProjectId);
+    if (active) {
+      throw new ApiError(409, "An export is already running for this project", "export-already-running");
+    }
+
+    const body = (await req.json()) as { project?: unknown; fileName?: string };
+    if (!body?.project) throw new ApiError(400, "Missing project in request body", "missing-project");
+
+    const project = deserializeProject(JSON.stringify(body.project));
+    const includeOutro = await shouldIncludeOutro(req);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const fileName = `${(body.fileName || project.name || "export").replace(/[^A-Za-z0-9._-]/g, "_")}-${stamp}.mp4`;
+
+    const hostedUser = VCUT_HOSTED ? await requireSessionUser(req).catch(() => null) : null;
+    const durableJob = await defaultExportJobStore.createJob({
+      projectId: bpProjectId,
+      userId: hostedUser?.id ?? null,
+      fileName,
+      project,
+      includeOutro,
+    });
+
+    return Response.json({
+      jobId: durableJob.id,
+      fileName,
+      duration: sequenceDuration(project),
+      status: "queued",
+    });
+  }
+
   // Rejected up front, before any of the heavy work below (the Khmer pre-pass's own headless
   // Chromium launch, then FFmpeg itself) even starts — a SECOND export request for a project that
   // already has one running is never a legitimate "export something else too," it's a double-submit:
@@ -687,309 +721,45 @@ async function runExportJob(
   includeOutro: boolean,
   libraryMediaDir: string | null
 ): Promise<void> {
-  // One text clip's content, written to its own file so `drawtext`'s `textfile=` can read it (see
-  // `ExportPlanOptions.textFilePathFor`'s own comment on why a file rather than an escaped `text=`
-  // value) — ephemeral, this export's only, cleaned up in the `finally` below regardless of outcome.
-  // A `wordHighlight` clip's generated `.ass` subtitle document (see `assFilePathFor` below) lives in
-  // this same directory — same lifetime, same cleanup, no reason for a second temp dir. Also where
-  // `runOutroStep`'s own scratch files (its render, the concat list) live when `includeOutro` is true —
-  // same "ephemeral, this export's only" lifetime, no reason for a second scratch dir there either.
-  const textFilesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vcut-text-"));
-  // The main render's own output path — normally `outputPath` itself, but when an outro is being
-  // appended, `outputPath` is instead what `runOutroStep` produces (main + outro, concatenated); the
-  // main FFmpeg pass writes here first, into scratch, so it never risks partially overwriting the file
-  // a client might already be polling `outputPath` for.
-  const mainOutputPath = includeOutro ? path.join(textFilesDir, "main.mp4") : outputPath;
+  const harnessBaseUrl = VCUT_HOSTED ? `http://127.0.0.1:${process.env.PORT ?? 3000}` : new URL(reqUrl).origin;
 
-  function fail(err: unknown): void {
-    fs.rmSync(textFilesDir, { recursive: true, force: true });
+  try {
+    await executeExportRender({
+      project,
+      paths,
+      outputPath,
+      harnessBaseUrl,
+      includeOutro,
+      libraryMediaDir,
+      callbacks: {
+        onPhase: (phase, message) => {
+          job.phase = phase as JobPhase;
+          job.message = message;
+          job.notify();
+        },
+        onProgress: (fraction) => {
+          job.progress = fraction;
+          job.notify();
+        },
+        isCancelled: () => job.cancelRequested,
+        onProcessSpawned: (proc, cancel) => {
+          job.process = proc;
+          job.cancel = cancel;
+        },
+      },
+    });
+
+    job.status = "done";
+    job.progress = 1;
+  } catch (err) {
+    if (job.status !== "running") return;
     const code = typeof err === "object" && err && "code" in err ? (err as { code: string }).code : undefined;
     job.status = code === "cancelled" ? "cancelled" : "failed";
     if (job.status === "failed") job.error = err instanceof Error ? err.message : String(err);
+  } finally {
     job.notify();
     setTimeout(() => jobs.delete(job.id), 60_000).unref?.();
   }
-
-  // buildExportPlan throws ExportError for anything it can't render (empty timeline, offline media).
-  // Surfacing that here means the user is told why BEFORE FFmpeg appears to start and then fails.
-  let plan;
-  try {
-    // Khmer-script text clips, AND any clip using a preview style FFmpeg's own text paths can't draw
-    // (gradient, glow, layered/blurred shadows, a rounded/translucent background box, letter spacing,
-    // text-decoration, clip opacity, a canvas blend mode — `needsTextStyleBrowserRender`), render
-    // through a browser (headless Chromium via `khmerTextHarness.ts`), pre-rendered to PNG windows
-    // here, BEFORE `buildExportPlan` runs. For Khmer specifically: every FFmpeg-side text path
-    // (`drawtext`, the libass `subtitles=` filter) fails to correctly stack certain Khmer subscript-
-    // consonant clusters, confirmed empirically, so this pre-pass is what makes Khmer export correct
-    // at all rather than falling back to the same broken `drawtext` path — see `khmerTextRenderer.ts`'s
-    // own doc comment. For a styled (non-Khmer) clip: those fields simply have no FFmpeg equivalent at
-    // all, so without this they silently render as plain, unstyled text in every export despite
-    // looking correct in the live preview — see `needsTextStyleBrowserRender`'s own doc comment.
-    // `khmerTextWindowsFor` below is a SYNC callback `buildExportPlan` calls inline per clip, so every
-    // window this export could possibly need must already be rendered by the time it runs; gated the
-    // same way `buildExportPlan`'s own internal check is (no keyframed style, no real crop) so a
-    // window is never computed for a clip that wouldn't use it anyway.
-    const khmerClips = project.sequence.tracks
-      .filter((track) => track.kind === "text")
-      .flatMap((track) => track.clips)
-      .filter((clip) => {
-        const asset = project.assets.find((a) => a.id === clip.assetId);
-        if (!asset?.textContent || !asset.textStyle) return false;
-        return clip.groupId || clip.transformLayers?.length || hasTextStyleKeyframes(clip) || hasTextCropKeyframes(clip) || !isIdentityTextCrop(resolveTextCrop(clip,0)) || clipNeedsBrowserTextRender(clip, asset.textContent, resolveTextStyle(clip,0,asset.textStyle));
-      });
-
-    const khmerWindowsByClipId = new Map<string, KhmerTextWindow[]>();
-    if (khmerClips.length > 0) {
-      job.phase = "rendering-text";
-      job.message = "Preparing text overlays…";
-      job.notify();
-      if (job.cancelRequested) throw new ApiError(499, "Export cancelled", "cancelled");
-
-      // In hosted mode, the incoming request's own origin is the PUBLIC one (`https://vcut.io`) —
-      // using it here would make this same container's own Puppeteer instance hairpin back out
-      // through the public edge just to reach a page it's already running right next to, adding
-      // pointless latency on every export, AND a real correctness risk the moment this ever runs on
-      // more than one machine (the request could land on a DIFFERENT instance than the one Puppeteer
-      // is launched from). The fixed internal loopback avoids both — this container always serves its
-      // own `/vcut/text-harness` route locally regardless of what the public request looked like.
-      // Desktop/local dev keep using the request's own origin, unchanged, since there is no "public
-      // edge" to avoid there — same-origin was always correct for a single local server.
-      const baseUrl = VCUT_HOSTED ? `http://127.0.0.1:${process.env.PORT ?? 3000}` : new URL(reqUrl).origin;
-      const customFontUrls = buildCustomFontDataUrls(paths.customFontsDir, project.customFonts);
-      const harness = await openKhmerTextHarness(baseUrl, textFilesDir, customFontUrls);
-      try {
-        let rendered = 0;
-        // See `MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT`'s own doc comment for why this exists at all. A
-        // clip is skipped ENTIRELY once the running total would exceed the cap (never partially
-        // rendered) — it falls through to plain `drawtext` for that one clip (losing Khmer shaping or
-        // its gradient/glow/shadow styling specifically), rather than risking the whole export.
-        let totalWindows = 0;
-        for (const clip of khmerClips) {
-          if (job.cancelRequested) throw new ApiError(499, "Export cancelled", "cancelled");
-          if (totalWindows >= MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
-          const asset = project.assets.find((a) => a.id === clip.assetId)!;
-          const windows = await renderKhmerClipWindows(clip, asset.textContent!, asset.textStyle!, {
-            parentAnimated:clipHasParentAnimation(project,clip),
-            frameWidth: project.sequence.width,
-            frameHeight: project.sequence.height,
-            // `project.exportSettings.fps`, NOT `project.sequence.fps` — the latter is only the EDITING
-            // timeline's own rate (what `PlaybackEngine` previews at), a value the Export dialog's own
-            // "Frame rate" dropdown lets a user pick independently of. `buildExportPlan.ts` composites
-            // this clip's windows into a video graph that's CFR-normalized (`fps=${fps}` filters
-            // throughout) at `project.exportSettings.fps` specifically (its very first line destructures
-            // `fps` straight off `exportSettings`, and every downstream frame-rate-sensitive computation
-            // — including `pushKhmerTextOverlay`'s own `enable='between(t,...)'` gate width — uses that
-            // SAME value), so this has to match it exactly or the window-visibility-floor computed here
-            // silently targets the wrong frame period. A sequence recorded/imported at a higher native
-            // fps than the user's CHOSEN export fps (a common real combination — e.g. 60fps source,
-            // 30fps export for file size) previously passed too SMALL a floor, still leaving some
-            // genuinely short words narrower than a REAL output frame — the same "text blips
-            // sporadically" symptom surviving an earlier fix that only floored the gate width using this
-            // (wrong) fps in the first place.
-            fps: project.exportSettings.fps,
-            customFonts: project.customFonts,
-            renderFrame: async (params) => {
-              if (++totalWindows > MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT) throw new ApiError(400, "This export exceeds the animated text frame limit. Export a shorter range to preserve its appearance.", "text-frame-limit");
-              return harness.renderFrame({...params, crop: resolveTextCrop(clip,params.elapsedSeconds),groupPose:parentPose(project,clip,clip.timelineStart+params.elapsedSeconds)});
-            },
-          });
-          khmerWindowsByClipId.set(clip.id, windows);
-
-          rendered++;
-          // "Text overlay" (singular per clip), not "window" — a viewer has no reason to know one
-          // text clip can expand into several rendered images (per-word reveals, keyframed style
-          // slices); "clip 2 of 3" maps onto what they actually placed on the timeline.
-          job.message = `Rendering text overlay ${rendered} of ${khmerClips.length}…`;
-          job.notify();
-        }
-      } finally {
-        await harness.close();
-      }
-    }
-
-    if (job.cancelRequested) throw new ApiError(499, "Export cancelled", "cancelled");
-    job.phase = "preparing";
-    job.message = "Preparing to render…";
-    job.notify();
-
-    const scaledImagePaths = await prescaleOversizedImageAssets(project, paths, textFilesDir, libraryMediaDir);
-
-    plan = buildExportPlan(project, {
-      inputPathFor: (assetId) => {
-        const outroPath = resolveOutroAssetPath(assetId);
-        if (outroPath) return outroPath;
-        const asset = project.assets.find((a) => a.id === assetId);
-        if (!asset) throw new ApiError(400, "A clip references media that is no longer in the project", "missing-asset");
-        return scaledImagePaths.get(assetId) ?? resolveAssetInputPath(paths, libraryMediaDir, asset);
-      },
-      outputPath: mainOutputPath,
-      fontPathFor: (fileName) => textFontPath(fileName),
-      textFilePathFor: (clip, content, variant) => {
-        const filePath = path.join(textFilesDir, `${clip.id}${variant ? `-${variant}` : ""}.txt`);
-        fs.writeFileSync(filePath, content, "utf8");
-        return filePath;
-      },
-      assFilePathFor: (clip, assContent) => {
-        const filePath = path.join(textFilesDir, `${clip.id}.ass`);
-        fs.writeFileSync(filePath, assContent, "utf8");
-        return filePath;
-      },
-      fontMetricsFor,
-      fontsDirFor: fontsDirPath,
-      // Missing here entirely until now — a real, confirmed bug: `buildExportPlan` silently skips its
-      // whole `lut3d=` stage when `lutPathFor` isn't supplied at all (see its own test coverage), so
-      // every real export via this route baked in NO LUT for any clip that had one applied, no error,
-      // no warning. `_lib/templates.ts`'s own template-render call already did this correctly — same
-      // pattern, applied here too.
-      lutPathFor: (lutId, intensity) => resolveLutFilePath(paths, project.luts, lutId, intensity, textFilesDir),
-      khmerTextWindowsFor: (clip: Clip) => khmerWindowsByClipId.get(clip.id),
-      // Confirmed a real, live cause of a hosted export crashing its own then-1GB-limited container
-      // (Railway's own memory metrics showed a hard spike-then-drop right at the moment of an
-      // actual reported export failure): FFmpeg's own thread auto-detection reads the HOST
-      // machine's full core count via /proc/cpuinfo, not the container's actual cgroup CPU quota —
-      // a well-documented Docker gotcha, not specific to this app. A host with far more cores than
-      // this service's own actual allocation lets libx264 spin up that many encoder threads, each
-      // carrying its own frame-buffer working set — real, avoidable memory pressure that has
-      // nothing to do with this export's own resolution or duration. Explicitly capping `-threads`
-      // (matching the actual allocation, not the host's over-reported count) bounds that regardless
-      // of what the host reports. Desktop/local dev keep the plain default (their own machine, no
-      // such container/host mismatch, and no reason to leave performance on the table there).
-      //
-      // Both this project's own Railway plan and this specific cap have moved since the incident
-      // above: the service now runs on a 24 vCPU allocation (Pro plan, confirmed via `railway
-      // metrics --cpu`), not the ~2 vCPU this constant was originally tuned against — `8` keeps a
-      // real, deliberate margin under that new ceiling (not "however many cores are available")
-      // rather than re-introducing the exact over-provisioning class of bug this fix exists to
-      // prevent: `VCUT_MAX_CONCURRENT_EXPORTS` (default 2) means up to two of these can run at
-      // once, and 2 × 8 = 16 leaves real headroom under 24 vCPU for the Next.js server process
-      // itself and every export's own (separately, always-1-per-input) decoder threads, rather than
-      // assuming this is the only thing ever running in the container. `-preset veryfast` is now
-      // `medium` too — x264's own standard default, meaningfully better quality-per-bitrate at any
-      // given CRF than `veryfast` — safe to spend the extra CPU-seconds on now that this service
-      // isn't CPU-quota-starved the way it was when `veryfast` was chosen.
-      ...(VCUT_HOSTED
-        ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(project.exportSettings.crf), "-threads", "8"] }
-        : null),
-      // Confirmed a real, live contributor to the SAME memory-ceiling incident above, separate from
-      // (and additive to) the oversized-image fix: Railway's own metrics showed the peak drop
-      // measurably once that image fix shipped, but a heavily transform-keyframed clip STILL pushed
-      // memory close to the ceiling on its own, independent of its source image's resolution — see
-      // `ExportPlanOptions.keyframeSliceTuning`'s own doc comment for why.
-      //
-      // TRIED narrowing this to `{ baseIntervalSeconds: 0.2, maxSlices: 160 }` (from 0.3/120) to
-      // address a separate, real complaint ("the keyframed animation doesn't look smooth on export") —
-      // reverted within the same session: reproduced directly against a real project with exactly this
-      // shape (a video clip with BOTH `transformKeyframes` AND a transition active) two independent
-      // times, same deterministic ~80% progress point both times, "FFmpeg was terminated unexpectedly
-      // (signal SIGKILL)" — a real OOM kill (`memory.events` `oom_kill` incrementing to match), not
-      // container noise. The 0.3s/120 figure was never an arbitrary guess to begin with (see this
-      // comment's own opening line); a plausible-sounding "middle ground" between it and the smoothness
-      // ask turned out to still cross the real ceiling on real content. Left at the confirmed-safe
-      // value; a future attempt at smoother export-side keyframes needs to be validated against a real
-      // project with keyframes AND a transition together (not either in isolation) before shipping
-      // again, ideally with a live container memory trace the way the ORIGINAL incident was diagnosed
-      // (see this session's own export.ts/pids.max investigation for that methodology). Desktop/local
-      // dev keep the original, finer defaults (omitted entirely) — no memory ceiling there to protect.
-      ...(VCUT_HOSTED ? { keyframeSliceTuning: { baseIntervalSeconds: 1/project.exportSettings.fps, maxSlices: 600 } } : null),
-    });
-  } catch (err) {
-    fail(err);
-    return;
-  }
-
-  if (job.cancelRequested) {
-    fail(new ApiError(499, "Export cancelled", "cancelled"));
-    return;
-  }
-
-  job.phase = "encoding";
-  job.message = undefined;
-  job.notify();
-
-  const run = runFfmpeg(plan.args, plan.duration, (fraction) => {
-    job.progress = fraction;
-    job.notify();
-  });
-  job.process = run.process;
-  job.cancel = run.cancel;
-
-  run.done
-    .then(async () => {
-      // A stale job the reaper already force-finished (see its own comment) settles its `process`
-      // asynchronously too, well after `job.status` has already been set to "failed" with a specific
-      // stall message — without this guard, THIS handler would fire moments later and silently
-      // overwrite that message on a job that already has a perfectly good, more specific one.
-      if (job.status !== "running") return;
-
-      if (includeOutro) {
-        job.message = "Adding outro…";
-        job.notify();
-        try {
-          await runOutroStep(project, textFilesDir, mainOutputPath, outputPath);
-        } catch (err) {
-          // Best-effort — the main content already rendered successfully, and a user paid nothing
-          // extra for the outro (it costs THEM nothing to lose, only VCut's own branding on this one
-          // export). Failing the whole job over a problem in this separate, isolated step would throw
-          // away a perfectly good render for something that was never the thing they were exporting.
-          // Shipping main-only here is a plain filesystem copy, not a second FFmpeg pass — cheap
-          // regardless of how long the main render itself took.
-          console.error("[vcut] export: outro step failed, shipping without it:", err);
-          fs.copyFileSync(mainOutputPath, outputPath);
-        }
-      }
-
-      // Runs LAST, after outro (if any) has already finalized `outputPath` — a `frame` cover's `time`
-      // is a MAIN-timeline-relative second, valid regardless of whether an outro got appended (it only
-      // adds content AFTER the main render, never shifting where 0 sits). Best-effort, same reasoning
-      // as the outro step just above: a user picked a cover, they didn't ask to lose an otherwise-
-      // perfectly-good export over a problem embedding it.
-      const cover = project.exportSettings.cover;
-      if (cover) {
-        job.message = "Adding cover…";
-        job.notify();
-        try {
-          const coverAsset = cover.kind === "image" ? project.assets.find((a) => a.id === cover.assetId) : undefined;
-          const coverImagePath =
-            cover.kind === "frame"
-              ? await extractCoverFrameJpeg(textFilesDir, outputPath, cover.time)
-              : coverAsset
-                ? resolveAssetInputPath(paths, libraryMediaDir, coverAsset)
-                : null;
-          if (coverImagePath) await runCoverArtStep(outputPath, coverImagePath);
-        } catch (err) {
-          console.error("[vcut] export: cover art step failed, shipping without it:", err);
-        }
-      }
-
-      if (!VCUT_HOSTED && process.env.VCUT_EXPORTS_DIR) {
-        try {
-          const directory = process.env.VCUT_EXPORTS_DIR;
-          await fs.promises.mkdir(directory, { recursive: true });
-          const destination = path.join(directory, `${path.parse(job.fileName).name}-${job.id.slice(0, 8)}.mp4`);
-          await fs.promises.copyFile(outputPath, destination, fs.constants.COPYFILE_EXCL);
-          job.savedPath = destination;
-        } catch (error) {
-          job.saveError = error instanceof Error ? error.message : String(error);
-        }
-      }
-      job.status = "done";
-      job.progress = 1;
-    })
-    .catch((err: unknown) => {
-      if (job.status !== "running") return;
-      const code = typeof err === "object" && err && "code" in err ? (err as { code: string }).code : undefined;
-      job.status = code === "cancelled" ? "cancelled" : "failed";
-      if (job.status === "failed") job.error = err instanceof Error ? err.message : String(err);
-    })
-    .finally(() => {
-      job.notify();
-      // FFmpeg is done reading them one way or another by the time `run.done` settles — safe to
-      // remove regardless of whether the export succeeded, failed, or was cancelled.
-      fs.rmSync(textFilesDir, { recursive: true, force: true });
-      // Kept around briefly after finishing so a client that reconnects still learns the outcome,
-      // then dropped so a long session doesn't accumulate dead jobs.
-      setTimeout(() => jobs.delete(job.id), 60_000).unref?.();
-    });
 }
 
 /** In hosted mode, a request naming a `jobId` directly (not `?projectId=`, which the generic gate in
@@ -1018,11 +788,76 @@ export const GET = localRoute(async (req) => {
   const lookupProjectId = url.searchParams.get("projectId");
 
   if (!jobId && lookupProjectId) {
+    if (isDurableQueueActive()) {
+      const active = await defaultExportJobStore.findActiveJob(lookupProjectId);
+      if (active) return Response.json({ jobId: active.id });
+    }
     const running = [...jobs.values()].find((j) => j.bpProjectId === lookupProjectId && j.status === "running");
     return Response.json({ jobId: running?.id ?? null });
   }
 
   if (!jobId) throw new ApiError(400, "Missing jobId or projectId", "missing-job-id");
+
+  if (isDurableQueueActive()) {
+    const durableJob = await defaultExportJobStore.getJob(jobId);
+    if (durableJob) {
+      if (VCUT_HOSTED && durableJob.userId) {
+        const user = await requireSessionUser(req);
+        if (durableJob.userId !== user.id) {
+          await checkProjectOwnership(user.id, durableJob.projectId);
+        }
+      }
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (jobState: DurableExportJob) => {
+            const wireStatus =
+              jobState.status === "completed"
+                ? "done"
+                : jobState.status === "failed"
+                  ? "failed"
+                  : jobState.status === "cancelled"
+                    ? "cancelled"
+                    : "running";
+            const payload = {
+              status: wireStatus,
+              phase: jobState.phase,
+              progress: jobState.progress,
+              fileName: jobState.fileName,
+              message:
+                jobState.status === "queued"
+                  ? "In queue... Waiting for export worker"
+                  : (jobState.message ?? undefined),
+              error: jobState.errorMessage ?? undefined,
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+          };
+
+          send(durableJob);
+          let currentStatus = durableJob.status;
+          while (currentStatus === "queued" || currentStatus === "processing") {
+            await new Promise((r) => setTimeout(r, 1000));
+            const fresh = await defaultExportJobStore.getJob(jobId);
+            if (!fresh) break;
+            currentStatus = fresh.status;
+            send(fresh);
+          }
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-store",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+  }
+
   const job = jobs.get(jobId);
   if (!job) throw new ApiError(404, "That export is no longer running", "job-missing");
   await checkJobOwnership(req, job);
@@ -1073,6 +908,21 @@ export const GET = localRoute(async (req) => {
 export const DELETE = localRoute(async (req) => {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) throw new ApiError(400, "Missing jobId", "missing-job-id");
+
+  if (isDurableQueueActive()) {
+    const durableJob = await defaultExportJobStore.getJob(jobId);
+    if (durableJob) {
+      if (VCUT_HOSTED) {
+        const user = await requireSessionUser(req);
+        if (durableJob.userId && durableJob.userId !== user.id) {
+          await checkProjectOwnership(user.id, durableJob.projectId);
+        }
+      }
+      await defaultExportJobStore.requestCancel(jobId);
+      return Response.json({ ok: true });
+    }
+  }
+
   const job = jobs.get(jobId);
   if (!job) throw new ApiError(404, "That export is no longer running", "job-missing");
   await checkJobOwnership(req, job);
