@@ -91,7 +91,12 @@ export default function TemplatesPage() {
   }, [mode, safetyRevision, user?.id]);
 
   // A template saved a moment ago is still rendering its preview in the background: check again until it is ready.
-  const anyRendering = templates?.some((t) => t.previewReady === false) ?? false;
+  const anyRendering =
+    templates?.some(
+      (t) =>
+        t.previewReady === false &&
+        !(t.updatedAt && Date.now() - new Date(t.updatedAt).getTime() > 5 * 60 * 1000)
+    ) ?? false;
   useEffect(() => {
     if (!anyRendering) return;
     const url = mode === "mine" ? "/api/vcut/templates" : "/api/vcut/templates/discover";
@@ -297,7 +302,9 @@ function TemplateGridTile({
   onOpen: () => void;
 }) {
   const [hasPreview, setHasPreview] = useState(true);
-  const rendering = template.previewReady === false;
+  const isStale =
+    template.updatedAt && Date.now() - new Date(template.updatedAt).getTime() > 5 * 60 * 1000;
+  const rendering = template.previewReady === false && !isStale;
   return (
     <button
       onClick={onOpen}

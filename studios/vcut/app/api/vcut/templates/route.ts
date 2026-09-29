@@ -29,7 +29,13 @@ export const dynamic = "force-dynamic";
 export const GET = hostedOnlyRoute(async (_req, user) => {
   await requirePro(user.id);
   const templates = await listTemplatesForOwner(user.id);
-  return Response.json({ templates: templates.map((t) => ({ ...t, aiCredits: templateAiCredits(t.project), previewReady: templatePreviewReady(t.id) })) });
+  return Response.json({
+    templates: templates.map((t) => ({
+      ...t,
+      aiCredits: templateAiCredits(t.project),
+      previewReady: templatePreviewReady(t.id, t.updatedAt),
+    })),
+  });
 });
 
 /** `{ name, projectId, keepAssetIds? }` — sanitizes the given project (see

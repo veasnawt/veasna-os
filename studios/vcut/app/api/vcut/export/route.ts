@@ -656,7 +656,8 @@ const MAX_HOSTED_IMAGE_DIMENSION = 2200;
  *  ceiling to protect" reasoning `prescaleOversizedImageAssets` already documents. Comfortably above
  *  what any real project needs in practice; only a genuinely pathological timeline (many long,
  *  animated, styled captions) would ever reach it. */
-const MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT = VCUT_HOSTED ? 600 : Infinity;
+const MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT =
+  Number(process.env.VCUT_MAX_TEXT_WINDOWS) || (VCUT_HOSTED ? 7200 : Infinity);
 
 /** Pre-scales any source IMAGE asset whose longer side exceeds `MAX_HOSTED_IMAGE_DIMENSION` into a
  *  scratch copy, returning a `Map<assetId, scaledPath>` for `inputPathFor` to consult — assets not in
@@ -834,16 +835,35 @@ export const GET = localRoute(async (req) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
           };
 
-          send(durableJob);
-          let currentStatus = durableJob.status;
-          while (currentStatus === "queued" || currentStatus === "processing") {
-            await new Promise((r) => setTimeout(r, 1000));
-            const fresh = await defaultExportJobStore.getJob(jobId);
-            if (!fresh) break;
-            currentStatus = fresh.status;
-            send(fresh);
+          try {
+            send(durableJob);
+            let currentStatus = durableJob.status;
+            let counter = 0;
+            while (!req.signal.aborted && (currentStatus === "queued" || currentStatus === "processing")) {
+              await new Promise((r) => setTimeout(r, 1000));
+              if (req.signal.aborted) break;
+              const fresh = await defaultExportJobStore.getJob(jobId);
+              if (!fresh) break;
+              currentStatus = fresh.status;
+              send(fresh);
+              // Send an SSE comment ping every 10 seconds to keep HTTP/2 reverse proxies alive
+              if (++counter % 10 === 0) {
+                try {
+                  controller.enqueue(encoder.encode(": keep-alive\n\n"));
+                } catch {
+                  break;
+                }
+              }
+            }
+          } catch {
+            // Stream closed or client disconnected
+          } finally {
+            try {
+              controller.close();
+            } catch {
+              // Ignore already closed
+            }
           }
-          controller.close();
         },
       });
 

@@ -273,8 +273,19 @@ export async function renderTemplatePreview(
 }
 
 /** Whether a template's tile preview has finished rendering (it renders in the background after the save). */
-export function templatePreviewReady(templateId: string): boolean {
-  return fs.existsSync(path.join(templateAudioPaths(templateId).dir, "preview.mp4"));
+export function templatePreviewReady(templateId: string, updatedAt?: string): boolean {
+  if (fs.existsSync(path.join(templateAudioPaths(templateId).dir, "preview.mp4"))) {
+    return true;
+  }
+  // If the template was saved more than 5 minutes ago, any background render has either
+  // finished or been terminated by a container restart. Do not leave tiles stuck in "Rendering preview..." forever.
+  if (updatedAt) {
+    const elapsed = Date.now() - new Date(updatedAt).getTime();
+    if (!Number.isNaN(elapsed) && elapsed > 5 * 60 * 1000) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** In-flight poster generations, keyed by template id — a Templates grid requests every tile's poster

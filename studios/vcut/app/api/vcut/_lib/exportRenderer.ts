@@ -31,7 +31,8 @@ import { outroBackgroundPath, outroLogoPath } from "./outroAssets";
 import { ApiError, type ProjectPaths, resolveWithin, VCUT_ROOT } from "./paths";
 
 export const MAX_HOSTED_IMAGE_DIMENSION = 2200;
-export const MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT = VCUT_HOSTED ? 600 : Infinity;
+export const MAX_BROWSER_TEXT_WINDOWS_PER_EXPORT =
+  Number(process.env.VCUT_MAX_TEXT_WINDOWS) || (process.env.VCUT_HOSTED === "true" ? 7200 : Infinity);
 export const OUTRO_CRF = 18;
 
 export function resolveOutroAssetPath(assetId: string): string | null {
