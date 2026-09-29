@@ -57,7 +57,7 @@ export class MemoryExportJobStore implements ExportJobStore {
       status: "queued",
       phase: "queued",
       progress: 0.0,
-      message: "In queue ✨",
+      message: "In queue",
       fileName: options.fileName,
       outputPath: null,
       outputUrl: null,
