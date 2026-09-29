@@ -132,7 +132,12 @@ export async function getOrRenderOutroVariant(project: Project, scratchDir: stri
     fontMetricsFor,
     fontsDirFor: fontsDirPath,
     khmerTextWindowsFor: () => undefined,
-    ...(VCUT_HOSTED ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(OUTRO_CRF), "-threads", "8"] } : null),
+    ...(VCUT_HOSTED
+      ? {
+          videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(OUTRO_CRF), "-threads", "4"],
+          audioEncoderArgs: ["-c:a", "aac", "-b:a", "192k", "-threads", "2", "-ac", "2", "-ar", "48000"],
+        }
+      : null),
   });
 
   try {
@@ -357,7 +362,10 @@ export async function executeExportRender(options: {
       lutPathFor: (lutId, intensity) => resolveLutFilePath(paths, project.luts, lutId, intensity, textFilesDir),
       khmerTextWindowsFor: (clip: Clip) => khmerWindowsByClipId.get(clip.id),
       ...(VCUT_HOSTED
-        ? { videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(project.exportSettings.crf), "-threads", "8"] }
+        ? {
+            videoEncoderArgs: ["-c:v", "libx264", "-preset", "medium", "-crf", String(project.exportSettings.crf), "-threads", "4"],
+            audioEncoderArgs: ["-c:a", "aac", "-b:a", "192k", "-threads", "2", "-ac", "2", "-ar", "48000"],
+          }
         : null),
       ...(VCUT_HOSTED ? { keyframeSliceTuning: { baseIntervalSeconds: 1 / project.exportSettings.fps, maxSlices: 600 } } : null),
     });

@@ -85,7 +85,7 @@ export class ExportWorker {
     let heartbeatTimer: NodeJS.Timeout | null = null;
     let currentProgress = 0.0;
     let currentPhase: DurableJobPhase = "preparing";
-    let currentMessage: string | null = "Worker preparing environment...";
+    let currentMessage: string | null = "Preparing your render workspace... 🎬";
 
     try {
       // Start background heartbeat

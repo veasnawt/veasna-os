@@ -828,7 +828,7 @@ export const GET = localRoute(async (req) => {
               fileName: jobState.fileName,
               message:
                 jobState.status === "queued"
-                  ? "In queue... Waiting for export worker"
+                  ? "In queue... Waiting for worker ✨"
                   : (jobState.message ?? undefined),
               error: jobState.errorMessage ?? undefined,
             };

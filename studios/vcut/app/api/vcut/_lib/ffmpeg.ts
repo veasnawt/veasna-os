@@ -649,11 +649,13 @@ const HOSTED_FFMPEG_CORES = 4;
 /** `taskset -c a-b` (Linux, hosted only) so FFmpeg sees `HOSTED_FFMPEG_CORES` cores; a random window spreads concurrent
  *  exports across the machine. Empty when it doesn't apply or `taskset` isn't installed. */
 function hostedAffinityPrefix(): string[] {
-  if (!VCUT_HOSTED || process.platform !== "linux" || !fs.existsSync("/usr/bin/taskset")) return [];
+  if (!VCUT_HOSTED || process.platform !== "linux") return [];
+  const tasksetBin = ["/usr/bin/taskset", "/bin/taskset", "/usr/local/bin/taskset"].find((p) => fs.existsSync(p));
+  if (!tasksetBin) return [];
   const total = os.availableParallelism();
   if (total <= HOSTED_FFMPEG_CORES) return [];
   const start = Math.floor(Math.random() * Math.floor(total / HOSTED_FFMPEG_CORES)) * HOSTED_FFMPEG_CORES;
-  return ["/usr/bin/taskset", "-c", `${start}-${start + HOSTED_FFMPEG_CORES - 1}`];
+  return [tasksetBin, "-c", `${start}-${start + HOSTED_FFMPEG_CORES - 1}`];
 }
 
 /** Runs FFmpeg, reporting progress as a 0–1 fraction.
@@ -699,6 +701,8 @@ export function runFfmpeg(args: string[], totalDuration: number, onProgress: (fr
   // More filter-graph parallelism apparently raises PEAK memory pressure (more of the graph actively
   // processing frames at once) faster than it drains any backlog. Left at 1.
   const hostedFfmpegArgs = [
+    "-threads",
+    String(HOSTED_FFMPEG_CORES),
     "-filter_threads",
     "1",
     "-filter_complex_threads",
