@@ -1,7 +1,11 @@
-const REPO = "veasnawt/vcut";
-/** The releases-list page itself — used whenever the GitHub API call fails, or nothing matching is
- *  found, so a broken lookup still lands someone somewhere useful rather than a dead end. */
-const RELEASES_FALLBACK = `https://github.com/${REPO}/releases`;
+/**
+ * /dl/desktop — Public desktop installer redirect route.
+ * Queries the public binary releases repository (veasnawt/vcut-releases) first,
+ * falling back to the legacy repository (veasnawt/vcut) or the dedicated /download page.
+ */
+
+const PUBLIC_RELEASES_REPO = "veasnawt/vcut-releases";
+const LEGACY_REPO = "veasnawt/vcut";
 
 interface GitHubRelease {
   tag_name: string;
@@ -14,38 +18,42 @@ interface GitHubRelease {
 
 export const runtime = "nodejs";
 
-/** `/dl/desktop` — always redirects to the CURRENT latest desktop installer, resolved fresh from
- *  GitHub's own Releases API rather than a version number hardcoded into this page's own link (what
- *  the landing page did before this route existed, and the actual root cause of a real, confirmed bug:
- *  desktop and mobile releases both live in the SAME `veasnawt/vcut` repo — see `app/page.tsx`'s own
- *  former doc comment on why one repo, not two — so GitHub's own `/releases/latest` is just whichever
- *  of the two kinds was published most recently, not "latest desktop" specifically. A hardcoded tag
- *  fixed that ONE moment but reintroduces the identical staleness risk on every future desktop release
- *  — a string nothing checks against reality, easy to simply forget to bump.
- *
- *  Filters for the first non-draft, non-prerelease release whose tag starts with `vcut-desktop-` — the
- *  list is already returned newest-first by GitHub's API, so "first match" is "latest match," no manual
- *  date/semver comparison needed. Redirects straight to the `.exe` asset (a real download starts
- *  immediately) rather than the release's own page, which would need one more click.
- *
- *  The GitHub API call itself is cached for an hour (`next.revalidate`) — this route runs on every
- *  request (a redirect can't be pre-rendered), but that's a local, free lookup against Next's own data
- *  cache the rest of the time, not a live GitHub API call per visitor. GitHub's unauthenticated rate
- *  limit (60 req/hour) is per SOURCE IP, and every visitor's redirect is served from this one server's
- *  IP, not the visitor's own — without this, real traffic could exhaust that budget on its own. */
-export async function GET(): Promise<Response> {
+async function fetchLatestWindowsInstaller(repo: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases`, {
+    const res = await fetch(`https://api.github.com/repos/${repo}/releases`, {
       headers: { Accept: "application/vnd.github+json" },
-      next: { revalidate: 3600 },
+      next: { revalidate: 1800 },
     });
-    if (!res.ok) return Response.redirect(RELEASES_FALLBACK, 302);
+    if (!res.ok) return null;
     const releases = (await res.json()) as GitHubRelease[];
-    const latest = releases.find((r) => !r.draft && !r.prerelease && r.tag_name.startsWith("vcut-desktop-"));
-    if (!latest) return Response.redirect(RELEASES_FALLBACK, 302);
-    const installer = latest.assets.find((a) => a.name.endsWith(".exe"));
-    return Response.redirect(installer?.browser_download_url ?? latest.html_url, 302);
+    if (!Array.isArray(releases) || releases.length === 0) return null;
+
+    // Look for non-draft release with a .exe asset
+    const valid = releases.find((r) => !r.draft && !r.prerelease);
+    if (!valid) return null;
+
+    const exe = valid.assets.find((a) => a.name.endsWith(".exe"));
+    return exe ? exe.browser_download_url : valid.html_url;
   } catch {
-    return Response.redirect(RELEASES_FALLBACK, 302);
+    return null;
   }
+}
+
+export async function GET(req: Request): Promise<Response> {
+  const origin = new URL(req.url).origin;
+
+  // 1. Try public releases distribution repo first
+  const publicDownloadUrl = await fetchLatestWindowsInstaller(PUBLIC_RELEASES_REPO);
+  if (publicDownloadUrl) {
+    return Response.redirect(publicDownloadUrl, 302);
+  }
+
+  // 2. Try legacy repo
+  const legacyDownloadUrl = await fetchLatestWindowsInstaller(LEGACY_REPO);
+  if (legacyDownloadUrl) {
+    return Response.redirect(legacyDownloadUrl, 302);
+  }
+
+  // 3. Fallback safely to our own /download landing page rather than a 404
+  return Response.redirect(`${origin}/download`, 302);
 }
