@@ -2,35 +2,24 @@
 
 The user confirmed running `supabase/migrations/0019_review_comments.sql`.
 Schema checks passed. The review-comments extension, owner-only editor,
-hidden-deletion, outro export, redesigned landing page, download portal,
-account deletion compliance, and release routing are live in deployment
-`df98d87d-87fd-4edc-bc3d-a63fba5c1751` on https://vcut.io.
-
-The public binary distribution repository is live at
-https://github.com/veasnawt/vcut-releases. Release `v0.2.14` contains the
-verified standalone Windows installer `VCut-Setup-0.2.14.exe` (SHA-256
-`BBC4A226E27055DC56E5587C54054A50243E0CEB2E169B8AAB20698C17B21754`).
-Requests to https://vcut.io/dl/desktop automatically redirect to the latest binary
-in `veasnawt/vcut-releases`.
+hidden-deletion, outro export and timeline readiness fixes are live in deployment
+`b37a8c0b-d3fa-4d64-a7b5-1fa4fa15fc4b`.
 
 The code targets a public beta. Store publication remains gated by the items below. Do not upload the debug APK or unsigned review AAB.
 
-## 0.2.14 verified local builds and release assets
+## 0.2.14 verified local builds
 
-| Artifact | Path / Location | Bytes | SHA-256 |
+| Artifact | Path | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
 | Android test APK | `apps/mobile/android/app/build/outputs/apk/debug/VCut-0.2.14-beta-debug.apk` | 201133493 | `DB7CF5EBF556C48BAC2ADDE6CF7B0FF1BEFB3FF03984E91C89A5C240603D27AB` |
 | Unsigned AAB for review only | `apps/mobile/android/app/build/outputs/bundle/release/VCut-0.2.14-unsigned-review.aab` | 96762184 | `8062136E4AF4C860DFBC9A8A345289B621E875ACB6F3FD81DCD4079C40CDF0D1` |
 | Windows test installer | `apps/vcut-desktop/release/VCut Setup 0.2.14.exe` | 345622432 | `BBC4A226E27055DC56E5587C54054A50243E0CEB2E169B8AAB20698C17B21754` |
-| Public Binary Release | `veasnawt/vcut-releases/releases/tag/v0.2.14` | 345622432 | `BBC4A226E27055DC56E5587C54054A50243E0CEB2E169B8AAB20698C17B21754` |
 
-Android 0.2.14/build 19 targets SDK 36 and Google Play Billing Client 8.0.0
-(`com.android.billingclient:billing:8.0.0`). The APK passed v2 signature and 16 KB
+Android 0.2.14/build 18 targets SDK 36. The APK passed v2 signature and 16 KB
 ZIP alignment checks. The APK, AAB, and synced Android assets contain the
 exact same `index-hpN7WojR.js` bundle (SHA-256
 `CCBE2188776536A957C4D93F91BEB4C72A2B0CF87CB366BC49331FD1F4C998B5`).
-The Windows installer builds successfully with product version 0.2.14.0 and
-is distributed publicly via `veasnawt/vcut-releases`.
+The Windows installer builds successfully with product version 0.2.14.0.
 Its packaged app contains the updated Next standalone server (BUILD_ID
 `HRInnUcMXpu3w65zriV1o`), bundled fonts, SFX, FFmpeg/FFprobe, Puppeteer browser,
 and bundled images (`vcut-transparent.png`, `vcut-outro-bg.png`) resolving the

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Desktop, Download, Settings, ArrowRight } from "@veasnawt/vicons";
 
 export default function DownloadPage() {
   const [platform, setPlatform] = useState<"windows" | "mac" | "linux" | "other">("windows");
@@ -23,9 +24,9 @@ export default function DownloadPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0c10] text-zinc-100 antialiased selection:bg-sky-500/30">
+    <main className="min-h-screen bg-[#08090d] text-zinc-100 antialiased selection:bg-sky-500/30">
       {/* Navigation */}
-      <nav className="border-b border-white/5 bg-[#0a0c10]/80 backdrop-blur-md sticky top-0 z-50">
+      <nav className="border-b border-white/5 bg-[#08090d]/85 backdrop-blur-md sticky top-0 z-50">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2.5 text-base font-semibold text-white">
             <img src="/vcut-logo.png" alt="VCut" className="h-6 w-6" />
@@ -66,10 +67,8 @@ export default function DownloadPage() {
         {/* Primary Download Card */}
         <div className="mt-12 rounded-2xl border border-white/10 bg-white/[0.02] p-8 shadow-2xl backdrop-blur-sm sm:p-10">
           <div className="flex flex-col items-center text-center">
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 p-3.5 shadow-lg shadow-sky-500/20 flex items-center justify-center">
-              <svg className="h-9 w-9 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 p-3.5 shadow-lg shadow-sky-500/20 flex items-center justify-center text-white">
+              <Download size={32} />
             </div>
 
             <h2 className="mt-5 text-xl font-semibold text-white">
@@ -94,14 +93,12 @@ export default function DownloadPage() {
                   onClick={handleDownloadClick}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:brightness-110 active:scale-[0.98]"
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {downloading ? "Starting Download..." : "Download for Windows (.exe)"}
+                  <Download size={16} />
+                  <span>{downloading ? "Starting Download..." : "Download for Windows (.exe)"}</span>
                 </a>
               ) : (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-6 py-3 text-xs font-medium text-amber-300">
-                  VCut Desktop for {platform === "mac" ? "macOS" : "Linux"} is coming soon. Use the web editor in the meantime!
+                  VCut Desktop for {platform === "mac" ? "macOS" : "Linux"} is in pipeline. Use the web editor in the meantime.
                 </div>
               )}
 
@@ -134,7 +131,8 @@ export default function DownloadPage() {
         <div className="mt-12 grid gap-6 sm:grid-cols-2">
           <div className="rounded-xl border border-white/5 bg-white/[0.015] p-6">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <span className="text-sky-400">⚙</span> Minimum System Requirements
+              <Settings size={16} className="text-sky-400" />
+              <span>Minimum System Requirements</span>
             </h3>
             <ul className="mt-3 space-y-2 text-xs text-zinc-400">
               <li>• <strong className="text-zinc-200">OS</strong>: Windows 10 (version 1903+) or Windows 11 64-bit</li>
@@ -147,7 +145,8 @@ export default function DownloadPage() {
 
           <div className="rounded-xl border border-white/5 bg-white/[0.015] p-6">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <span className="text-sky-400">⚡</span> Why Choose the Desktop App?
+              <Desktop size={16} className="text-sky-400" />
+              <span>Why Choose the Desktop App?</span>
             </h3>
             <ul className="mt-3 space-y-2 text-xs text-zinc-400">
               <li>• <strong className="text-zinc-200">Local Hardware Encoding</strong>: Renders video via native local FFmpeg pipeline.</li>
@@ -163,7 +162,10 @@ export default function DownloadPage() {
           <span>VCut Desktop &middot; © {new Date().getFullYear()} VCut</span>
           <div className="flex items-center gap-4">
             <Link href="/privacy" className="text-sky-400 hover:text-sky-300">
-              Privacy
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-sky-400 hover:text-sky-300">
+              Terms of Service
             </Link>
             <Link href="/delete-account" className="text-sky-400 hover:text-sky-300">
               Data Deletion
