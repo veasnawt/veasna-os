@@ -163,13 +163,13 @@ export default function DownloadPage() {
         <footer className="mt-16 border-t border-white/10 pt-6 text-xs text-zinc-500 flex flex-wrap items-center justify-between gap-4">
           <span>VCut Desktop &middot; © {new Date().getFullYear()} VCut</span>
           <div className="flex items-center gap-4">
-            <Link href="/terms" className="text-sky-400 hover:text-sky-300">
+            <Link href="/terms" prefetch={false} className="text-sky-400 hover:text-sky-300">
               Terms
             </Link>
-            <Link href="/privacy" className="text-sky-400 hover:text-sky-300">
+            <Link href="/privacy" prefetch={false} className="text-sky-400 hover:text-sky-300">
               Privacy
             </Link>
-            <Link href="/delete-account" className="text-sky-400 hover:text-sky-300">
+            <Link href="/delete-account" prefetch={false} className="text-sky-400 hover:text-sky-300">
               Data Deletion
             </Link>
           </div>

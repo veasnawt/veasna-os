@@ -58,7 +58,7 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
                       poster={templatePosterUrl(tpl.id)}
                       muted
                       playsInline
-                      preload="metadata"
+                      preload="none"
                       className="h-full w-full object-cover"
                     />
                     {tpl.likeCount !== undefined && (

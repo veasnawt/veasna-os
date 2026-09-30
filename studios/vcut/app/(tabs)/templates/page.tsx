@@ -318,7 +318,7 @@ function TemplateGridTile({
             poster={templatePosterUrl(template.id)}
             muted
             playsInline
-            preload="metadata"
+            preload="none"
             className="h-full w-full object-cover"
             onError={() => setHasPreview(false)}
           />

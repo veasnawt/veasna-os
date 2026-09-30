@@ -321,16 +321,16 @@ function LandingPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-6">
-            <Link href="/download" className="hover:text-zinc-300 transition">
+            <Link href="/download" prefetch={false} className="hover:text-zinc-300 transition">
               Download
             </Link>
-            <Link href="/terms" className="hover:text-zinc-300 transition">
+            <Link href="/terms" prefetch={false} className="hover:text-zinc-300 transition">
               Terms
             </Link>
-            <Link href="/privacy" className="hover:text-zinc-300 transition">
+            <Link href="/privacy" prefetch={false} className="hover:text-zinc-300 transition">
               Privacy Policy
             </Link>
-            <Link href="/delete-account" className="hover:text-zinc-300 transition">
+            <Link href="/delete-account" prefetch={false} className="hover:text-zinc-300 transition">
               Account Deletion
             </Link>
             <a

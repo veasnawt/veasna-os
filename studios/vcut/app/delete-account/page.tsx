@@ -206,10 +206,10 @@ export default function DeleteAccountPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span>VCut &middot; Video Editor</span>
               <div className="flex items-center gap-4">
-                <Link href="/privacy" className="text-sky-400 hover:text-sky-300">
+                <Link href="/privacy" prefetch={false} className="text-sky-400 hover:text-sky-300">
                   Privacy Policy
                 </Link>
-                <Link href="/login" className="text-sky-400 hover:text-sky-300">
+                <Link href="/login" prefetch={false} className="text-sky-400 hover:text-sky-300">
                   Sign In
                 </Link>
               </div>

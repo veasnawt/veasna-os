@@ -23,6 +23,19 @@ export function isValidUsername(username: string): boolean {
   return USERNAME_PATTERN.test(username);
 }
 
+/** Allowed creator name characters: Letters in any script (including Khmer, etc.),
+ *  combining marks/accents (\p{M}), numbers, spaces, dots, hyphens, underscores, and apostrophes.
+ *  Must start with a letter/mark/number and end with a letter/mark/number or dot.
+ *  Length: 2 to 50 characters. */
+export const DISPLAY_NAME_PATTERN = /^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}\s._'-]*[\p{L}\p{M}\p{N}.]$/u;
+
+export function isValidDisplayName(name: string): boolean {
+  const trimmed = name.trim();
+  const len = [...trimmed].length;
+  if (len < 2 || len > 50) return false;
+  return DISPLAY_NAME_PATTERN.test(trimmed);
+}
+
 export interface Profile {
   stripeCustomerId: string | null;
   plan: Plan;
@@ -155,7 +168,19 @@ export async function setProfileIdentity(userId: string, fields: { displayName?:
   const update: { id: string; display_name?: string | null; username?: string; bio?: string | null; avatar_path?: string | null } = { id: userId };
   if (fields.displayName !== undefined) {
     if (typeof fields.displayName !== "string") throw new ApiError(400, "Invalid displayName", "invalid-display-name");
-    update.display_name = fields.displayName.trim().slice(0, 60) || null;
+    const trimmed = fields.displayName.trim();
+    if (trimmed.length > 0) {
+      if (!isValidDisplayName(trimmed)) {
+        throw new ApiError(
+          400,
+          "Name must be 2-50 characters: letters, numbers, spaces, dots, hyphens, and apostrophes",
+          "invalid-display-name"
+        );
+      }
+      update.display_name = trimmed;
+    } else {
+      update.display_name = null;
+    }
   }
   if (fields.username !== undefined) {
     if (typeof fields.username !== "string") throw new ApiError(400, "Invalid username", "invalid-username");
@@ -185,8 +210,16 @@ export async function setProfileIdentity(userId: string, fields: { displayName?:
  *  the table's own original migration comment established for `plan` — enforced here by going through
  *  the service-role client from a route that itself requires a real session, not by loosening RLS. */
 export async function setDisplayName(userId: string, displayName: string | null): Promise<void> {
+  const trimmed = displayName ? displayName.trim() : null;
+  if (trimmed && !isValidDisplayName(trimmed)) {
+    throw new ApiError(
+      400,
+      "Name must be 2-50 characters: letters, numbers, spaces, dots, hyphens, and apostrophes",
+      "invalid-display-name"
+    );
+  }
   const supabase = getSupabaseAdminClient();
-  const { error } = await supabase.from("profiles").upsert({ id: userId, display_name: displayName }, { onConflict: "id" });
+  const { error } = await supabase.from("profiles").upsert({ id: userId, display_name: trimmed }, { onConflict: "id" });
   if (error) throw new ApiError(500, "Could not save your name", "profile-write-failed");
 }
 
