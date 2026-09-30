@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@veasnawt/auth/server";
-import { PRO_CREDITS_PER_MONTH } from "./credits.ts";
+import { FREE_CREDITS_PER_MONTH, PRO_CREDITS_PER_MONTH } from "./credits.ts";
 
 export type BillingProvider = "stripe" | "google_play" | "apple" | "beta";
 
@@ -161,6 +161,59 @@ export function isSubscriptionRecordActive(sub: {
   return false;
 }
 
+/** Downgrades an expired user to free plan and resets subscription credits back to free allotment,
+ *  while safely preserving any unspent purchased consumable credit packs. */
+export async function downgradeExpiredUserToFree(
+  userId: string,
+  supabase: ReturnType<typeof getSupabaseAdminClient>,
+  nowMs: number = Date.now()
+): Promise<void> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("plan, credits_remaining, current_period_end")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!profile || profile.plan === "free") {
+    return;
+  }
+
+  const currentCredits = profile.credits_remaining ?? FREE_CREDITS_PER_MONTH;
+
+  // Query any purchased consumable packs (one-time purchases that should NEVER expire)
+  let purchasedPackCredits = 0;
+  try {
+    const { data: packs } = await supabase
+      .from("credit_transactions")
+      .select("credits_amount")
+      .eq("user_id", userId)
+      .eq("type", "consumable_pack")
+      .eq("status", "completed");
+
+    if (packs && packs.length > 0) {
+      purchasedPackCredits = packs.reduce((sum, p) => sum + (p.credits_amount || 0), 0);
+    }
+  } catch (err) {
+    console.warn("[vcut] billingCore: could not query consumable packs on downgrade", err);
+  }
+
+  // Allowed retained balance = free monthly allotment + any purchased packs
+  const maxRetained = FREE_CREDITS_PER_MONTH + purchasedPackCredits;
+  const newCredits = Math.min(currentCredits, maxRetained);
+
+  await supabase
+    .from("profiles")
+    .update({
+      plan: "free",
+      credits_remaining: newCredits,
+      credits_reset_at: new Date(nowMs + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date(nowMs).toISOString(),
+    })
+    .eq("id", userId);
+
+  console.log(`[vcut] billingCore: downgraded user ${userId} to free. Credits reset from ${currentCredits} to ${newCredits} (packs preserved: ${purchasedPackCredits})`);
+}
+
 /** Canonical Entitlement Resolution
  *  Queries all provider subscriptions (Stripe, Google Play, Apple) and legacy profiles.
  *  A user who buys Pro on Android Google Play will have Pro recognized across web, desktop, etc. */
@@ -174,6 +227,7 @@ export async function resolveUserEntitlements(userId: string): Promise<Entitleme
     current_period_end: string | null;
     cancel_at_period_end: boolean;
   } | null = null;
+  let hasSubscriptions = false;
 
   try {
     const { data: subs, error } = await supabase
@@ -182,6 +236,7 @@ export async function resolveUserEntitlements(userId: string): Promise<Entitleme
       .eq("user_id", userId);
 
     if (!error && subs && subs.length > 0) {
+      hasSubscriptions = true;
       for (const s of subs) {
         if (isSubscriptionRecordActive(s, nowMs)) {
           if (!activeSub || (s.current_period_end && (!activeSub.current_period_end || new Date(s.current_period_end).getTime() > new Date(activeSub.current_period_end).getTime()))) {
@@ -224,7 +279,10 @@ export async function resolveUserEntitlements(userId: string): Promise<Entitleme
     .maybeSingle();
 
   if (profile?.plan === "pro") {
-    const isStillActive = !profile.current_period_end || new Date(profile.current_period_end).getTime() > nowMs;
+    const isStillActive = hasSubscriptions
+      ? false
+      : (!profile.current_period_end || new Date(profile.current_period_end).getTime() > nowMs);
+
     if (isStillActive) {
       return {
         isPro: true,
@@ -234,11 +292,8 @@ export async function resolveUserEntitlements(userId: string): Promise<Entitleme
         cancelAtPeriodEnd: false,
       };
     } else {
-      // Period expired: degrade back to free
-      await supabase.from("profiles").update({
-        plan: "free",
-        updated_at: new Date(nowMs).toISOString(),
-      }).eq("id", userId);
+      // Period expired: degrade back to free and reset credits
+      await downgradeExpiredUserToFree(userId, supabase, nowMs);
     }
   }
 
@@ -344,10 +399,7 @@ export async function syncCanonicalSubscription(params: SyncSubscriptionParams):
     // Not active: check if user has other subscriptions before downgrading
     const resolution = await resolveUserEntitlements(params.userId);
     if (!resolution.isPro) {
-      await supabase.from("profiles").update({
-        plan: "free",
-        updated_at: new Date(nowMs).toISOString(),
-      }).eq("id", params.userId);
+      await downgradeExpiredUserToFree(params.userId, supabase, nowMs);
     }
   }
 
