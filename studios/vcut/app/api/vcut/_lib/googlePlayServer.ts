@@ -55,9 +55,10 @@ export async function getGooglePlayAccessToken(): Promise<string> {
 
   const creds = getGoogleServiceAccount();
   if (!creds) {
+    console.error("[vcut] googlePlay: GOOGLE_SERVICE_ACCOUNT_KEY is missing or invalid in server environment");
     throw new ApiError(
-      500,
-      "Google Play Service Account is not configured (GOOGLE_SERVICE_ACCOUNT_KEY missing)",
+      503,
+      "Payment verification service is temporarily unavailable. Please try again shortly.",
       "google-play-not-configured"
     );
   }
