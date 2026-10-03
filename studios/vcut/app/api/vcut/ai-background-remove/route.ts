@@ -146,8 +146,9 @@ export const POST = hostedCreditGatedRouteCors("ai-bg-remove", AI_BG_REMOVE_CRED
     newAsset.libraryMediaId = newAsset.id;
   }
 
-  const bytesBase64 = body.deliverBytes ? resultBuffer.toString("base64") : undefined;
-  return Response.json({ asset: newAsset, ...(bytesBase64 ? { bytesBase64 } : null) });
+  // The client imports delivered bytes under `asset.name`, and imports classify by extension (see `ai-edit/route.ts`).
+  if (body.deliverBytes) return Response.json({ asset: { ...newAsset, name: `${newAsset.name}.png` }, bytesBase64: resultBuffer.toString("base64") });
+  return Response.json({ asset: newAsset });
 });
 
 export const OPTIONS = corsPreflight;

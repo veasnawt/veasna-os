@@ -151,8 +151,10 @@ export const POST = hostedCreditGatedRouteCors("ai-edit", AI_EDIT_CREDITS, async
     newAsset.libraryMediaId = newAsset.id;
   }
 
-  const bytesBase64 = body.deliverBytes ? resultBuffer.toString("base64") : undefined;
-  return Response.json({ asset: newAsset, ...(bytesBase64 ? { bytesBase64 } : null) });
+  // A `deliverBytes` client imports the bytes under `asset.name`, and imports classify by extension — without one,
+  // every installed mobile build before 0.2.16 refused the result ("can't import .ai-edit (ai: ...)").
+  if (body.deliverBytes) return Response.json({ asset: { ...newAsset, name: `${newAsset.name}.png` }, bytesBase64: resultBuffer.toString("base64") });
+  return Response.json({ asset: newAsset });
 });
 
 export const OPTIONS = corsPreflight;

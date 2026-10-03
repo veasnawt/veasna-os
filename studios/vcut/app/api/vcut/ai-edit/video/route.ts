@@ -158,7 +158,11 @@ async function runEditJob(job: EditJob, input: RunInput) {
     setProgress(job, "importing", 1);
 
     job.asset = built;
-    if (input.deliverBytes) job.bytesBase64 = result.bytes.toString("base64");
+    if (input.deliverBytes) {
+      // The client imports delivered bytes under `asset.name`, and imports classify by extension (see `ai-edit/route.ts`).
+      job.asset = { ...built, name: `${built.name}.mp4` };
+      job.bytesBase64 = result.bytes.toString("base64");
+    }
     job.status = "done";
     job.progress = 1;
   } catch (err) {

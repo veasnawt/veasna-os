@@ -143,8 +143,11 @@ export const POST = hostedCreditGatedRouteCors("ai-video-cutout", MIN_CREDITS, a
     newAsset.libraryMediaId = newAsset.id;
   }
 
-  const bytesBase64 = body.deliverBytes ? resultBuffer.toString("base64") : undefined;
-  return Response.json({ asset: newAsset, keyColor, windowSeconds, ...(bytesBase64 ? { bytesBase64 } : null) });
+  // The client imports delivered bytes under `asset.name`, and imports classify by extension (see `ai-edit/route.ts`).
+  if (body.deliverBytes) {
+    return Response.json({ asset: { ...newAsset, name: `${newAsset.name}.mp4` }, keyColor, windowSeconds, bytesBase64: resultBuffer.toString("base64") });
+  }
+  return Response.json({ asset: newAsset, keyColor, windowSeconds });
 });
 
 export const OPTIONS = corsPreflight;
