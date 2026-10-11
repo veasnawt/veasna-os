@@ -4,6 +4,8 @@ App/output
 App/App/public
 App/FFmpegKitLGPL/Frameworks
 DerivedData
+DerivedData-release
+App/AppTests/Generated
 xcuserdata
 
 # Cordova plugins for Capacitor

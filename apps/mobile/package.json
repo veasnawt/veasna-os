@@ -12,11 +12,11 @@
     "cap:ios": "cap open ios"
   },
   "dependencies": {
-    "@capacitor/android": "^7.0.0",
+    "@capacitor/android": "^7.6.9",
     "@capacitor/camera": "^7.0.0",
-    "@capacitor/core": "^7.0.0",
+    "@capacitor/core": "^7.6.9",
     "@capacitor/filesystem": "^7.0.0",
-    "@capacitor/ios": "^7.0.0",
+    "@capacitor/ios": "^7.6.9",
     "@capacitor/share": "^7.0.0",
     "@veasnawt/auth": "workspace:*",
     "@veasnawt/vcut": "workspace:*",
@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^7.0.0",
+    "@capacitor/cli": "^7.6.9",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.0.0",

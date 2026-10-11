@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
+const mobileVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version as string;
 
 const publicAuth = JSON.parse(readFileSync(new URL("../../scripts/vcut-public-auth.json", import.meta.url), "utf8")) as {
   supabaseUrl: string;
@@ -40,6 +41,7 @@ export default defineConfig({
   // The anon key is safe to bake into a public bundle by design — same reasoning as studios/vcut's own
   // `.env.example` comment on it — RLS is what actually protects data, not keeping this secret.
   define: {
+    "process.env.NEXT_PUBLIC_VCUT_VERSION": JSON.stringify(mobileVersion),
     "process.env.NEXT_PUBLIC_VCUT_HOSTED": '"false"',
     // Each `define` value here must itself be a STRING of raw JS source to splice in — `"undefined"`
     // (the string) splices in the bare identifier `undefined`; `JSON.stringify(realValue)` splices in

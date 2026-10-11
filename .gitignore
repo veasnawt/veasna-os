@@ -1,4 +1,5 @@
 node_modules
+.DS_Store
 .env
 # Broader than `.env` alone on purpose — `studios/vcut/.env.vstudio` (real-looking API keys, only
 # ever untracked by luck, never by this file actually covering it) is exactly the shape of file this

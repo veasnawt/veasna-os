@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeft } from "@veasnawt/vicons";
+import { sessionFetch } from "@veasnawt/auth";
 
 export default function DeleteAccountPage() {
   const [email, setEmail] = useState("");
@@ -19,7 +20,7 @@ export default function DeleteAccountPage() {
     setErrorMessage(null);
 
     try {
-      const res = await fetch("/api/vcut/account/delete-request", {
+      const res = await sessionFetch("/api/vcut/account/delete-request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), reason: reason.trim() || undefined }),
@@ -73,7 +74,7 @@ export default function DeleteAccountPage() {
                   <li>Open the VCut app on your Android or iOS device.</li>
                   <li>Tap the <strong className="text-zinc-200">Me</strong> tab at the bottom.</li>
                   <li>Tap <strong className="text-zinc-200">Settings</strong> (gear icon).</li>
-                  <li>Select <strong className="text-zinc-200">Feedback / Support</strong> or <strong className="text-zinc-200">Delete Account</strong>.</li>
+                  <li>Select <strong className="text-zinc-200">Request account deletion</strong>.</li>
                   <li>Confirm your deletion request.</li>
                 </ol>
               </div>
@@ -103,7 +104,7 @@ export default function DeleteAccountPage() {
             <div className="mt-6 border-t border-white/10 pt-6">
               <h3 className="text-sm font-semibold text-white">Option 3: Submit a Web Request</h3>
               <p className="mt-1 text-xs text-zinc-400">
-                If you no longer have access to the app, submit your account email below to initiate deletion.
+                Sign in to the account you want to delete, then submit its email below. If you cannot sign in, email support to verify ownership.
               </p>
 
               {submitted ? (
@@ -115,7 +116,7 @@ export default function DeleteAccountPage() {
                     Deletion Request Submitted
                   </div>
                   <p className="mt-1.5 text-xs text-emerald-400/90 leading-normal">
-                    We have received your request for <strong>{email}</strong>. Our team will verify ownership and complete permanent deletion of your data within 30 days.
+                    Your request for <strong>{email}</strong> has been saved. Support must verify and process it before your account and associated cloud data are deleted.
                   </p>
                 </div>
               ) : (

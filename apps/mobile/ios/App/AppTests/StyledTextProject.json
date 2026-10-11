@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 2,
+  "id": "proj_f9d6fd92",
+  "bpProjectId": "ios-beta-export",
+  "name": "iOS Beta Export",
+  "createdAt": 1791392312637,
+  "updatedAt": 1791392312644,
+  "assets": [
+    {
+      "id": "clr_391af692",
+      "kind": "color",
+      "name": "#18344f",
+      "relPath": "",
+      "duration": 0,
+      "hasAudio": false,
+      "sizeBytes": 0,
+      "importedAt": 1791392312643,
+      "color": "#18344f"
+    },
+    {
+      "id": "txt_faa79a01",
+      "kind": "text",
+      "name": "VCut beta \u2022 \u1780\u17b6\u178f\u17cb",
+      "relPath": "",
+      "duration": 0,
+      "hasAudio": false,
+      "sizeBytes": 0,
+      "importedAt": 1791392312643,
+      "textContent": "VCut beta \u2022 \u1780\u17b6\u178f\u17cb",
+      "textStyle": {
+        "fontFamily": "battambang",
+        "fontSize": 24,
+        "color": "#ffffff",
+        "bold": true,
+        "italic": false,
+        "align": "center",
+        "strokeWidth": 3,
+        "shadowOffsetX": 2,
+        "shadowOffsetY": 2,
+        "lineHeightMultiplier": 1.2,
+        "offsetX": 0,
+        "offsetY": 0,
+        "rotationDeg": 0,
+        "outlineWidth": 2
+      }
+    }
+  ],
+  "sequence": {
+    "id": "seq_e60e5668",
+    "name": "Main Sequence",
+    "width": 320,
+    "height": 180,
+    "fps": 30,
+    "tracks": [
+      {
+        "id": "v_b12154b0",
+        "kind": "video",
+        "name": "V1",
+        "clips": [
+          {
+            "id": "c_fd7e23b7",
+            "assetId": "clr_391af692",
+            "sourceIn": 0,
+            "sourceOut": 2,
+            "timelineStart": 0
+          }
+        ],
+        "locked": false,
+        "visible": true,
+        "muted": false,
+        "solo": false
+      },
+      {
+        "id": "ios-beta-text",
+        "kind": "text",
+        "name": "T1",
+        "clips": [
+          {
+            "id": "c_d7c35ef2",
+            "assetId": "txt_faa79a01",
+            "sourceIn": 0,
+            "sourceOut": 2,
+            "timelineStart": 0,
+            "textAnimation": {
+              "type": "heartbeat"
+            },
+            "textAnimationIn": {
+              "type": "pop",
+              "duration": 0.6
+            }
+          }
+        ],
+        "locked": false,
+        "visible": true,
+        "muted": false,
+        "solo": false
+      },
+      {
+        "id": "a_e4f9912e",
+        "kind": "audio",
+        "name": "A1",
+        "clips": [],
+        "locked": false,
+        "visible": true,
+        "muted": false,
+        "solo": false
+      }
+    ]
+  },
+  "exportSettings": {
+    "width": 320,
+    "height": 180,
+    "fps": 30,
+    "crf": 20,
+    "audioBitrateKbps": 192
+  },
+  "luts": [],
+  "customFonts": [],
+  "customSfx": []
+}

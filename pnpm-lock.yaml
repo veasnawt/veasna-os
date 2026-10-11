@@ -49,23 +49,23 @@ importers:
   apps/mobile:
     dependencies:
       '@capacitor/android':
-        specifier: ^7.0.0
-        version: 7.6.8(@capacitor/core@7.6.8)
+        specifier: ^7.6.9
+        version: 7.6.9(@capacitor/core@7.6.9)
       '@capacitor/camera':
         specifier: ^7.0.0
-        version: 7.0.5(@capacitor/core@7.6.8)
+        version: 7.0.5(@capacitor/core@7.6.9)
       '@capacitor/core':
-        specifier: ^7.0.0
-        version: 7.6.8
+        specifier: ^7.6.9
+        version: 7.6.9
       '@capacitor/filesystem':
         specifier: ^7.0.0
-        version: 7.1.8(@capacitor/core@7.6.8)
+        version: 7.1.8(@capacitor/core@7.6.9)
       '@capacitor/ios':
-        specifier: ^7.0.0
-        version: 7.6.8(@capacitor/core@7.6.8)
+        specifier: ^7.6.9
+        version: 7.6.9(@capacitor/core@7.6.9)
       '@capacitor/share':
         specifier: ^7.0.0
-        version: 7.0.4(@capacitor/core@7.6.8)
+        version: 7.0.4(@capacitor/core@7.6.9)
       '@veasnawt/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -83,8 +83,8 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5(encoding@0.1.13)(supports-color@8.1.1)
       '@capacitor/cli':
-        specifier: ^7.0.0
-        version: 7.6.8(supports-color@8.1.1)
+        specifier: ^7.6.9
+        version: 7.6.9(supports-color@8.1.1)
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1))
@@ -226,16 +226,16 @@ importers:
     dependencies:
       '@capacitor/camera':
         specifier: ^7.0.0
-        version: 7.0.5(@capacitor/core@7.6.8)
+        version: 7.0.5(@capacitor/core@7.6.9)
       '@capacitor/core':
-        specifier: ^7.0.0
-        version: 7.6.8
+        specifier: ^7.6.9
+        version: 7.6.9
       '@capacitor/filesystem':
         specifier: ^7.0.0
-        version: 7.1.8(@capacitor/core@7.6.8)
+        version: 7.1.8(@capacitor/core@7.6.9)
       '@capacitor/share':
         specifier: ^7.0.0
-        version: 7.0.4(@capacitor/core@7.6.8)
+        version: 7.0.4(@capacitor/core@7.6.9)
       '@veasnawt/auth':
         specifier: workspace:*
         version: link:../auth
@@ -252,8 +252,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
       zustand:
-        specifier: ^5.0.14
-        version: 5.0.14(@types/react@19.2.17)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+        specifier: ^5.0.15
+        version: 5.0.15(@types/react@19.2.17)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
       '@types/node':
         specifier: ^22.13.5
@@ -712,8 +712,8 @@ packages:
       '@types/react':
         optional: true
 
-  '@capacitor/android@7.6.8':
-    resolution: {integrity: sha512-N5LXe1ls+TA0mq+RhtyDdP1JISzAAI+OuLGL3G7OWQxfQQOZYkiEjEJMYqMV6JR421IqpRsYj08JOfC0PFC3NA==}
+  '@capacitor/android@7.6.9':
+    resolution: {integrity: sha512-jvfU42aOuj92/KJqRscfDm+5612WzJainFL09xjJgD9oI3OMXN4PBfccn8Ig9i8x7bkVqZv/XNwFshiIRqmggg==}
     peerDependencies:
       '@capacitor/core': ^7.6.0
 
@@ -732,21 +732,21 @@ packages:
     engines: {node: '>=16.0.0'}
     hasBin: true
 
-  '@capacitor/cli@7.6.8':
-    resolution: {integrity: sha512-sJYLoSS1wVHjDPwRc0grtNZcQZnkQc7TJKoVZdHL2HI5TPCq+27WBrMAo0mXvQQSH2axPYCz5cyRrcqqakOvxQ==}
+  '@capacitor/cli@7.6.9':
+    resolution: {integrity: sha512-QBDEf38yBAFTJehbi5FvAmhDWV1I/e7Zr3Z6XX0Bj+9T+/OY5EkGbw5/1e+3oIyyeepq3WtdSkLWHs3VNH2gCA==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
-  '@capacitor/core@7.6.8':
-    resolution: {integrity: sha512-x1xfxvNcTSnj6OoYaAB0n0a0HRvi5f2YjcVnMLxpMhbHDgGDAzzN9z8cnPCYV+SKTvqGF1hezHm82Op32XaAGg==}
+  '@capacitor/core@7.6.9':
+    resolution: {integrity: sha512-4DOh/xySC9S5ryhUIqpOppasIyi2WiTdF0JuZ/2DEs+vf5eunRzHDdNYBp1snA3faHciTw/3SVGXfR+WkYxsMA==}
 
   '@capacitor/filesystem@7.1.8':
     resolution: {integrity: sha512-Qpw/2SE4/CzqAUvGgSM9hw/uXQ5qoOaF4wxbToXwpAaKPS+tzletS1h5ti3jjLmGcqizTs2sEXMtcsARW/Ceew==}
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/ios@7.6.8':
-    resolution: {integrity: sha512-TAM1FdI1Cfl8e/wLBo7x5m61V/J1fMEpyxU2psZzHzsa436k2pwEME6CQoBRYdw6Q6gud0jZSPwOVrNn+MI7Ag==}
+  '@capacitor/ios@7.6.9':
+    resolution: {integrity: sha512-LANP81TfwuJk1zq9EuF+J5AJK71rKDgXB5XD+VFJQHC7BxSH4Dsma6DSMyrjFT03jtqc/0JTMEfSMBE7go3ZjA==}
     peerDependencies:
       '@capacitor/core': ^7.6.0
 
@@ -7057,6 +7057,24 @@ packages:
       use-sync-external-store:
         optional: true
 
+  zustand@5.0.15:
+    resolution: {integrity: sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -7289,9 +7307,9 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  '@capacitor/android@7.6.8(@capacitor/core@7.6.8)':
+  '@capacitor/android@7.6.9(@capacitor/core@7.6.9)':
     dependencies:
-      '@capacitor/core': 7.6.8
+      '@capacitor/core': 7.6.9
 
   '@capacitor/assets@3.0.5(encoding@0.1.13)(supports-color@8.1.1)':
     dependencies:
@@ -7314,9 +7332,9 @@ snapshots:
       - react-native-b4a
       - supports-color
 
-  '@capacitor/camera@7.0.5(@capacitor/core@7.6.8)':
+  '@capacitor/camera@7.0.5(@capacitor/core@7.6.9)':
     dependencies:
-      '@capacitor/core': 7.6.8
+      '@capacitor/core': 7.6.9
 
   '@capacitor/cli@5.7.8(supports-color@8.1.1)':
     dependencies:
@@ -7340,7 +7358,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@capacitor/cli@7.6.8(supports-color@8.1.1)':
+  '@capacitor/cli@7.6.9(supports-color@8.1.1)':
     dependencies:
       '@ionic/cli-framework-output': 2.2.8(supports-color@8.1.1)
       '@ionic/utils-subprocess': 3.0.1(supports-color@8.1.1)
@@ -7362,22 +7380,22 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@capacitor/core@7.6.8':
+  '@capacitor/core@7.6.9':
     dependencies:
       tslib: 2.8.1
 
-  '@capacitor/filesystem@7.1.8(@capacitor/core@7.6.8)':
+  '@capacitor/filesystem@7.1.8(@capacitor/core@7.6.9)':
     dependencies:
-      '@capacitor/core': 7.6.8
+      '@capacitor/core': 7.6.9
       '@capacitor/synapse': 1.0.4
 
-  '@capacitor/ios@7.6.8(@capacitor/core@7.6.8)':
+  '@capacitor/ios@7.6.9(@capacitor/core@7.6.9)':
     dependencies:
-      '@capacitor/core': 7.6.8
+      '@capacitor/core': 7.6.9
 
-  '@capacitor/share@7.0.4(@capacitor/core@7.6.8)':
+  '@capacitor/share@7.0.4(@capacitor/core@7.6.9)':
     dependencies:
-      '@capacitor/core': 7.6.8
+      '@capacitor/core': 7.6.9
 
   '@capacitor/synapse@1.0.4': {}
 
@@ -14334,6 +14352,12 @@ snapshots:
       react: 19.2.4
 
   zustand@5.0.14(@types/react@19.2.17)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)):
+    optionalDependencies:
+      '@types/react': 19.2.17
+      react: 19.2.4
+      use-sync-external-store: 1.6.0(react@19.2.4)
+
+  zustand@5.0.15(@types/react@19.2.17)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)):
     optionalDependencies:
       '@types/react': 19.2.17
       react: 19.2.4

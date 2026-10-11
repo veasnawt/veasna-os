@@ -12,10 +12,14 @@ interface DeleteRequestBody {
 
 export async function POST(req: Request) {
   try {
-    const body: DeleteRequestBody = await req.json();
-    const email = body.email?.trim().toLowerCase();
+    const input: unknown = await req.json().catch(() => null);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return Response.json({ error: "A valid deletion request is required." }, { status: 400 });
+    }
+    const body = input as DeleteRequestBody;
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
 
-    if (!email || !email.includes("@")) {
+    if (typeof body.email !== "string" || !email || email.length > 254 || !email.includes("@") || (body.reason !== undefined && (typeof body.reason !== "string" || body.reason.length > 2000))) {
       return Response.json({ error: "A valid email address is required." }, { status: 400 });
     }
 
@@ -31,30 +35,36 @@ export async function POST(req: Request) {
       }
     }
 
+    if (!VCUT_HOSTED) {
+      return Response.json({ error: "Account deletion requests must be submitted to vcut.io." }, { status: 503 });
+    }
+    if (!authenticatedUser || authenticatedUser.email?.toLowerCase() !== email) {
+      return Response.json({ error: "Sign in to the account you want to delete, or email support@vcut.io to verify ownership." }, { status: 401 });
+    }
+
     if (VCUT_HOSTED) {
       const db = getSupabaseAdminClient();
 
       if (authenticatedUser && authenticatedUser.email?.toLowerCase() === email) {
-        await db.auth.admin.updateUserById(authenticatedUser.id, {
+        const { error } = await db.auth.admin.updateUserById(authenticatedUser.id, {
           user_metadata: {
             deletion_requested_at: new Date().toISOString(),
             deletion_reason: body.reason ?? null,
           },
         });
+        if (error) {
+          return Response.json({ error: "Couldn't save your deletion request. Please retry or email support@vcut.io." }, { status: 503 });
+        }
       }
 
-      console.info(
-        `[Account Deletion Request] Email: ${email}, Authenticated: ${Boolean(
-          authenticatedUser
-        )}, UserID: ${authenticatedUser?.id ?? "unauthenticated"}, Reason: ${body.reason ?? "none"}`
-      );
+      console.info("[Account Deletion Request] Saved for authenticated user", authenticatedUser.id);
     }
 
     return Response.json(
       {
         ok: true,
         message:
-          "Account deletion request received. Data will be purged within 30 days after verification.",
+          "Account deletion request saved. Support must verify and process your request.",
       },
       { status: 200 }
     );

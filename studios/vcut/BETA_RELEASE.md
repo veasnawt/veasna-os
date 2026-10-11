@@ -1,5 +1,7 @@
 # VCut public beta preparation
 
+Current iOS beta build and validation: [0.2.15 (25) iOS handoff](../../apps/mobile/IOS_BETA_RELEASE.md). The older build records below are historical.
+
 The user confirmed running `supabase/migrations/0019_review_comments.sql`.
 Schema checks passed. The review-comments extension, owner-only editor,
 hidden-deletion, outro export, timeline readiness fixes, authentic full-editor showcase screenshot (with media drawer and properties inspector), @veasnawt/vicons integration, and /terms navigation are live in deployment
@@ -76,15 +78,7 @@ The 0.2.12 APK/AAB shared assets match that earlier mobile build. APK v2 signatu
 
 ## iOS / Mac validation
 
-The shared UI/assets are synchronized into iOS. Native additions include in-app creator profiles, the smaller vector launch mark, sign-in deep-link handling, and automatic saving of video exports to Photos.
-
-Minimum iOS version is 16.4 in both CocoaPods and Xcode settings. The Tailwind v4 UI requires Safari 16.4; allowing iOS 15 would expose unsupported styling. [Tailwind browser compatibility](https://tailwindcss.com/docs/compatibility)
-
-On your Mac: install workspace dependencies, run `pnpm --filter vcut-mobile build` and `pnpm --filter vcut-mobile exec cap sync ios`, then `cd apps/mobile/ios/App && pod install`. Open `App.xcworkspace`, select the intended signing team, and archive with Xcode. Validate Photos permission accepted/denied, cold and warm OAuth callbacks, keyboard visibility, and device exports before uploading to TestFlight. The existing signing team/profile must be checked against your account.
-
-Swift/Xcode compilation and device testing cannot be verified on this Windows machine. If planning an App Store release, also audit account deletion, third-party sign-in, and in-app purchase requirements.
-
-[Apple review guidelines](https://developer.apple.com/app-store/review/guidelines/)
+The current iOS candidate is 0.2.15 (25), uploaded to TestFlight from macOS with Xcode 26.6. See [the iOS release handoff](../../apps/mobile/IOS_BETA_RELEASE.md) for signed artifacts, verified simulator coverage, physical-device checks, and TestFlight metadata. Minimum iOS version remains 16.4. Build and test instructions are in [IOS_SETUP.md](../../apps/mobile/IOS_SETUP.md).
 
 ## Feedback and privacy operations
 
