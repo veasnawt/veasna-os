@@ -78,7 +78,7 @@ The 0.2.12 APK/AAB shared assets match that earlier mobile build. APK v2 signatu
 
 ## iOS / Mac validation
 
-The current iOS candidate is 0.2.16 (26), prepared on macOS with Xcode 26.6. See [the iOS release handoff](../../apps/mobile/IOS_BETA_RELEASE.md) for signed artifacts, verified simulator coverage, physical-device checks, and TestFlight metadata. Minimum iOS version remains 16.4. Build and test instructions are in [IOS_SETUP.md](../../apps/mobile/IOS_SETUP.md).
+The current iOS candidate is 0.2.16 (26), uploaded to App Store Connect on October 12, 2026 with Xcode 26.6. See [the iOS release handoff](../../apps/mobile/IOS_BETA_RELEASE.md) for signed artifacts, verified simulator coverage, physical-device checks, and TestFlight metadata. Minimum iOS version remains 16.4. Build and test instructions are in [IOS_SETUP.md](../../apps/mobile/IOS_SETUP.md).
 
 ## Feedback and privacy operations
 
