@@ -83,3 +83,6 @@ apps/vcut-desktop/release-store
 *.keystore
 *.p12
 *.pfx
+
+# Local Android upload signing credentials
+jks.credentials
