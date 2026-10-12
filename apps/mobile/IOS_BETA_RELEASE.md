@@ -54,7 +54,9 @@ Apple accepted this upload with non-blocking missing-dSYM warnings for eight pre
 
 ## Android companion build
 
-Version 0.2.18 / version code 24 is configured. Signed AAB pending the temporary local keystore credential file. `jks.credentials` is excluded from Git, Docker, and Railway upload contexts.
+Signed AAB 0.2.18 (version code 24): `android/app/build/outputs/bundle/release/VCut-0.2.18-24.aab` (97,447,760 bytes).
+
+SHA-256: `8a913944a39896181b95cd7baf92d2c1d5dc54cfc4a30f1a9988f319e42ea657`. Signature verification passed, and the upload certificate matches build 23. The manifest version and ZIP integrity were verified; all four JavaScript bundles match iOS build 29. The verification receipt is beside the AAB. Google Play upload and physical Android testing were not performed. The temporary password file was removed after successful signing; `jks.credentials` remains excluded from Git, Docker, and Railway upload contexts.
 
 ## Web release
 
