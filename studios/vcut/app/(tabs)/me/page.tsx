@@ -1,3 +1,4 @@
+import { GuideReplayButton } from "@veasnawt/vcut/src/ui/InterfaceGuide";
 import AdminShortcut from "../../_shared/AdminShortcut";
 import OwnProfile from "../../_shared/OwnProfile";
 
@@ -5,6 +6,7 @@ import OwnProfile from "../../_shared/OwnProfile";
 export default function MePage() {
   return (
     <>
+      <GuideReplayButton />
       <AdminShortcut />
       <OwnProfile />
     </>

@@ -6,6 +6,7 @@ import { useSupabaseSession, getSupabaseBrowserClient } from "@veasnawt/auth";
 import { subscribeToDesktopAuthCallback } from "@veasnawt/vcut/src/api/desktopAuth";
 import { startCloudSync } from "@veasnawt/vcut/src/api/cloudProjects";
 import { HOSTED } from "../_shared/hostedClient";
+import { InterfaceGuide } from "@veasnawt/vcut/src/ui/InterfaceGuide";
 import { TabBar, TabBarSpacer } from "../_shared/TabBar";
 
 /** Shared chrome for the four top-level sections a signed-in visitor lands in — Home, Projects,
@@ -59,6 +60,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-[#0a0c10] text-white">
+      <InterfaceGuide scope="home" />
       <TabBar />
       <TabBarSpacer>{children}</TabBarSpacer>
     </div>

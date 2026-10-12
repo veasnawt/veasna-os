@@ -116,6 +116,7 @@ function TabLink({ tab, active, orientation }: { tab: Tab; active: boolean; orie
     return (
       <Link
         href={tab.href}
+        data-guide={tab.href.slice(1)}
         className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition ${
           active ? "bg-white/10 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/80"
         }`}
@@ -128,6 +129,7 @@ function TabLink({ tab, active, orientation }: { tab: Tab; active: boolean; orie
   return (
     <Link
       href={tab.href}
+        data-guide={tab.href.slice(1)}
       className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${
         active ? "text-white" : "text-white/45"
       }`}

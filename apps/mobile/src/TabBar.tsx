@@ -78,6 +78,7 @@ export function TabBar({ active, onChange }: { active: TabId; onChange: (tab: Ta
       {TABS.map((tab) => (
         <button
           key={tab.id}
+          data-guide={tab.id}
           onClick={() => onChange(tab.id)}
           className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${
             active === tab.id ? "text-white" : "text-white/45"

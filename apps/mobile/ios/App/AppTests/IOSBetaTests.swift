@@ -35,6 +35,22 @@ final class IOSBetaTests: XCTestCase {
         throw NSError(domain: "IOSBetaTests", code: 1)
     }
 
+    func testInterfaceGuideCanBeSkippedAndReplayed() async throws {
+        _ = try await js("document.querySelector('[aria-label=\"Back to projects\"]')?.click(); return true;")
+        try await waitFor("document.querySelector('nav[aria-label=\"Primary\"]')")
+        _ = try await js("window.dispatchEvent(new CustomEvent('vcut:show-interface-guide', {detail:'home'})); return true;")
+        try await waitFor("document.querySelector('.vcut-guide-next')")
+        _ = try await js("document.querySelector('.vcut-guide-next').click(); return true;")
+        try await waitFor("document.querySelector('#guide-home-title')?.textContent.includes('Pick up')")
+        _ = try await js("document.querySelector('.vcut-guide-skip').click(); return true;")
+        try await waitFor("!document.querySelector('.vcut-guide-layer')")
+        let saved = try await js("return localStorage.getItem('vcut:interface-guide:v1:home');") as? String
+        XCTAssertEqual(saved, "skipped")
+        _ = try await js("window.dispatchEvent(new CustomEvent('vcut:show-interface-guide', {detail:'home'})); return true;")
+        try await waitFor("document.querySelector('#guide-home-title')?.textContent.includes('Welcome')")
+        _ = try await js("document.querySelector('.vcut-guide-skip').click(); return true;")
+    }
+
     func testNativePluginsAndMicrophonePermission() async throws {
         let plugins = try await js("return ['Ffmpeg', 'AuthCallback', 'MicPermission', 'Filesystem', 'Camera', 'Share'].filter(name => !Capacitor.isPluginAvailable(name));") as? [String]
         XCTAssertEqual(plugins, [])

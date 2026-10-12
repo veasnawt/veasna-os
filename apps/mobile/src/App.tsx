@@ -10,6 +10,7 @@ import { TemplatesTab } from "./screens/TemplatesTab";
 import type { QuickTool } from "@veasnawt/vcut/src/ui/QuickTools";
 import { MeTab } from "./screens/MeTab";
 import { TemplateDetailScreen } from "./screens/TemplateDetailScreen";
+import { InterfaceGuide, GuideReplayButton } from "@veasnawt/vcut/src/ui/InterfaceGuide";
 import { installKeyboardViewport } from "./keyboardViewport";
 
 type View =
@@ -82,8 +83,9 @@ function AppContent() {
         )}
         {view.tab === "projects" && <ProjectsTab onOpenProject={openProject} />}
         {view.tab === "templates" && <TemplatesTab onUseTemplate={previewTemplate} />}
-        {view.tab === "me" && <MeTab onOpenTemplate={previewTemplate} />}
+        {view.tab === "me" && <><GuideReplayButton /><MeTab onOpenTemplate={previewTemplate} /></>}
       </TabBarSpacer>
+      <InterfaceGuide scope="home" />
       <TabBar active={view.tab} onChange={(tab) => setView({ kind: "tabs", tab })} />
     </div>
   );
