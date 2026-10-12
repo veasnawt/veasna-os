@@ -10,7 +10,9 @@ The web console lives at `/admin`. Authorized accounts also see **Open admin das
 4. Enable `VCUT_DURABLE_QUEUE=true` and run a dedicated export worker or set `VCUT_WORKER_EMBEDDED=true` on the web service. Verify the deployment's worker topology before enabling an additional worker. Durable queue state drives live render statistics and protects active projects during cleanup.
 5. Deploy the web service, sign in with the allowlisted account, and open `/admin`. Verify an ordinary account receives 403 from `/api/vcut/admin/access` and all other admin endpoints.
 
-No production migration, environment change, deployment, user restriction, credit adjustment, or cleanup was performed while implementing/testing this console. The feature is prepared for deployment on its feature branch.
+Production rollout completed on 2026-10-12. The owner applied migration 0022 manually; subsequent service-role checks verified all four private tables and the overview function. Railway deployment `e43cd186-3fa3-4f01-a4ac-09f348f02e87` shipped source commit `a141600` and reached SUCCESS. The confirmed account `veasnawt@gmail.com` is allowlisted by its user UUID. Existing durable queue, embedded worker, and `/data` volume configuration were preserved; startup logs confirmed the export worker started.
+
+Live verification: `https://vcut.io/admin` returns 200 with noindex metadata; admin access/overview/storage and action requests without authentication return 401 with private/no-store headers. Query-string credentials and invalid bearer tokens are rejected. Anonymous Supabase requests cannot read the audit table or execute the overview function. Signed-in administrator and ordinary-account browser checks still require their respective sessions. No production user restriction, credit adjustment, or cleanup was performed during rollout.
 
 ## Available operations
 
