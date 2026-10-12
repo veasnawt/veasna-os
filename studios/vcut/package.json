@@ -8,7 +8,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "worker": "jiti bin/worker.ts",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:admin": "node --test tests/admin*.test.*"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",
@@ -26,6 +27,7 @@
     "stripe": "^22.6.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/ffprobe-static": "^2.0.3",
     "@types/node": "^20",

@@ -1,3 +1,4 @@
+import { assertVcutProjectEnabled, assertVcutUserEnabled } from "./admin";
 import { getSessionUser, getSupabaseAdminClient, type SessionUser } from "@veasnawt/auth/server";
 import { OWNERSHIP_TTL_MS, sessionCacheTtlMs, tokenKey, TtlCache } from "./authCache";
 import { ApiError } from "./paths";
@@ -36,9 +37,13 @@ export async function requireSessionUser(req: Request): Promise<SessionUser> {
   // network round trip to Supabase was the slow half of every hosted media request.
   const key = await tokenKey(token);
   const cached = sessionCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    await assertVcutUserEnabled(cached.id);
+    return cached;
+  }
   const user = await getSessionUser(token);
   if (!user) throw new ApiError(401, "Sign in required", "unauthorized");
+  await assertVcutUserEnabled(user.id);
   sessionCache.set(key, user, sessionCacheTtlMs(token, Date.now()));
   return user;
 }
@@ -61,7 +66,10 @@ export interface ProjectIndexRow {
  *  touch this", and distinguishing them would only tell a prober which project ids are real. */
 export async function checkProjectOwnership(userId: string, projectId: string): Promise<void> {
   const ownershipKey = `${userId}:${projectId}`;
-  if (ownershipCache.get(ownershipKey)) return;
+  if (ownershipCache.get(ownershipKey)) {
+    await assertVcutProjectEnabled(projectId);
+    return;
+  }
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase.from("projects_index").select("owner_id").eq("id", projectId).maybeSingle();
   // Logged before throwing — same "confirmed swallowed-error bug" category `_lib/profiles.ts`'s own
@@ -90,6 +98,7 @@ export async function checkProjectOwnership(userId: string, projectId: string): 
   }
   // Only a confirmed YES is remembered, so a project whose index row hasn't landed yet, or whose ownership just
   // changed, is picked up on the very next request.
+  await assertVcutProjectEnabled(projectId);
   ownershipCache.set(ownershipKey, true, OWNERSHIP_TTL_MS);
 }
 
@@ -97,11 +106,15 @@ export async function checkProjectOwnership(userId: string, projectId: string): 
  * Reviewers never pass the normal ownership gate for saves, exports or jobs. */
 export async function checkProjectReviewReadAccess(userId: string, projectId: string): Promise<void> {
   const ownerKey = `${userId}:${projectId}`;
-  if (ownershipCache.get(ownerKey)) return;
+  if (ownershipCache.get(ownerKey)) {
+    await assertVcutProjectEnabled(projectId);
+    return;
+  }
   const db = getSupabaseAdminClient();
   const { data: project, error } = await db.from("projects_index").select("owner_id").eq("id", projectId).maybeSingle();
   if (error) throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
   if (project?.owner_id === userId) {
+    await assertVcutProjectEnabled(projectId);
     ownershipCache.set(ownerKey, true, OWNERSHIP_TTL_MS);
     return;
   }
@@ -113,6 +126,7 @@ export async function checkProjectReviewReadAccess(userId: string, projectId: st
     if (memberError) throw new ApiError(500, "Could not verify project access", "ownership-check-failed");
     if (member) {
       await assertCanInteract(userId, project.owner_id);
+      await assertVcutProjectEnabled(projectId);
       return;
     }
   }
