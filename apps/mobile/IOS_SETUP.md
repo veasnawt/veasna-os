@@ -26,19 +26,19 @@ The current signer is Apple Distribution, team `7QA4U325BB`, with the manual `VC
 Outputs are under `ios/App/output/VCut-<version>-<build>/App.ipa`, with a sibling `.xcarchive`, source metadata, and SHA-256 verification information for the prepared build. Build numbers are never silently replaced. For the next build:
 
 ```bash
-VCUT_IOS_BUILD_NUMBER=26 pnpm build:vcut-ios
+VCUT_IOS_BUILD_NUMBER=27 pnpm build:vcut-ios
 ```
 
 If an archive succeeded but export failed, fix signing and resume with the same build number:
 
 ```bash
-VCUT_IOS_BUILD_NUMBER=26 pnpm build:vcut-ios --export-only
+VCUT_IOS_BUILD_NUMBER=27 pnpm build:vcut-ios --export-only
 ```
 
 To upload a verified candidate with the Apple Account stored in Xcode:
 
 ```bash
-VCUT_IOS_BUILD_NUMBER=25 pnpm upload:vcut-ios
+VCUT_IOS_BUILD_NUMBER=26 pnpm upload:vcut-ios
 ```
 
 Alternatively configure `ASC_KEY_PATH`, `ASC_KEY_ID`, and `ASC_ISSUER_ID` together for an authorized App Store Connect API key. Keep the `.p8` private key outside the repository. Upload verifies the IPA checksum and signed archive fingerprint and records the attempt in `upload-result.json`. Apple processing and TestFlight group assignment follow separately; an exported IPA alone does not establish an upload.

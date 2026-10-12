@@ -193,6 +193,37 @@ final class IOSBetaTests: XCTestCase {
         try await waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('iOS Beta Export'))")
         _ = try await js("[...document.querySelectorAll('button')].find(b => b.textContent.includes('iOS Beta Export')).click(); return true;")
         try await waitFor("document.querySelector('[aria-label=\"Back to projects\"]') && document.querySelector('canvas')")
+        // Exercise the phone's visible selection/group/history workflow before exporting it.
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]') && document.querySelectorAll('[data-clip-id]').length === 2")
+        _ = try await js("""
+            const bar = document.querySelector('[aria-label="Editing actions"]');
+            [...bar.querySelectorAll('button')].find(b => b.textContent.trim() === 'Select').click();
+            return true;
+            """)
+        _ = try await js("""
+            for (const clip of document.querySelectorAll('[data-clip-id]')) {
+                const r = clip.getBoundingClientRect();
+                clip.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, button: 0, clientX: r.x + 20, clientY: r.y + 15}));
+            }
+            return true;
+            """)
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]').textContent.includes('2 selected')")
+        _ = try await js("[...document.querySelectorAll('[aria-label=\"Editing actions\"] button')].find(b => b.textContent.trim() === 'Group').click(); return true;")
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]').textContent.includes('Edit group')")
+        let historyVisible = try await js("""
+            const button = document.querySelector('[aria-label="Editing actions"] [aria-label="Undo"]');
+            const r = button.getBoundingClientRect();
+            return r.width >= 40 && r.height >= 40 && !button.disabled;
+            """) as? Bool
+        XCTAssertEqual(historyVisible, true, "Mobile Undo must remain visible with a usable touch target")
+        _ = try await js("document.querySelector('[aria-label=\"Editing actions\"] [aria-label=\"Undo\"]').click(); return true;")
+        try await waitFor("!document.querySelector('[aria-label=\"Editing actions\"] [aria-label=\"Redo\"]').disabled")
+        _ = try await js("document.querySelector('[aria-label=\"Editing actions\"] [aria-label=\"Redo\"]').click(); return true;")
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]').textContent.includes('Edit group')")
+        _ = try await js("[...document.querySelectorAll('[aria-label=\"Editing actions\"] button')].find(b => b.textContent.trim() === 'Edit group').click(); return true;")
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]').textContent.includes('Done editing')")
+        _ = try await js("[...document.querySelectorAll('[aria-label=\"Editing actions\"] button')].find(b => b.textContent.includes('Done editing')).click(); return true;")
+        try await waitFor("document.querySelector('[aria-label=\"Editing actions\"]').textContent.includes('Edit group')")
         _ = try await js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export').click(); return true;")
         try await waitFor("document.querySelector('[aria-label=\"Export video\"]')")
         try await waitFor("[...document.querySelectorAll('[aria-label=\"Export video\"] button')].some(b => b.textContent.trim() === 'Export' && !b.disabled)")
