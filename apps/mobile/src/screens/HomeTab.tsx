@@ -1,3 +1,4 @@
+import { ThumbnailImage } from "@veasnawt/vcut/src/ui/ThumbnailImage";
 import { useEffect, useState } from "react";
 import { useSupabaseSession } from "@veasnawt/auth";
 import {
@@ -203,7 +204,7 @@ export function HomeTab({
                 onClick={() => onUseTemplate(template.id)}
                 className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-left"
               >
-                <img
+                <ThumbnailImage
                   src={templatePosterUrl(template.id)}
                   alt=""
                   loading="lazy"

@@ -1,4 +1,6 @@
 "use client";
+import { ThumbnailImage } from "@veasnawt/vcut/src/ui/ThumbnailImage";
+
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -283,15 +285,7 @@ export default function TemplatesPage() {
   );
 }
 
-/** One grid tile — a `<video poster=...>` showing a real still frame (`templatePosterUrl`,
- *  `renderTemplatePreview`'s own `poster.jpg`) until/unless it actually plays, not the browser's own
- *  default first-frame decode an earlier version of this relied on: confirmed as a real, reported bug
- *  that several browsers (mobile Safari included, with `preload="metadata"` and no `autoplay`) never
- *  actually do, rendering the tile solid black. `hasPreview` tracks load success purely to swap in the
- *  generic placeholder icon on failure (an older template with no rendered preview, or a best-effort
- *  render that failed — see `renderTemplatePreview`'s own doc comment) — plain React state instead of a
- *  CSS sibling-selector trick, which would need to match an inline `style` attribute's exact string form
- *  and is exactly the kind of "looks clever, breaks silently" fragility not worth it here. */
+/** Static grid posters share the image loader and its missing-image fallback. */
 function TemplateGridTile({
   template,
   showPublicBadge,
@@ -301,7 +295,6 @@ function TemplateGridTile({
   showPublicBadge: boolean;
   onOpen: () => void;
 }) {
-  const [hasPreview, setHasPreview] = useState(true);
   const isStale =
     template.updatedAt && Date.now() - new Date(template.updatedAt).getTime() > 5 * 60 * 1000;
   const rendering = template.previewReady === false && !isStale;
@@ -311,25 +304,7 @@ function TemplateGridTile({
       className="group mb-3 block w-full break-inside-avoid overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-left transition hover:border-white/25"
     >
       <div className="relative aspect-[9/16] w-full bg-black">
-        {hasPreview ? (
-          <video
-            key={rendering ? "rendering" : "ready"}
-            src={rendering ? undefined : templatePreviewUrl(template.id)}
-            poster={templatePosterUrl(template.id)}
-            muted
-            playsInline
-            preload="none"
-            className="h-full w-full object-cover"
-            onError={() => setHasPreview(false)}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-white/10">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="M9 9.5v5l4.5-2.5L9 9.5Z" fill="currentColor" stroke="none" />
-            </svg>
-          </div>
-        )}
+        <ThumbnailImage key={rendering ? "rendering" : "ready"} src={templatePosterUrl(template.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
         {rendering && (
           <span className="absolute inset-x-1.5 top-1/2 -translate-y-1/2 rounded-md bg-black/70 px-2 py-1.5 text-center text-[10px] font-medium leading-tight text-white/85">
             Rendering preview…

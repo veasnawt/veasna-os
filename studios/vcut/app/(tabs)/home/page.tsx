@@ -1,5 +1,8 @@
 "use client";
 
+import { ThumbnailImage } from "@veasnawt/vcut/src/ui/ThumbnailImage";
+
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -241,7 +244,7 @@ export default function HomePage() {
               >
                 <div className="aspect-[3/4] overflow-hidden bg-black">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <ThumbnailImage
                     src={templatePosterUrl(template.id)}
                     alt=""
                     loading="lazy"
@@ -315,7 +318,7 @@ function ProjectShortcut({
       <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black text-white/20">
         {poster ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={poster} alt="" className="h-full w-full object-contain" />
+          <ThumbnailImage src={poster} alt="" className="h-full w-full object-contain" />
         ) : (
           <Video size={20} aria-hidden="true" />
         )}

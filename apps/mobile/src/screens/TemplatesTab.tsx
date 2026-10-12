@@ -1,5 +1,6 @@
+import { ThumbnailImage } from "@veasnawt/vcut/src/ui/ThumbnailImage";
 import { useEffect, useState } from "react";
-import { listDiscoverTemplates, templatePosterUrl, templatePreviewUrl, type TemplateRow } from "@veasnawt/vcut/src/api/templates";
+import { listDiscoverTemplates, templatePosterUrl, type TemplateRow } from "@veasnawt/vcut/src/api/templates";
 import { useSupabaseSession } from "@veasnawt/auth";
 import { MobileSignInDialog } from "@veasnawt/vcut/src/ui/MobileSignInDialog";
 
@@ -53,14 +54,7 @@ export function TemplatesTab({ onUseTemplate }: { onUseTemplate: (templateId: st
                   className="group mb-3 block w-full break-inside-avoid overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-left"
                 >
                   <div className="relative aspect-[9/16] w-full bg-black">
-                    <video
-                      src={templatePreviewUrl(tpl.id)}
-                      poster={templatePosterUrl(tpl.id)}
-                      muted
-                      playsInline
-                      preload="none"
-                      className="h-full w-full object-cover"
-                    />
+                    <ThumbnailImage src={templatePosterUrl(tpl.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
                     {tpl.likeCount !== undefined && (
                       <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white/80">
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">

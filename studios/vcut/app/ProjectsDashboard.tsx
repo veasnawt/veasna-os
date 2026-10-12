@@ -1,5 +1,8 @@
 "use client";
 
+import { ThumbnailImage } from "@veasnawt/vcut/src/ui/ThumbnailImage";
+
+
 import { NewProjectCard } from "@veasnawt/vcut/src/ui/NewProjectCard";
 import { EmptyProjectThumbnail } from "@veasnawt/vcut/src/ui/EmptyProjectThumbnail";
 import { CloudProjects, CloudProjectButton } from "@veasnawt/vcut/src/ui/CloudProjects";
@@ -419,7 +422,7 @@ export function ProjectsDashboard() {
         ) : (
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold text-white">
-              <img src="/vcut-logo.png" alt="" className="h-6 w-6" />
+              <ThumbnailImage src="/vcut-logo.png" alt="" className="h-6 w-6" />
               VCut
             </h1>
             <p className="mt-1 text-xs text-white/40">A focused video editor for short-form creative work.</p>
@@ -482,7 +485,7 @@ export function ProjectsDashboard() {
                       // is harmless now that the box itself is sized to the project's real aspect ratio
                       // (was previously cropping every portrait project into a fixed 16:9 window).
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <ThumbnailImage src={url} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <EmptyProjectThumbnail empty={p.clipCount === 0} />
                     )}
