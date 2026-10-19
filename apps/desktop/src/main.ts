@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { createMainWindow } from "./windows/createMainWindow";
@@ -6,6 +6,7 @@ import { spawnNextServer } from "./server/spawnNextServer";
 import { serveStaticDir } from "./server/serveStaticDir";
 import { loadRixieEnv, getApiKeyStatus, setApiKey, setActiveProvider, setModel, RixieProvider } from "./server/rixieEnvFile";
 import { setupAutoUpdater } from "./updater";
+import { installVCutGuestLinks } from "./windows/vcutGuestLinks";
 
 const stopFns: (() => Promise<void>)[] = [];
 
@@ -32,6 +33,7 @@ function workspaceRoot(): string {
 // them apart here, but the same right-click menu makes sense for both.
 app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return;
+  installVCutGuestLinks(contents, () => studioUrls.bp ?? "http://localhost:3001", url => shell.openExternal(url), process.env.VCUT_URL);
   contents.on("context-menu", (_e, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [];
     if (params.linkURL) {
@@ -104,14 +106,7 @@ ipcMain.handle("apps:winget-install", (_event, wingetId: string) => {
   });
 });
 
-/** Spawns Universe (the actual OS shell — must work, and now also hosts Rixie's chat) plus,
- *  best-effort, VCut, BP Studio, and Game Dev Studio (bundled but non-critical: if any fails to
- *  start, Window.tsx's StudioFrame falls back to a "coming soon" card for it rather than the whole
- *  app refusing to launch). VCut is both its own launchable studio (its `CelestialBody` entry in
- *  constants.ts has a `launchUrl`, resolved the same way bp's/gamedev's is) AND, separately, what
- *  bp's own Create page embeds via `<iframe>` — a failed VCut spawn shouldn't take bp down with
- *  it, hence the try/catch here running independently of bp's own. Returns Universe's own URL, which
- *  is what the main window actually loads. */
+/** Start the public studios. VCut is launched separately using optional VCUT_URL configuration. */
 async function spawnPackagedServers(): Promise<string> {
   const universe = await spawnNextServer({
     resourceName: "universe",
@@ -136,28 +131,6 @@ async function spawnPackagedServers(): Promise<string> {
   });
   stopFns.push(universe.stop);
 
-  // VCut spawned BEFORE bp: bp's own server needs VCut's real (dynamically-assigned) URL at
-  // its own spawn time, to hand to its Create page for the <iframe> it embeds VCut through (see
-  // studios/bp/app/api/vcut-url/route.ts). bp's own client-side renderer can't resolve this the
-  // way Universe resolves bp's own URL (via window.veasnaStudios) — that bridge isn't reachable from
-  // inside bp's <webview> — so it's threaded through as an env var instead, same as RIXIE_MEMORY_DB.
-  let vcutUrl: string | undefined;
-  try {
-    const vcut = await spawnNextServer({
-      resourceName: "vcut",
-      logLabel: "[vcut]",
-      // Same port VCut's own `pnpm dev` uses — see pickFreePort.ts's comment for why a stable
-      // port matters (browser localStorage is scoped to it).
-      preferredPort: 3002,
-      extraEnv: { VEASNA_WORKSPACE_ROOT: workspaceRoot() },
-    });
-    stopFns.push(vcut.stop);
-    studioUrls.vcut = vcut.url;
-    vcutUrl = vcut.url;
-  } catch (err) {
-    console.error("VCut failed to start:", err);
-  }
-
   try {
     const bp = await spawnNextServer({
       resourceName: "bp",
@@ -165,7 +138,6 @@ async function spawnPackagedServers(): Promise<string> {
       // Same port bp's own `pnpm dev` uses — see pickFreePort.ts's comment for why a stable port
       // matters (browser localStorage is scoped to it).
       preferredPort: 3001,
-      ...(vcutUrl ? { extraEnv: { VCUT_URL: vcutUrl } } : {}),
     });
     stopFns.push(bp.stop);
     studioUrls.bp = bp.url;

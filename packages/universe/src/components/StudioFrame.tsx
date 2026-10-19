@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { CelestialBody } from "../types";
 import StudioDetailCard from "./StudioDetailCard";
+import VCutLauncher from "./VCutLauncher";
 import { isElectronDesktop, resolveStudioLaunchUrl, subscribeStudioUrlsChanged, WebviewElement } from "../utils/runtime";
 
 interface StudioFrameProps {
@@ -23,6 +24,7 @@ export default function StudioFrame({ body }: StudioFrameProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
 
   useEffect(() => {
+    if (body.id === "vcut") return;
     let cancelled = false;
     function resolve() {
       setResolvedUrl(undefined);
@@ -38,7 +40,9 @@ export default function StudioFrame({ body }: StudioFrameProps) {
       cancelled = true;
       unsubscribe();
     };
-  }, [body.launchUrl]);
+  }, [body.id, body.launchUrl]);
+
+  if (body.id === "vcut") return <VCutLauncher />;
 
   if (resolvedUrl === undefined) {
     return (
@@ -52,9 +56,14 @@ export default function StudioFrame({ body }: StudioFrameProps) {
     return <StudioDetailCard body={body} variant="embedded" showHeader={false} />;
   }
 
-  return desktopMode ? (
-    <webview ref={webviewRef} src={resolvedUrl} className="h-full w-full bg-white" />
-  ) : (
+  // Electron needs a present HTML attribute. React drops unknown boolean attributes;
+  // createElement accepts the actual empty-string DOM value despite the JSX boolean typing.
+  return desktopMode ? React.createElement("webview", {
+    ref: webviewRef,
+    src: resolvedUrl,
+    allowpopups: body.id === "bp" ? "" : undefined,
+    className: "h-full w-full bg-white",
+  }) : (
     <iframe src={resolvedUrl} title={body.name} className="h-full w-full border-0 bg-white" />
   );
 }

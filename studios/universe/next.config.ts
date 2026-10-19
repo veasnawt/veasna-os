@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@veasnawt/universe", "@react-three/fiber", "@react-three/drei", "three", "@veasnawt/ai", "@veasnawt/vicons"],
+  transpilePackages: ["@veasnawt/integrations", "@veasnawt/universe", "@react-three/fiber", "@react-three/drei", "three", "@veasnawt/ai", "@veasnawt/vicons"],
   // better-sqlite3 (Rixie's persistent memory, via @veasnawt/ai) is a native module — bundling it
   // via transpilePackages breaks its compiled-binary lookup at runtime (the `bindings` package
   // locates the .node file by walking the call stack, which webpack's bundled stack traces

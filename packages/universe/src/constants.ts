@@ -72,7 +72,7 @@ export const CELESTIAL_BODIES: CelestialBody[] = [
       "Crop, Rotate & Transform Any Clip",
       "In/Out Range Export via Bundled FFmpeg"
     ],
-    launchUrl: "http://localhost:3002"
+    launchUrl: "https://vcut.io"
   },
   {
     id: "art",

@@ -11,11 +11,7 @@ directories:
 files:
   - dist/**
   - package.json
-# studios/universe's, studios/bp's, AND studios/vstudio's standalone Next.js servers (server.js +
-# a pruned node_modules + .next/static + public/ each), plus studios/gamedev's static Vite build —
-# all copied here by scripts/build-resources.mjs. universe/bp/vstudio get utilityProcess.fork'd at
-# runtime (src/server/spawnNextServer.ts); gamedev is served by a plain local static file server
-# (src/server/serveStaticDir.ts). See src/main.ts's spawnPackagedServers.
+# Public studio servers and Game Dev assets assembled by build-resources.mjs.
 extraResources:
   - from: resources/universe
     to: universe
@@ -23,10 +19,6 @@ extraResources:
       - "**/*"
   - from: resources/bp
     to: bp
-    filter:
-      - "**/*"
-  - from: resources/vstudio
-    to: vstudio
     filter:
       - "**/*"
   - from: resources/gamedev

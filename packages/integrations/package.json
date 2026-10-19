@@ -1,0 +1,9 @@
+{
+  "name": "@veasnawt/integrations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/vcut.ts" },
+  "types": "./src/vcut.ts",
+  "scripts": { "test": "node --test tests/*.test.ts" }
+}

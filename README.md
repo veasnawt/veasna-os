@@ -42,7 +42,7 @@ Both modes share the same window system, so switching between them never loses w
 | --- | --- | --- |
 | 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
 | 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
-| 🎞️ VCut | A focused video editor — BP Studio's own **Create** stage, and a standalone studio in its own right | Active |
+| 🎞️ VCut | Independent video editor, launched from BP or Universe | External integration |
 | 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
 | 🎵 Music | — | Coming soon |
 | 🎨 Art | — | Coming soon |
@@ -52,7 +52,7 @@ Both modes share the same window system, so switching between them never loses w
 
 ## Desktop App
 
-Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, VCut, and Game Dev Studio are all bundled together, each running on its own local port under the hood; it feels like one app.
+Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, and Game Dev Studio are bundled together. VCut opens separately at https://vcut.io or an explicitly configured local editor.
 
 ```bash
 pnpm dev:desktop     # run it against your local dev servers, with hot reload
@@ -71,15 +71,14 @@ A pnpm workspace: each studio is its own app, shared code lives in packages.
 studios/
   universe/    the OS shell (Next.js) — default entry point
   bp/          Beyond Perspective
-  vcut/        the video editor — a standalone app, also embedded by bp's Create stage via <iframe>
   gamedev/     Loom Engine (Vite)
 
 packages/
   universe/    shell UI: desktop, windows, taskbar, settings, cosmos
-  vcut/        video editor logic/components — consumed by studios/vcut
   vicons/      the icon library every studio draws from
   ai/          shared AI utilities
-  ui/, auth/, database/, storage/, editor/, analytics/, automation/, utils/
+  integrations/ validated optional application launch URLs
+  loom/        public Loom engine submodule
 
 apps/
   desktop/     the Electron wrapper — packages the studios above into a real installable app
@@ -87,7 +86,7 @@ apps/
 
 ### Running a studio
 
-Requires [Node.js](https://nodejs.org) 20.9+ (an LTS release, e.g. 22.x) and [pnpm](https://pnpm.io) (`corepack enable` installs the right version automatically from this repo's `packageManager` field).
+Requires [Node.js](https://nodejs.org) 22.18+ (Node 22 LTS recommended) and [pnpm](https://pnpm.io) (`corepack enable` installs the right version automatically from this repo's `packageManager` field).
 
 ```bash
 git clone --recurse-submodules https://github.com/veasnawt/veasna-os.git
@@ -97,7 +96,7 @@ pnpm setup    # installs everything + creates studios/universe/.env.local from i
 pnpm dev:all  # everything at once — Universe, BP Studio, and Loom Engine together
 ```
 
-Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch `packages/loom`, `packages/vicons`, and `packages/vcut`.
+Already cloned without `--recurse-submodules`? Run `git submodule update --init` to fetch the public `packages/loom` and `packages/vicons` submodules.
 
 Then open `studios/universe/.env.local` and fill in your own model provider API key (see `studios/universe/.env.example`) — everything works without one except Rixie's chat (or set it later, in-app, via **Settings → Rixie AI** in the desktop app). `pnpm setup` never overwrites an existing `.env.local`, so it's safe to re-run any time.
 
@@ -117,11 +116,18 @@ Or run just what you need:
 ```bash
 pnpm dev          # Universe — http://localhost:3000
 pnpm dev:bp       # BP Studio — http://localhost:3001
-pnpm dev:vcut     # VCut — http://localhost:3002
 pnpm dev:gamedev  # Loom Engine — http://localhost:5173
 ```
 
-Studio windows inside Universe embed the other studios directly (`bp`, `vcut`, `gamedev`) — running them isn't required just to browse Universe itself, but it is required for those specific windows to load anything. BP Studio's own Create stage separately embeds VCut too, so editing a video from inside BP also needs `vcut` running. `pnpm dev:all` is the easiest way to get everything working at once.
+Universe embeds BP and Game Dev. VCut opens in a separate browser tab/window; its hosted security policy prevents embedding. BP projects and hosted VCut projects have separate storage. Public installation and builds require no private repository access.
+
+### Optional local VCut
+
+Run VCut independently, then set `VCUT_URL=http://127.0.0.1:3002` in BP's and Universe's `.env.local` files, or in the environment before launching the packaged OS. Restart those servers after changing it. A loopback editor receives BP's project ID/title through its existing local edit URL. Other HTTPS deployments open without BP project metadata. URLs with credentials, query strings, fragments, unsafe schemes, or non-loopback HTTP fall back to https://vcut.io.
+
+The OS does not start a VCut server. If a configured local editor is stopped, BP and Universe remain usable and offer an **Open VCut online** link. No account or project synchronization is implied. Run `pnpm test:integrations` to check launch URL validation and project privacy.
+
+When using `pnpm dev:desktop`, also set the same `VCUT_URL` in the Electron process environment so its browser-launch policy matches BP's configuration. Run `pnpm --filter @veasnawt/desktop test:vcut-links` in a desktop-capable environment to verify guest link handling; this test uses hidden windows and never opens the system browser.
 
 ---
 

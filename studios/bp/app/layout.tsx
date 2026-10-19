@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   description: "Every creation begins with curiosity.",
 };
 
-// Explicit rather than relying on Next's own default: this app's responsive pages (and the embedded
-// VCut iframe on the Create page) assume the browser reports the device's real width, not a
+// Explicit rather than relying on Next's own default: this app's responsive pages
+// assume the browser reports the device's real width, not a
 // desktop-sized virtual viewport scaled down — the usual mobile-web default for pages that were
 // never designed responsively.
 export const viewport: Viewport = {

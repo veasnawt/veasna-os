@@ -36,7 +36,7 @@ a `launchUrl` set:
    can substitute the studio's real, dynamically-assigned port at runtime (via the
    `window.veasnaStudios` IPC bridge — see `apps/desktop/src/main.ts`'s `studioUrls`).
 
-VCut was added this way — see its entry in `constants.ts` for a worked example.
+VCut keeps its studio entry but uses `VCutLauncher` to open an independent editor externally. It is not bundled or mapped to a managed port. BP's Electron guest delegates only validated VCut links to the main process; guest windows are always denied.
 
 ## Icons
 

@@ -1,42 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { HOSTED_VCUT_URL, resolveVCutIntegration, vcutProjectUrl } from "@veasnawt/integrations";
 
-import { getProjectById } from "@/lib/project-service";
-import { Project } from "@/types/project";
+import type { Project } from "@/types/project";
 
-/** BP Studio's Create stage — where a project stops being a script and becomes a video.
- *
- *  The editor itself is VCut, a standalone app (`studios/vcut`) this page embeds via an
- *  `<iframe>` rather than rendering in-process — see `app/api/vcut-url/route.ts` for how its real
- *  origin is resolved. The editor fills the viewport rather than sitting inside BP's usual page
- *  chrome: a timeline needs every pixel it can get, and an editor framed by a marketing-style layout
- *  is an editor nobody can work in. A single back link is the only BP navigation kept, outside the
- *  iframe. */
+function subscribeProjects(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+function projectsSnapshot() {
+  return localStorage.getItem("bp-projects") ?? "[]";
+}
+
+/** Launch the independent editor while keeping BP projects available locally. */
 export default function CreatePage() {
   const { id } = useParams<{ id: string }>();
-  const [project, setProject] = useState<Project | null>(null);
-  const [checked, setChecked] = useState(false);
-  const [vcutUrl, setVstudioUrl] = useState<string | null>(null);
-
-  // BP projects live in localStorage, which is browser-only — so this reads after mount rather than
-  // during render.
-  useEffect(() => {
-    setProject(getProjectById(id) ?? null);
-    setChecked(true);
-  }, [id]);
+  const storedProjects = useSyncExternalStore(subscribeProjects, projectsSnapshot, () => null);
+  const checked = storedProjects !== null;
+  const project = storedProjects === null ? null :
+    (JSON.parse(storedProjects) as Project[]).find((item) => item.id === id) ?? null;
+  const [integration, setIntegration] = useState(() => resolveVCutIntegration());
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/vcut-url")
-      .then((res) => res.json())
-      .then((body: { url: string }) => {
-        if (!cancelled) setVstudioUrl(body.url);
+      .then((res) => {
+        if (!res.ok) throw new Error("Configuration unavailable");
+        return res.json();
+      })
+      .then((body: { url?: unknown }) => {
+        if (!cancelled && typeof body.url === "string") setIntegration(resolveVCutIntegration(body.url));
       })
       .catch(() => {
-        if (!cancelled) setVstudioUrl("http://localhost:3002");
+        // Keep the hosted launcher usable if the optional configuration endpoint fails.
       });
     return () => {
       cancelled = true;
@@ -68,22 +68,20 @@ export default function CreatePage() {
           ← {project.code}
         </Link>
       </nav>
-      {/* min-w-0 alongside min-h-0: without it, a flex child defaults to `min-width: auto`, so
-          VCut's own widest descendant (Timeline's horizontally-scrolling content, easily
-          1500px+) could force THIS wrapper — and this `<main>`'s scrollWidth with it — wider than
-          the viewport, even though nested `overflow` rules clip it visually. That hidden width is
-          what a focused element could get auto-scrolled into view against, yanking the whole page
-          sideways on a plain tap. VCutApp.tsx has the matching fix on its own side of the iframe
-          boundary. */}
-      <div className="min-h-0 min-w-0 flex-1">
-        {vcutUrl ? (
-          <iframe
-            src={`${vcutUrl}/edit?projectId=${encodeURIComponent(id)}&projectName=${encodeURIComponent(project.title)}`}
-            title="VCut"
-            className="h-full w-full border-0"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-xs text-white/40">Loading editor…</div>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-8 text-center text-white">
+        <h1 className="text-2xl font-semibold">Create with VCut</h1>
+        <p className="max-w-lg text-sm text-white/60">
+          {integration.mode === "local"
+            ? "Open this project in your separately running local VCut editor."
+            : "VCut opens separately. Your BP script stays here; hosted VCut has its own projects and account."}
+        </p>
+        <a href={vcutProjectUrl(integration, id, project.title)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-medium text-white hover:bg-sky-400">
+          {integration.mode === "local" ? "Open local VCut" : "Open VCut"}
+        </a>
+        {integration.mode === "local" && (
+          <p className="max-w-lg text-xs text-white/60">
+            If the local editor is unavailable, start it and try again, or <a href={HOSTED_VCUT_URL} target="_blank" rel="noopener noreferrer" className="text-sky-400 underline">open VCut online</a>. Online projects are stored separately.
+          </p>
         )}
       </div>
     </main>

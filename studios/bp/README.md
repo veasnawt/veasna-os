@@ -47,9 +47,7 @@ Research, outline, and write the narration.
 
 ## 🎬 Create
 
-Produce the final video. This stage embeds [VStudio](../vstudio) — a full timeline editor with its
-own standalone app (`studios/vstudio`) — via `<iframe>`, rather than BP owning the editor itself. Same
-project data either way; BP never touches it directly, only through VStudio's own API.
+Open [VCut](https://vcut.io) separately to edit the video. BP keeps its script and project data locally; hosted VCut uses its own projects and account. An optional loopback editor can receive the existing local project handoff; see the [workspace setup](../../README.md#optional-local-vcut).
 
 ## 🚀 Publish
 
@@ -70,11 +68,7 @@ Current
 - ✅ Project dashboard
 - ✅ Workflow navigation
 
-Also done, via VStudio (see [vstudio's own README](../vstudio/README.md) for the full list)
-
-- ✅ Timeline editor — multi-track video/audio, transitions, effects, transform
-- ✅ Voice generation — live microphone recording straight onto the timeline
-- ✅ Export manager — in/out range export to MP4, via bundled FFmpeg
+Video editing, recording and export are provided by the independent VCut application.
 
 Planned
 
