@@ -1,4 +1,4 @@
-# 🌌 Veasna OS
+# <img src="https://vicons-svg-api.veasnawt.workers.dev/cosmos.svg?color=8B5CF6&size=32" width="32" alt="Cosmos" /> Veasna OS
 
 > Welcome home.
 
@@ -19,12 +19,12 @@ Every creation begins with curiosity.
 
 ---
 
-## The Shell
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/desktop.svg?color=19A4FF&size=24" width="24" alt="" /> The Shell
 
 The front door to Veasna OS is **Universe** — a desktop-style shell with two faces:
 
-- 🌌 **3D mode** — each studio is a celestial body orbiting in a living cosmos, click one to open it.
-- 🖥️ **List mode** (default) — a familiar Windows-style desktop: draggable/resizable windows, a taskbar with pinning and auto-hide, a Start menu, folders and files you can create right on the desktop, a real terminal, a real file manager, and a real browser.
+- <img src="https://vicons-svg-api.veasnawt.workers.dev/cosmos.svg?color=8B5CF6&size=20" width="20" alt="" /> **3D mode** — each studio is a celestial body orbiting in a living cosmos, click one to open it.
+- <img src="https://vicons-svg-api.veasnawt.workers.dev/desktop.svg?color=19A4FF&size=20" width="20" alt="" /> **List mode** (default) — a familiar Windows-style desktop: draggable/resizable windows, a taskbar with pinning and auto-hide, a Start menu, folders and files you can create right on the desktop, a real terminal, a real file manager, and a real browser.
 
 Both modes share the same window system, so switching between them never loses what you have open.
 
@@ -36,21 +36,21 @@ Both modes share the same window system, so switching between them never loses w
 
 ---
 
-## Studios
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/grid.svg?color=F59E0B&size=24" width="24" alt="" /> Studios
 
 | Studio | What it is | Status |
 | --- | --- | --- |
-| 🌌 Universe | The OS shell itself — 3D cosmos + desktop | Active |
-| 🎬 BP Studio | Beyond Perspective — idea → script → create → publish | Active |
-| 🎞️ VCut | Independent video editor, launched from BP or Universe | External integration |
-| 🎮 Game Dev | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
-| 🎵 Music | — | Coming soon |
-| 🎨 Art | — | Coming soon |
-| 🌍 Language | — | Coming soon |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/cosmos.svg?color=8B5CF6&size=20" width="20" alt="" /> **Universe** | The OS shell itself — 3D cosmos + desktop | Active |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/video.svg?color=EC4899&size=20" width="20" alt="" /> **BP Studio** | Beyond Perspective — idea → script → create → publish | Active |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/transition.svg?color=06B6D4&size=20" width="20" alt="" /> **VCut** | Independent video editor, launched from BP or Universe | External integration |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/game.svg?color=22C55E&size=20" width="20" alt="" /> **Game Dev** | Loom Engine — a browser-based 2D game engine/editor with its own scripting DSL | Active |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/music.svg?color=F97316&size=20" width="20" alt="" /> **Music** | — | Coming soon |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/art.svg?color=EC4899&size=20" width="20" alt="" /> **Art** | — | Coming soon |
+| <img src="https://vicons-svg-api.veasnawt.workers.dev/globe.svg?color=14B8A6&size=20" width="20" alt="" /> **Language** | — | Coming soon |
 
 ---
 
-## Desktop App
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/install.svg?color=22C55E&size=24" width="24" alt="" /> Desktop App
 
 Veasna OS also ships as a real, installable Windows desktop app (Electron) — no browser tab, no separate dev servers to remember. Universe, BP Studio, and Game Dev Studio are bundled together. VCut opens separately at https://vcut.io or an explicitly configured local editor.
 
@@ -63,7 +63,7 @@ Rixie's API key can be entered right from **Settings → Rixie AI** — no `.env
 
 ---
 
-## Monorepo Layout
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/folder.svg?color=F59E0B&size=24" width="24" alt="" /> Monorepo Layout
 
 A pnpm workspace: each studio is its own app, shared code lives in packages.
 
@@ -84,7 +84,7 @@ apps/
   desktop/     the Electron wrapper — packages the studios above into a real installable app
 ```
 
-### Running a studio
+### <img src="https://vicons-svg-api.veasnawt.workers.dev/terminal.svg?color=19A4FF&size=20" width="20" alt="" /> Running a studio
 
 Requires [Node.js](https://nodejs.org) 22.18+ (Node 22 LTS recommended) and [pnpm](https://pnpm.io) (`corepack enable` installs the right version automatically from this repo's `packageManager` field).
 
@@ -104,6 +104,7 @@ Then open `studios/universe/.env.local` and fill in your own model provider API 
 <summary><strong>Windows install troubleshooting</strong> (click to expand)</summary>
 
 **`pnpm setup` fails on `better-sqlite3` with `gyp ERR! find VS` / "Could not find any Visual Studio installation"** — `better-sqlite3` ships prebuilt binaries for common Node versions, so this only happens on a Node version newer than what's been prebuilt yet. Two fixes, pick one:
+
 - **Switch to Node LTS (recommended)** — e.g. with [nvm-windows](https://github.com/coreybutler/nvm-windows): `nvm install 22 && nvm use 22`, delete `node_modules`, re-run `pnpm setup`.
 - **Or install the real build toolchain** — [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022), "Desktop development with C++" workload.
 
@@ -121,7 +122,7 @@ pnpm dev:gamedev  # Loom Engine — http://localhost:5173
 
 Universe embeds BP and Game Dev. VCut opens in a separate browser tab/window; its hosted security policy prevents embedding. BP projects and hosted VCut projects have separate storage. Public installation and builds require no private repository access.
 
-### Optional local VCut
+### <img src="https://vicons-svg-api.veasnawt.workers.dev/external-link.svg?color=06B6D4&size=20" width="20" alt="" /> Optional local VCut
 
 Run VCut independently, then set `VCUT_URL=http://127.0.0.1:3002` in BP's and Universe's `.env.local` files, or in the environment before launching the packaged OS. Restart those servers after changing it. A loopback editor receives BP's project ID/title through its existing local edit URL. Other HTTPS deployments open without BP project metadata. URLs with credentials, query strings, fragments, unsafe schemes, or non-loopback HTTP fall back to https://vcut.io.
 
@@ -131,7 +132,7 @@ When using `pnpm dev:desktop`, also set the same `VCUT_URL` in the Electron proc
 
 ---
 
-## Security
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/shield.svg?color=22C55E&size=24" width="24" alt="" /> Security
 
 Two of Universe's API routes give it real power over the machine it runs on, and both are guarded accordingly:
 
@@ -144,20 +145,20 @@ Secrets (`.env*.local` files, `*.db` files, the `.desktop/` sandbox) are gitigno
 
 ---
 
-## Philosophy
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/idea.svg?color=F59E0B&size=24" width="24" alt="" /> Philosophy
 
 Build tools that make future me smile.
 
 ---
 
-## Status
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/gauge.svg?color=19A4FF&size=24" width="24" alt="" /> Status
 
-🌌 Age I
+<img src="https://vicons-svg-api.veasnawt.workers.dev/cosmos.svg?color=8B5CF6&size=20" width="20" alt="" /> **Age I**
 
 The Big Bang
 
 ---
 
-## License
+## <img src="https://vicons-svg-api.veasnawt.workers.dev/document.svg?color=A78BFA&size=24" width="24" alt="" /> License
 
 [GNU AGPL v3.0](./LICENSE). The short version: you're free to use, modify, and redistribute this — but if you run a modified version as a network service that other people can access, you have to make your modified source available to them too. This is a copyleft license specifically chosen to prevent someone taking this project closed-source as a hosted product.
